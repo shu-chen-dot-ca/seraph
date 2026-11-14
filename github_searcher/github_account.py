@@ -137,6 +137,8 @@ SCOPES = "repo workflow read:org gist notifications user delete_repo"
 PICTURES_BRANCH = "pr-pictures"
 # The comment that claims an issue opened as you where GitHub doesn't let you assign yourself (open_issue).
 CLAIM_TEXT = "I'm working on a fix for this and will open a PR."
+# The comment that frees an issue nobody works on anymore where GitHub doesn't let you unassign yourself (release_issue).
+RELEASE_TEXT = "I can't continue with this one, so it's free for anyone to pick up."
 # Seconds a new fork may take before its branches can be used.
 FORK_WAIT = 120
 # A text file up to this size goes inside the tree it is in (tree()); a bigger one is uploaded on its own.
@@ -1107,9 +1109,10 @@ class GithubAccount:
         """One change on GitHub from the GitHub tab, as you. action: "close" or "reopen" your PR repo#number,
         "update_branch" (your open PR: GitHub merges its base in), "reset_branch" (your open PR's branch in your fork goes
         back to sha, force-pushed, only while its newest commit is still expected_head), "delete_branch" (a closed or
-        merged PR's branch, from your fork), "delete_comment" (number is the comment's id on GitHub), or "delete_fork"
-        (repo is a fork in your account, never a repository of your own; number isn't used). Returns what happened, in
-        words; SendError says why it didn't. Runs in a thread."""
+        merged PR's branch, from your fork), "delete_comment" (number is the comment's id on GitHub), "delete_fork"
+        (repo is a fork in your account, never a repository of your own; number isn't used), or "release_issue" (you off
+        the issue repo#number's assignees, else RELEASE_TEXT on it). Returns what happened, in words; SendError says why
+        it didn't. Runs in a thread."""
         account = self.load()
         if account is None:
             raise SendError("Sign in with GitHub first: the GitHub tab, Account.")
@@ -1135,6 +1138,19 @@ class GithubAccount:
                         return "The fork is gone already."
                     response.raise_for_status()
                     return f"Deleted your fork {repo}."
+                if action == "release_issue":
+                    # GitHub keeps you assigned when you may not change the assignees (not one of the repo's own
+                    # people), or refuses: then a comment says it is free.
+                    response = client.request("DELETE", f"/repos/{repo}/issues/{number}/assignees", json={"assignees": [account["login"]]})
+                    assignees = [account["login"].lower()]
+                    if response.status_code != 403:
+                        response.raise_for_status()
+                        assignees = [each["login"].lower() for each in response.json()["assignees"]]
+                    if account["login"].lower() not in assignees:
+                        return f"Unassigned you from {repo}#{number}."
+                    response = client.post(f"/repos/{repo}/issues/{number}/comments", json={"body": RELEASE_TEXT})
+                    response.raise_for_status()
+                    return f"GitHub keeps you assigned to {repo}#{number}, so a comment says it is free for others."
 
                 response = client.get(f"/repos/{repo}/pulls/{number}")
                 response.raise_for_status()

@@ -55,7 +55,17 @@ finished ones first; or one that isn't ours to judge), an open PR of yours comes
 isn't done or cancelled (a PR may go there soon). Never a repository of your own, never while a draft is being sent,
 and only once you signed in with the delete_repo permission (the Account page asks you to sign in again). A later PR
 to the same project makes the fork again. Pictures on PRs live in your profile repository, not the fork
-(github_account.pictures). Check now
+(github_account.pictures).
+
+keep_assignments_released(), also in the background, takes you off the issues nobody works on for you anymore, so a
+maintainer who assigned you doesn't wait for a PR that never comes (boxlite#2510: our PR closed over its CLA; the two
+AppCUI-rs issues whose jobs stopped when the repo was archived). Every BRANCHES_CHECK_SECONDS it reads the open issues
+you are assigned to, and releases each one an agent of ours had a job on when: none of its jobs is open, none changed in
+the last RELEASE_WAIT_SECONDS (a PR just sent is in the PRs read by then), no PR of yours for it is open or merged (one
+that closes it, or one sent from a draft for it), and it isn't in the Issues board's Catalog (an agent takes it again).
+Never in a repository of your own, nor an issue you opened (ours, opened as you, too): we never give one of those up.
+Release: you off its assignees, else a comment that it is free (github_account.manage's release_issue), once:
+RELEASED_FILE keeps when, so only a new job on it brings it back. Check now
 (POST /api/github/refresh) reads them all at once. The PRs and issues reach the browser through /api/live (topic
 "prs"), the drafts with the Inbox (topic "inbox").
 """
@@ -71,9 +81,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.issues_api import AUTO_REMOVE_FILE, AUTO_REMOVE_OFF
-from backend.shared import agents, github_account, inbox, pr_tracking, workflow, your_repositories
+from backend.shared import agents, github_account, inbox, issues, pr_tracking, workflow, your_repositories
 from github_searcher.claude_judge import judge
-from github_searcher.github_account import PICTURES_BRANCH, SendError
+from github_searcher.github_account import DATA_DIR, PICTURES_BRANCH, SendError
 from github_searcher import profile_readme
 from github_searcher.pr_tracking import AGENT_MODES, ROLLUP
 from github_searcher.search import get_action_runs, get_check_runs, get_commit_statuses, get_full_thread, get_issue_comment, get_pr_files
@@ -127,6 +137,17 @@ query($after: String) {
   }
 }
 """
+# The open issues you are assigned to (keep_assignments_released).
+ASSIGNED_QUERY = """
+query($q: String!) {
+  search(query: $q, type: ISSUE, first: 100) {
+    nodes { ... on Issue { number author { login } repository { nameWithOwner owner { login } } } }
+  }
+}
+"""
+# The issues keep_assignments_released freed, with when: {"owner/name#n": "2026-11-14T...", ...}.
+RELEASED_FILE = DATA_DIR / "released_issues.json"
+RELEASE_WAIT_SECONDS = 60 * 60
 PROFILE_README_SECONDS = 24 * 60 * 60
 PROFILE_README_RETRY_SECONDS = 5 * 60
 PR_ACTIONS = ["close", "reopen", "delete_branch"]
@@ -595,6 +616,88 @@ async def keep_forks_trimmed() -> None:
                     continue
                 your_repositories.wanted = True
         await asyncio.sleep(BRANCHES_CHECK_SECONDS)
+
+
+async def keep_assignments_released() -> None:
+    """Runs as long as the backend: takes you off each issue you are assigned to that nobody works on for you anymore
+    (see the top of this file). One GitHub refuses is tried again next round."""
+    released = {}
+    if RELEASED_FILE.is_file():
+        released = json.loads(RELEASED_FILE.read_text())
+    while True:
+        # The wait comes first: after a start, the PRs and jobs are read in before anything is judged on them.
+        await asyncio.sleep(BRANCHES_CHECK_SECONDS)
+        account = github_account.status()
+        if not account["connected"] or pr_tracking.summary()["checked_at"] is None:
+            continue
+        login = account["login"].lower()
+        query = f"is:issue is:open archived:false assignee:{account['login']}"
+        try:
+            found = await asyncio.to_thread(your_repositories.graphql, ASSIGNED_QUERY, {"q": query})
+        except Exception as error:
+            print(f"[github] could not list the issues you are assigned to: {error}")
+            continue
+        prs = {}
+        for pr in pr_tracking.summary()["items"]:
+            if pr["relation"] == "author":
+                prs[pr["id"].lower()] = pr
+        all_jobs = agents.jobs.list()
+        catalog = [each.lower() for each in issues.board()["catalog"]]
+        drafts = inbox.list()
+
+        for issue in found["search"]["nodes"]:
+            repo = issue["repository"]["nameWithOwner"]
+            issue_id = f"{repo}#{issue['number']}"
+            key = issue_id.lower()
+            # Never in your own repositories, nor one you opened (ours too, opened as you): we never give one up.
+            if issue["repository"]["owner"]["login"].lower() == login:
+                continue
+            if issue["author"] is not None and issue["author"]["login"].lower() == login:
+                continue
+            if key in catalog:
+                continue
+            # Only one an agent of ours worked on, when none does now and none did for a while.
+            last_job = None
+            working = False
+            for job in all_jobs:
+                if (job["issue"] or "").lower() != key and (job["thread"] or "").lower() != key:
+                    continue
+                if last_job is None or job["updated_at"] > last_job["updated_at"]:
+                    last_job = job
+                if job["status"] not in ["done", "cancelled"]:
+                    working = True
+            if last_job is None or working:
+                continue
+            if time.time() - datetime.fromisoformat(last_job["updated_at"]).timestamp() < RELEASE_WAIT_SECONDS:
+                continue
+            if released.get(issue_id, "") > last_job["updated_at"]:
+                continue
+            # Nor while a PR of yours for it is open or merged: one that closes it, or one sent from a draft for it.
+            has_pr = False
+            for pr in prs.values():
+                fixes = [f"{pr['repo']}#{each['number']}".lower() for each in pr["issues"]]
+                if pr["state"] != "closed" and key in fixes:
+                    has_pr = True
+            for draft in drafts:
+                sent = draft["sent"]
+                if draft["kind"] != "pr" or (draft["target"] or "").lower() != key or sent is None:
+                    continue
+                pr = prs.get(f"{sent['repo']}#{sent['number']}".lower())
+                # One the PRs read doesn't have yet counts as open.
+                if pr is None or pr["state"] != "closed":
+                    has_pr = True
+            if has_pr:
+                continue
+
+            try:
+                done = await asyncio.to_thread(github_account.manage, "release_issue", repo, issue["number"])
+            except SendError as error:
+                print(f"[github] could not take you off {issue_id}: {error}")
+                continue
+            print(f"[github] {done}")
+            agents.jobs.add_timeline(last_job["id"], "notice", f"Nobody works on {issue_id} anymore: {done}")
+            released[issue_id] = datetime.now(UTC).isoformat()
+            RELEASED_FILE.write_text(json.dumps(released, indent=2))
 
 
 async def keep_profile_readme() -> None:
