@@ -1,166 +1,117 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 650" width="1280" height="650" role="img" aria-label="How an issue becomes a pull request in Seraph: repos and issues are read from GitHub with search tokens, found and listed on your computer, assigned by you to an agent that fixes it inside a sandbox VM desktop, drafted into the Inbox, and sent to GitHub as you only after you approve. Replies and failing checks come back as follow-ups. No GitHub token ever enters a VM." font-family="'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 460" width="1000" height="460" role="img" aria-label="How an issue becomes a merged pull request in Seraph, in six steps: Find projects that merge outside work, Pick issues likely to be merged, Fix it in a sandbox VM, Review by a reviewer agent, Approve by you, and Follow up until merged. Review comments and failing checks go back to the VM. Inside the VM every fix goes through understand, set up, reproduce, fix, test and draft." font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
   <style>
-    .bg { fill: #faf9f7; }
-    .lane { fill: #f2f0ec; stroke: #e3dfd8; }
-    .box { fill: #ffffff; stroke: #d3cec6; }
-    .tile { fill: #f7f5f2; stroke: #d3cec6; }
-    .strip { fill: #e6e2db; }
-    .ghost { fill: none; stroke: #d3cec6; stroke-dasharray: 4 4; }
-    .t { fill: #1c1e24; }
-    .m { fill: #6a6e77; }
-    .lab { fill: #8a8d94; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; }
-    .line { fill: none; stroke: #8b8f98; stroke-width: 1.6; }
-    .dash { stroke-dasharray: 6 5; }
-    .head { fill: #8b8f98; }
-    .badge { fill: #3a3d45; }
-    .badge-t { fill: #faf9f7; font-size: 11px; font-weight: 700; }
-    .accent { fill: #2563eb; }
-    .accent-line { fill: none; stroke: #2563eb; stroke-width: 2; }
-    .on-accent { fill: #ffffff; }
+    .bg { fill: #f6f8fa; stroke: #d1d9e0; }
+    .card { fill: #ffffff; stroke: #d1d9e0; }
+    .t { fill: #1f2328; }
+    .m { fill: #59636e; }
+    .hd { fill: #818b98; }
     @media (prefers-color-scheme: dark) {
-      .bg { fill: #0e1015; }
-      .lane { fill: #151821; stroke: #232836; }
-      .box { fill: #1b1f2a; stroke: #2f3546; }
-      .tile { fill: #222736; stroke: #353c4f; }
-      .strip { fill: #303749; }
-      .ghost { stroke: #353c4f; }
-      .t { fill: #e8eaef; }
-      .m { fill: #9aa1ad; }
-      .lab { fill: #7d8492; }
-      .line { stroke: #7d8492; }
-      .head { fill: #7d8492; }
-      .badge { fill: #d5d9e1; }
-      .badge-t { fill: #0e1015; }
-      .accent { fill: #4f8cff; }
-      .accent-line { stroke: #4f8cff; }
-      .on-accent { fill: #0e1015; }
+      .bg { fill: #151b23; stroke: #3d444d; }
+      .card { fill: #0d1117; stroke: #3d444d; }
+      .t { fill: #f0f6fc; }
+      .m { fill: #9198a1; }
+      .hd { fill: #656c76; }
     }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0 L10 5 L0 10 z" class="head"/>
-    </marker>
-    <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M0 0 L10 5 L0 10 z" class="accent"/>
+    <marker id="green-head" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#1a7f37"/>
     </marker>
   </defs>
 
-  <rect class="bg" x="0" y="0" width="1280" height="650" rx="18"/>
+  <rect class="bg" x="0.5" y="0.5" width="999" height="459" rx="16"/>
 
-  <text class="t" x="40" y="46" font-size="20" font-weight="600">From issue to pull request</text>
-  <text class="m" x="1240" y="46" font-size="13" text-anchor="end">Nothing reaches GitHub until you approve it.</text>
+  <text class="t" x="32" y="50" font-size="24" font-weight="700">From issue to merged pull request</text>
+  <text class="m" x="32" y="76" font-size="15">The same six steps for every issue. Nothing is posted to GitHub until you approve it.</text>
 
-  <!-- GitHub -->
-  <rect class="lane" x="40" y="72" width="1200" height="112" rx="14"/>
-  <text class="lab" x="64" y="98">GITHUB</text>
+  <!-- The six steps -->
+  <polygon points="24,100 175,100 191,125 175,150 24,150" fill="#2a78d6"/>
+  <text x="107" y="131" font-size="17" font-weight="700" fill="#ffffff" text-anchor="middle">1  Find</text>
+  <polygon points="181,100 332,100 348,125 332,150 181,150 197,125" fill="#5b4bc4"/>
+  <text x="265" y="131" font-size="17" font-weight="700" fill="#ffffff" text-anchor="middle">2  Pick</text>
+  <polygon points="338,100 489,100 505,125 489,150 338,150 354,125" fill="#d95926"/>
+  <text x="422" y="131" font-size="17" font-weight="700" fill="#ffffff" text-anchor="middle">3  Fix</text>
+  <polygon points="495,100 646,100 662,125 646,150 495,150 511,125" fill="#13896a"/>
+  <text x="579" y="131" font-size="17" font-weight="700" fill="#ffffff" text-anchor="middle">4  Review</text>
+  <polygon points="652,100 803,100 819,125 803,150 652,150 668,125" fill="#c7457a"/>
+  <text x="736" y="131" font-size="17" font-weight="700" fill="#ffffff" text-anchor="middle">5  Approve</text>
+  <polygon points="809,100 960,100 976,125 960,150 809,150 825,125" fill="#1a7f37"/>
+  <text x="893" y="131" font-size="17" font-weight="700" fill="#ffffff" text-anchor="middle">6  Follow up</text>
 
-  <rect class="box" x="80" y="110" width="320" height="60" rx="10"/>
-  <text class="t" x="240" y="136" font-size="14" font-weight="600" text-anchor="middle">Open-source repos and issues</text>
-  <text class="m" x="240" y="156" font-size="12" text-anchor="middle">issues · pull requests · code · READMEs</text>
+  <g class="t" font-size="14">
+    <text x="34" y="182">Explore searches</text>
+    <text x="34" y="202">GitHub for projects</text>
+    <text x="34" y="222">that merge work</text>
+    <text x="34" y="242">from outsiders.</text>
 
-  <rect class="box" x="880" y="110" width="320" height="60" rx="10"/>
-  <text class="t" x="1040" y="136" font-size="14" font-weight="600" text-anchor="middle">Pull request from your fork</text>
-  <text class="m" x="1040" y="156" font-size="12" text-anchor="middle">sent as you, from the reviewed diff</text>
+    <text x="193" y="182">Six yes/no checks</text>
+    <text x="193" y="202">keep the issues</text>
+    <text x="193" y="222">maintainers are</text>
+    <text x="193" y="242">likely to merge.</text>
 
-  <!-- Your computer -->
-  <rect class="lane" x="40" y="232" width="1200" height="196" rx="14"/>
-  <text class="lab" x="64" y="258">YOUR COMPUTER</text>
+    <text x="350" y="182">An agent fixes it</text>
+    <text x="350" y="202">on its own Linux</text>
+    <text x="350" y="222">desktop in a VM,</text>
+    <text x="350" y="242">with real proof.</text>
 
-  <rect class="box" x="80" y="276" width="210" height="84" rx="10"/>
-  <text class="t" x="185" y="305" font-size="15" font-weight="600" text-anchor="middle">Find</text>
-  <text class="m" x="185" y="327" font-size="12" text-anchor="middle">Explore · Tracked repos</text>
-  <text class="m" x="185" y="345" font-size="12" text-anchor="middle">the agents' own search</text>
+    <text x="507" y="182">A reviewer agent</text>
+    <text x="507" y="202">checks the fix the</text>
+    <text x="507" y="222">way the project's</text>
+    <text x="507" y="242">maintainers will.</text>
 
-  <rect class="box" x="383" y="276" width="210" height="84" rx="10"/>
-  <text class="t" x="488" y="305" font-size="15" font-weight="600" text-anchor="middle">Repos and Issues</text>
-  <text class="m" x="488" y="327" font-size="12" text-anchor="middle">raw repo signals</text>
-  <text class="m" x="488" y="345" font-size="12" text-anchor="middle">easy · medium · hard</text>
+    <text x="664" y="182">You read the draft</text>
+    <text x="664" y="202">in the Inbox, edit it</text>
+    <text x="664" y="222">if you like, and</text>
+    <text x="664" y="242">press Approve.</text>
 
-  <rect class="box" x="686" y="276" width="210" height="84" rx="10"/>
-  <text class="t" x="791" y="305" font-size="15" font-weight="600" text-anchor="middle">Agents</text>
-  <text class="m" x="791" y="327" font-size="12" text-anchor="middle">Claude Agent SDK</text>
-  <text class="m" x="791" y="345" font-size="12" text-anchor="middle">jobs with fixed steps</text>
+    <text x="821" y="182">Opened as you. The</text>
+    <text x="821" y="202">PR's agent answers</text>
+    <text x="821" y="222">reviews and fixes</text>
+    <text x="821" y="242">checks to the end.</text>
+  </g>
 
-  <rect class="box" x="989" y="276" width="210" height="84" rx="10"/>
-  <text class="t" x="1094" y="305" font-size="15" font-weight="600" text-anchor="middle">Inbox</text>
-  <text class="m" x="1094" y="327" font-size="12" text-anchor="middle">Overview · Diff</text>
-  <text class="m" x="1094" y="345" font-size="12" text-anchor="middle">PR message</text>
+  <!-- Where each step happens -->
+  <g font-size="12.5">
+    <rect class="card" x="34" y="262" width="102" height="24" rx="12"/>
+    <text class="m" x="85" y="278" text-anchor="middle">reads GitHub</text>
+    <rect class="card" x="193" y="262" width="110" height="24" rx="12"/>
+    <text class="m" x="248" y="278" text-anchor="middle">your computer</text>
+    <rect class="card" x="350" y="262" width="96" height="24" rx="12"/>
+    <text class="m" x="398" y="278" text-anchor="middle">sandbox VM</text>
+    <rect class="card" x="507" y="262" width="96" height="24" rx="12"/>
+    <text class="m" x="555" y="278" text-anchor="middle">sandbox VM</text>
+    <rect class="card" x="664" y="262" width="92" height="24" rx="12"/>
+    <text class="m" x="710" y="278" text-anchor="middle">you decide</text>
+    <rect x="821" y="262" width="128" height="24" rx="12" fill="#1a7f37" fill-opacity="0.12" stroke="#1a7f37"/>
+    <text class="t" x="885" y="278" text-anchor="middle" font-weight="600">writes to GitHub</text>
+  </g>
 
-  <rect class="ghost" x="989" y="376" width="210" height="30" rx="15"/>
-  <text class="m" x="1094" y="395" font-size="12" text-anchor="middle">your GitHub sign-in stays here</text>
+  <!-- Follow-ups go back to the VM -->
+  <path d="M885 290 V318 Q885 330 873 330 H410 Q398 330 398 318 V294" fill="none" stroke="#1a7f37" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#green-head)"/>
+  <text class="m" x="642" y="352" font-size="13.5" text-anchor="middle">A review asks for changes, or a check fails? Back to the VM, then back to you.</text>
 
-  <!-- Sandbox VMs -->
-  <rect class="lane" x="40" y="488" width="1200" height="140" rx="14"/>
-  <text class="lab" x="64" y="514">SANDBOX VMS · INCUS</text>
-
-  <text class="m" x="80" y="552" font-size="13">Real Linux desktops the agents see</text>
-  <text class="m" x="80" y="572" font-size="13">and drive, one agent per desktop.</text>
-  <text class="t" x="80" y="602" font-size="13" font-weight="600">No GitHub token ever enters a VM.</text>
-
-  <rect class="box" x="560" y="528" width="462" height="84" rx="10"/>
-  <text class="t" x="576" y="547" font-size="12" font-weight="600">vm1</text>
-  <rect class="tile" x="576" y="556" width="130" height="46" rx="6"/>
-  <rect class="strip" x="577" y="557" width="128" height="7" rx="3"/>
-  <text class="t" x="641" y="580" font-size="12" text-anchor="middle">Desktop 1</text>
-  <text class="m" x="641" y="595" font-size="11" text-anchor="middle">agent-1</text>
-  <rect class="tile" x="726" y="556" width="130" height="46" rx="6"/>
-  <rect class="strip" x="727" y="557" width="128" height="7" rx="3"/>
-  <text class="t" x="791" y="580" font-size="12" text-anchor="middle">Desktop 2</text>
-  <text class="m" x="791" y="595" font-size="11" text-anchor="middle">agent-2</text>
-  <rect class="tile" x="876" y="556" width="130" height="46" rx="6"/>
-  <rect class="strip" x="877" y="557" width="128" height="7" rx="3"/>
-  <text class="t" x="941" y="580" font-size="12" text-anchor="middle">Desktop 3</text>
-  <text class="m" x="941" y="595" font-size="11" text-anchor="middle">free</text>
-
-  <rect class="box" x="1042" y="528" width="158" height="84" rx="10"/>
-  <text class="t" x="1058" y="547" font-size="12" font-weight="600">vm2</text>
-  <rect class="tile" x="1058" y="556" width="126" height="46" rx="6"/>
-  <rect class="strip" x="1059" y="557" width="124" height="7" rx="3"/>
-  <text class="t" x="1121" y="580" font-size="12" text-anchor="middle">Desktop 1</text>
-  <text class="m" x="1121" y="595" font-size="11" text-anchor="middle">free</text>
-
-  <!-- 1: read from GitHub -->
-  <line class="line" x1="194" y1="171" x2="194" y2="274" marker-end="url(#arrow)"/>
-  <circle class="badge" cx="217" cy="208" r="9"/>
-  <text class="badge-t" x="217" y="212" text-anchor="middle">1</text>
-  <text class="m" x="233" y="212" font-size="12">read with search tokens</text>
-
-  <!-- Find adds to the lists -->
-  <line class="line" x1="291" y1="318" x2="381" y2="318" marker-end="url(#arrow)"/>
-  <text class="m" x="336" y="309" font-size="12" text-anchor="middle">adds</text>
-
-  <!-- 2: you assign -->
-  <line class="accent-line" x1="594" y1="318" x2="684" y2="318" marker-end="url(#arrow-accent)"/>
-  <circle class="badge" cx="639" cy="288" r="9"/>
-  <text class="badge-t" x="639" y="292" text-anchor="middle">2</text>
-  <text class="accent" x="639" y="309" font-size="12" font-weight="600" text-anchor="middle">you assign</text>
-
-  <!-- 3: fix in a VM -->
-  <line class="line" x1="771" y1="361" x2="771" y2="526" marker-end="url(#arrow)"/>
-  <line class="line" x1="811" y1="527" x2="811" y2="362" marker-end="url(#arrow)"/>
-  <circle class="badge" cx="791" cy="456" r="9"/>
-  <text class="badge-t" x="791" y="460" text-anchor="middle">3</text>
-  <text class="m" x="759" y="450" font-size="12" text-anchor="end">code copied in</text>
-  <text class="m" x="759" y="466" font-size="12" text-anchor="end">screen · keys · shell</text>
-  <text class="m" x="823" y="450" font-size="12">diff · test runs</text>
-  <text class="m" x="823" y="466" font-size="12">screenshots</text>
-
-  <!-- 4: drafts -->
-  <line class="line" x1="897" y1="318" x2="987" y2="318" marker-end="url(#arrow)"/>
-  <circle class="badge" cx="942" cy="288" r="9"/>
-  <text class="badge-t" x="942" y="292" text-anchor="middle">4</text>
-  <text class="m" x="942" y="309" font-size="12" text-anchor="middle">drafts</text>
-
-  <!-- 5: you approve -->
-  <line class="accent-line" x1="1094" y1="275" x2="1094" y2="173" marker-end="url(#arrow-accent)"/>
-  <rect class="accent" x="1029" y="194" width="130" height="28" rx="14"/>
-  <text class="on-accent" x="1094" y="213" font-size="13" font-weight="600" text-anchor="middle">you approve</text>
-  <circle class="badge" cx="1009" cy="208" r="9"/>
-  <text class="badge-t" x="1009" y="212" text-anchor="middle">5</text>
-
-  <!-- 6: follow-ups -->
-  <line class="line dash" x1="930" y1="171" x2="867" y2="273" marker-end="url(#arrow)"/>
-  <circle class="badge" cx="751" cy="208" r="9"/>
-  <text class="badge-t" x="751" y="212" text-anchor="middle">6</text>
-  <text class="m" x="886" y="212" font-size="12" text-anchor="end">replies · failing checks</text>
+  <!-- Inside the VM -->
+  <text class="t" x="32" y="404" font-size="14" font-weight="700">Inside the VM</text>
+  <text class="m" x="32" y="424" font-size="13">every fix, the same steps</text>
+  <g font-size="14" font-weight="600" text-anchor="middle">
+    <rect x="230" y="391" width="100" height="34" rx="17" fill="#d95926" fill-opacity="0.12" stroke="#d95926"/>
+    <text class="t" x="280" y="413">Understand</text>
+    <rect x="358" y="391" width="100" height="34" rx="17" fill="#d95926" fill-opacity="0.24" stroke="#d95926"/>
+    <text class="t" x="408" y="413">Set up</text>
+    <rect x="486" y="391" width="100" height="34" rx="17" fill="#d95926" fill-opacity="0.36" stroke="#d95926"/>
+    <text class="t" x="536" y="413">Reproduce</text>
+    <rect x="614" y="391" width="100" height="34" rx="17" fill="#d95926" fill-opacity="0.48" stroke="#d95926"/>
+    <text class="t" x="664" y="413">Fix</text>
+    <rect x="742" y="391" width="100" height="34" rx="17" fill="#d95926" fill-opacity="0.60" stroke="#d95926"/>
+    <text class="t" x="792" y="413">Test</text>
+    <rect x="870" y="391" width="100" height="34" rx="17" fill="#d95926" fill-opacity="0.72" stroke="#d95926"/>
+    <text class="t" x="920" y="413">Draft</text>
+  </g>
+  <g class="hd">
+    <path d="M338 402 L348 408 L338 414 z"/>
+    <path d="M466 402 L476 408 L466 414 z"/>
+    <path d="M594 402 L604 408 L594 414 z"/>
+    <path d="M722 402 L732 408 L722 414 z"/>
+    <path d="M850 402 L860 408 L850 414 z"/>
+  </g>
 </svg>

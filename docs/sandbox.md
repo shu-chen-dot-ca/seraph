@@ -9,7 +9,7 @@ Agents never run code on your computer. Everything they build, install or run ha
   - You can watch any desktop in the page, or take it over.
   - Desktops keep their numbers. A new one takes the lowest free number.
 - **What agents do there.** They take screenshots, click, type and press keys. They run shell commands, and drive Firefox, which they read as text with numbered elements. They can also lock your mouse and keyboard for a moment.
-- **Long runs.** Test suites, installs and builds run in the background, and anything still going after 10 minutes moves there by itself. Meanwhile the agent waits in the priority line instead of holding the desktop.
+- **Long runs.** Test suites and big builds go on in the background once they take a while. The agent keeps its desktop and sleeps until the run ends; nobody steps aside.
 - **Network.** VMs reach the internet, but not your computer or your local network. You can turn a VM's internet off.
 - **Size.** By default a VM gets 8 CPUs, 8 GB of memory (up to 32 GB) and a 128 GB disk. Seraph won't start a VM if that leaves less than 8 GB of memory free.
 - **Files.** You push and pull files on a VM's Resources tab. Agents copy files between a VM and their artifacts folder.
