@@ -30,6 +30,7 @@ from github_searcher.issue_list import IssueList
 from github_searcher.jobs import Jobs
 from github_searcher.notifications import Notifications
 from github_searcher.pr_tracking import PRTracking
+from github_searcher.problem_fixes import ProblemFixes
 from github_searcher.problems import Problems
 from github_searcher.projects import Projects
 from github_searcher.repo_list import RepoList
@@ -82,5 +83,7 @@ agents.problems = problems
 resource_usage = ResourceUsage()
 remote_access = RemoteAccess()
 updates = Updates(github_account, crashes)
+# Fix problems: the daily run that fixes the problems, pushes the fixes and releases the app (Settings).
+problem_fixes = ProblemFixes(problems, github_account, updates)
 # Sherpa learns the app's endpoints and its pages' data from backend/app.py, once the app is made.
 sherpa = Sherpa()
