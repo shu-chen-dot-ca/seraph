@@ -161,7 +161,13 @@ class TokenBalancer:
                             soonest = ready
                         continue
                     # Unknown quota counts as full: the token hasn't been used for this yet.
-                    left = state["remaining"] if state["remaining"] is not None else 1_000_000
+                    left = 1_000_000
+                    if state["remaining"] is not None:
+                        left = state["remaining"]
+                    # So does one whose reset time has passed: GitHub has filled it, it just wasn't used since
+                    # (status() shows it full too).
+                    if state["reset_at"] <= now and state["limit"] is not None:
+                        left = state["limit"]
                     if left > best_left:
                         best = token
                         best_left = left

@@ -157,6 +157,31 @@ def test_token_not_used_yet_counts_as_full(balancer):
     assert balancer.take("core", time.monotonic() + 1)["name"] == "GITHUB_TOKEN_3"
 
 
+def test_quota_whose_reset_has_passed_counts_as_full(balancer):
+    # Last seen at 0, but its reset time has passed: GitHub filled it again, so it beats a token with 3 left.
+    used_up = balancer.tokens[0]["kinds"]["core"]
+    used_up["remaining"] = 0
+    used_up["limit"] = 5000
+    used_up["reset_at"] = time.monotonic() - 1
+    nearly_empty = balancer.tokens[1]["kinds"]["core"]
+    nearly_empty["remaining"] = 3
+    nearly_empty["limit"] = 5000
+    nearly_empty["reset_at"] = time.monotonic() + 600
+    balancer.tokens[2]["kinds"]["core"]["paused_until"] = time.monotonic() + 600
+
+    assert balancer.take("core", time.monotonic() + 1)["name"] == "GITHUB_TOKEN"
+
+
+def test_quota_whose_reset_has_not_passed_keeps_its_count(balancer):
+    for number, remaining in enumerate([10, 4000, 50]):
+        state = balancer.tokens[number]["kinds"]["core"]
+        state["remaining"] = remaining
+        state["limit"] = 5000
+        state["reset_at"] = time.monotonic() + 600
+
+    assert balancer.take("core", time.monotonic() + 1)["name"] == "GITHUB_TOKEN_2"
+
+
 def test_equal_tokens_go_in_order(balancer):
     assert balancer.take("core", time.monotonic() + 1)["name"] == "GITHUB_TOKEN"
 
