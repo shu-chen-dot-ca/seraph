@@ -153,6 +153,15 @@ def test_nothing_is_overwritten(agent_files, base):
     assert (base / "notes.txt").read_bytes() == b"first"
 
 
+def test_save_never_overwrites_a_file_named_like_its_temporary(agent_files, base):
+    # save() used to write through <name>.tmp: a file named notes.txt.tmp was overwritten, then renamed to notes.txt.
+    agent_files.save(AGENT, "notes.txt.tmp", b"user file")
+
+    agent_files.save(AGENT, "notes.txt", b"agent file")
+
+    assert (base / "notes.txt.tmp").read_bytes() == b"user file"
+    assert (base / "notes.txt").read_bytes() == b"agent file"
+    assert sorted(entry.name for entry in base.iterdir()) == ["notes.txt", "notes.txt.tmp"]
 def test_save_out_of_the_folder_is_refused(agent_files, tmp_path):
     with pytest.raises(ArtifactsError):
         agent_files.save(AGENT, f"../{OTHER}/evil.txt", b"x")

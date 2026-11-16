@@ -111,8 +111,11 @@ class Artifacts:
     def save(self, agent_id: str, path: str, data: bytes) -> str:
         """A new file with these bytes. Returns its path."""
         target = self.new_file(agent_id, path)
-        temporary = target.with_name(target.name + ".tmp")
-        temporary.write_bytes(data)
+        # A hidden name of its own while it is written (the listing leaves .incoming- names out). "x" never opens a
+        # file that is there, so not even a file with that name is overwritten.
+        temporary = target.with_name(f".incoming-{secrets.token_hex(3)}")
+        with open(temporary, "xb") as file:
+            file.write(data)
         temporary.replace(target)
         self.changed(agent_id)
         return self.name_of(agent_id, target)
