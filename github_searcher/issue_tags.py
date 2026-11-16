@@ -35,7 +35,8 @@ their own work still in progress (openchoreo#5371: their open pull request rewor
 approach open for the maintainers to pick, and a fresh one a maintainer opened days ago as their own to-do with nothing
 inviting others (openinference#4288 went to the team hours after its lead opened it). A label
 that says it still waits for the maintainers' triage or approval (TRIAGE: "status: needs triage", "needs approval",
-"untriaged") makes it waiting whatever Claude says. fixed: a merged pull request
+"untriaged") makes a free one waiting whatever Claude says; one Claude found assigned or fixed stays so (claimed and
+fixed come before waiting in merge anyway). fixed: a merged pull request
 or a commit on the default branch already does what it asks, and it only needs closing (GitHub leaves an issue open
 when the PR said "Addresses #n" instead of "Fixes #n"; the commits that mention it show that, see search.py; it doesn't
 tie every PR that says "Closes #n" either, so the PRs that name its number are looked up too: WeKnora#4655; and a
