@@ -3939,7 +3939,8 @@ class WorkTools:
         if rebase and noreply != "":
             own_emails.append(noreply)
         others = []
-        for line in result.stdout.strip().split("\n")[2:]:
+        # Not stripped first: with no git address the first line is empty, and the commits still start at the third.
+        for line in result.stdout.split("\n")[2:]:
             fields = line.split("\x1f", 3)
             if len(fields) == 4 and fields[0] not in own_emails:
                 others.append(f"{fields[2]} by {fields[1]} <{fields[0]}>: {fields[3]}")

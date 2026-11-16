@@ -694,6 +694,19 @@ def test_someone_elses_commit_on_the_branch_is_refused(agents, tools, job):
     assert agents.inbox.list() == []
 
 
+def test_first_commit_is_checked_when_the_vm_has_no_git_address(agents, tools, job):
+    # Not signed in, so there is no noreply address to ask for. With the address line empty, the first commit was skipped.
+    agents.your_repositories.github_account.load = lambda: None
+    agents.vm.email = ""
+    agents.vm.log = "else@example.com\x1fSomeone Else\x1fdeadbee\x1ffix: their fix\n"
+
+    result = asyncio.run(tools.draft_pr(dict(PR_ARGS, job_id=job)))
+
+    assert result["is_error"] is True
+    assert "deadbee by Someone Else <else@example.com>: fix: their fix" in result["content"][0]["text"]
+    assert agents.inbox.list() == []
+
+
 def test_secret_in_a_binary_file_is_refused(agents, tools, job):
     # The draft carries git's binary patch, where the secret is packed and never shows as text.
     agents.vm.env = {"OPENAI_API_KEY": SECRET}
