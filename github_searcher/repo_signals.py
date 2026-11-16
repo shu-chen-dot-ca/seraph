@@ -439,10 +439,11 @@ class RepoSignals:
         closed_count = 0
         mergers = set()
         for pull in pulls["finished"]["nodes"]:
-            # Who merged anything (anyone's PR) in the last 30 days.
+            # Who merged anything (anyone's PR) in the last 30 days. Not a bot: a GitHub app (mergify, kodiakhq) is a Bot,
+            # and some bots are user accounts named like one.
             if pull["merged"] and pull["mergedBy"] is not None and datetime.fromisoformat(pull["mergedAt"]) >= now - timedelta(days=30):
                 login = pull["mergedBy"]["login"]
-                if not login.lower().endswith("bot") and not login.endswith("[bot]"):
+                if pull["mergedBy"]["__typename"] != "Bot" and not login.lower().endswith("bot") and not login.endswith("[bot]"):
                     mergers.add(login)
             author = pull["author"]
             if pull["authorAssociation"] not in OUTSIDE or author is None or author["__typename"] != "User":

@@ -53,7 +53,7 @@ DONE_MERGED = {
     "merged": True,
     "mergedAt": "2026-11-03T12:00:00Z",
     "closedAt": "2026-11-03T12:00:00Z",
-    "mergedBy": {"login": "maya"},
+    "mergedBy": {"login": "maya", "__typename": "User"},
     "authorAssociation": "CONTRIBUTOR",
     "author": ANA,
     "closing": {"nodes": []},
@@ -220,7 +220,7 @@ def store(github):
 def test_surveyjs_8169_whoever_merged_a_pr_is_staff_not_an_outsider(github, store):
     # priya is a private member: GitHub shows her as CONTRIBUTOR, but she merges PRs. Her merged PRs made surveyjs look
     # like it merges almost every outside PR, while the real outsiders' PRs (ours among them) were closed.
-    github["pulls"]["finished"]["nodes"] = [{**DONE_MERGED, "author": PRIYA, "mergedBy": {"login": "priya"}}] * 4 + [
+    github["pulls"]["finished"]["nodes"] = [{**DONE_MERGED, "author": PRIYA, "mergedBy": {"login": "priya", "__typename": "User"}}] * 4 + [
         {**DONE_CLOSED, "author": ANA},
         {**DONE_CLOSED, "author": BEN},
         {**DONE_CLOSED, "author": CARA},
@@ -305,7 +305,7 @@ def test_a_merge_with_no_answer_before_it_is_the_first_reply(github, store):
 
 
 def test_a_private_member_who_merges_answers_as_a_maintainer(github, store):
-    github["pulls"]["finished"]["nodes"] = [{**DONE_MERGED, "author": BEN, "mergedBy": {"login": "priya"}}]
+    github["pulls"]["finished"]["nodes"] = [{**DONE_MERGED, "author": BEN, "mergedBy": {"login": "priya", "__typename": "User"}}]
     github["pulls"]["recent"]["nodes"] = [
         {**OPEN, "comments": {"nodes": [{"createdAt": "2026-11-02T12:00:00Z", "authorAssociation": "CONTRIBUTOR", "author": PRIYA}]}}
     ]
@@ -369,17 +369,30 @@ def test_a_failed_read_of_merged_prs_keeps_the_average_before(github, store, mon
 
 def test_maintainers_are_the_people_who_merged_in_30_days(github, store):
     github["pulls"]["finished"]["nodes"] = [
-        {**DONE_MERGED, "mergedBy": {"login": "maya"}},
-        {**DONE_MERGED, "mergedBy": {"login": "priya"}},
-        {**DONE_MERGED, "mergedBy": {"login": "pytorchmergebot"}},
-        {**DONE_MERGED, "mergedBy": {"login": "renovate[bot]"}},
+        {**DONE_MERGED, "mergedBy": {"login": "maya", "__typename": "User"}},
+        {**DONE_MERGED, "mergedBy": {"login": "priya", "__typename": "User"}},
+        {**DONE_MERGED, "mergedBy": {"login": "pytorchmergebot", "__typename": "User"}},
+        {**DONE_MERGED, "mergedBy": {"login": "renovate[bot]", "__typename": "User"}},
         # Merged two months ago.
-        {**DONE_MERGED, "mergedBy": {"login": "ben"}, "createdAt": "2026-09-10T12:00:00Z", "mergedAt": "2026-09-15T12:00:00Z", "closedAt": "2026-09-15T12:00:00Z"},
+        {**DONE_MERGED, "mergedBy": {"login": "ben", "__typename": "User"}, "createdAt": "2026-09-10T12:00:00Z", "mergedAt": "2026-09-15T12:00:00Z", "closedAt": "2026-09-15T12:00:00Z"},
     ]
 
     signals = asyncio.run(store.fetch("acme/tool", judged=False))
 
     assert signals["active_mergers_30d"] == 2
+
+
+def test_app_bots_that_merge_are_no_maintainers(github, store):
+    # GitHub apps merge as Bots whose logins don't end in "bot": they made a one-maintainer repo look like it had three.
+    github["pulls"]["finished"]["nodes"] = [
+        {**DONE_MERGED, "mergedBy": {"login": "maya", "__typename": "User"}},
+        {**DONE_MERGED, "mergedBy": {"login": "mergify", "__typename": "Bot"}},
+        {**DONE_MERGED, "mergedBy": {"login": "kodiakhq", "__typename": "Bot"}},
+    ]
+
+    signals = asyncio.run(store.fetch("acme/tool", judged=False))
+
+    assert signals["active_mergers_30d"] == 1
 
 
 def test_active_contributors_are_everyone_but_bots(github, store):

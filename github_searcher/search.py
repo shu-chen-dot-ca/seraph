@@ -572,7 +572,7 @@ query($owner: String!, $name: String!, $prs: Int!) {
     }
     finished: pullRequests(states: [MERGED, CLOSED], first: $prs, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
-        createdAt merged mergedAt closedAt mergedBy { login } authorAssociation author { login __typename }
+        createdAt merged mergedAt closedAt mergedBy { login __typename } authorAssociation author { login __typename }
         closing: timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent { closer { __typename } } } }
       }
     }
