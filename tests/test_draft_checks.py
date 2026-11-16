@@ -28,6 +28,7 @@ from github_searcher.agent.work_tools import AI_NOTE, EMOJI, WorkTools
 from github_searcher.inbox import Inbox
 from github_searcher.jobs import Jobs
 from github_searcher.projects import TITLE
+from sandbox.file_transfer import FileTransferError
 
 ISSUE = "owner/proj#12"
 PR = "owner/proj#40"
@@ -100,8 +101,8 @@ MATPLOTLIB_PNG = PNG + b"\x00\x00\x00\x2ctEXtSoftware\x00Matplotlib version3.9.2
 class FakeVM:
     """vm1, whose desktop 1 agent-1 holds. Its commands answer with hand-made output: the repo folder and branch, no PR
     template, the diff (its binary patch, and read as text), the base commit, the git address with the co-author count
-    and the commits, the commits in full, and the picture an image's path holds. env holds the user's secrets, as a
-    VM's settings do."""
+    and the commits, the commits in full, a file's full path, and the picture an image's path holds. A command with a
+    part in errors fails instead, with that error text. env holds the user's secrets, as a VM's settings do."""
 
     def __init__(self):
         self.diff = DIFF
@@ -112,6 +113,7 @@ class FakeVM:
         self.log = LOG
         self.history = HISTORY
         self.picture = PNG
+        self.errors = {}
         self.global_env = {}
         self.env = {}
 
@@ -122,6 +124,9 @@ class FakeVM:
         return self
 
     def exec(self, command, timeout, *rest):
+        for part, stderr in self.errors.items():
+            if part in command:
+                return subprocess.CompletedProcess(command, 1, "", stderr)
         stdout = ""
         if "pull_request_template" in command:
             stdout = ""
@@ -131,6 +136,8 @@ class FakeVM:
             stdout = self.binary
         elif "git diff --text" in command:
             stdout = self.as_text
+        elif "realpath" in command:
+            stdout = "/home/sam/results.txt\n"
         elif "git diff" in command:
             stdout = self.diff
         elif "rev-parse --verify" in command:
@@ -718,6 +725,29 @@ def test_binary_file_without_a_secret_goes_as_gits_binary_patch(agents, tools, j
     assert agents.inbox.list()[0]["diff"] == DIFF + BINARY_PATCH
 
 
+@pytest.mark.parametrize(
+    "failing, diff, said",
+    [
+        ("git diff --binary", DIFF + BINARY_FILE, "git diff --binary failed: "),
+        ("git diff --text", DIFF + BINARY_FILE, "git diff --text failed: "),
+        ("grep -ci", DIFF, "Could not read your branch's commits: "),
+    ],
+    ids=["binary patch", "as text", "commits"],
+)
+def test_vm_error_text_hides_the_users_secrets(agents, tools, job, failing, diff, said):
+    agents.vm.env = {"OPENAI_API_KEY": SECRET}
+    agents.vm.diff = diff
+    agents.vm.binary = diff
+    agents.vm.errors[failing] = f"fatal: unable to access 'https://x-access-token:{SECRET}@github.com/owner/proj/'"
+    agents.jobs.update(job, tests={"before": None, "after": {"passed": True, "diff_hash": hashlib.sha256(diff.encode()).hexdigest()}})
+
+    result = asyncio.run(tools.draft_pr(dict(PR_ARGS, job_id=job)))
+
+    assert result["is_error"] is True
+    text = result["content"][0]["text"]
+    assert text == said + "fatal: unable to access 'https://x-access-token:[hidden]@github.com/owner/proj/'"
+
+
 # draft_comment
 
 
@@ -1044,3 +1074,52 @@ def test_only_png_jpeg_gif_or_webp(agents, tools, picture_args):
 
     assert result["is_error"] is True
     assert "is not a PNG, JPEG, GIF or WebP image" in result["content"][0]["text"]
+
+
+# VM error text never shows the user's secrets
+
+
+def test_report_without_code_hides_the_users_secrets(agents, tools):
+    paper = agents.jobs.create("reproduce_paper", "Reproduce VALORIS", "agent-1", "user")
+    agents.jobs.update(paper["id"], status="working")
+    agents.vm.env = {"OPENAI_API_KEY": SECRET}
+    agents.vm.errors["--no-index"] = f"cd: /home/sam/{SECRET}: No such file or directory"
+    report = {"job_id": paper["id"], "title": "VALORIS: the numbers reproduce", "body": "The full report.",
+              "paper": "VALORIS: a way to keep data private", "claims": "It keeps the data private.",
+              "verdict": "The numbers hold.", "results": [], "problems": [], "code": "~/valoris"}
+
+    result = asyncio.run(tools.draft_report(report))
+
+    assert result["is_error"] is True
+    assert result["content"][0]["text"].startswith("Found no code in ~/valoris (cd: /home/sam/[hidden]: No such file or directory).")
+
+
+def test_copy_from_the_vm_hides_the_users_secrets(agents, tools):
+    agents.vm.env = {"OPENAI_API_KEY": SECRET}
+
+    def failing_copy(agent_id, vm, source, folder):
+        raise FileTransferError(f"incus file pull failed: Error: open /home/sam/{SECRET}: permission denied")
+
+    agents.artifacts = SimpleNamespace(from_vm=failing_copy)
+
+    result = asyncio.run(tools.artifact_from_vm({"source": "~/results.txt"}))
+
+    assert result["is_error"] is True
+    assert result["content"][0]["text"] == "incus file pull failed: Error: open /home/sam/[hidden]: permission denied"
+
+
+def test_copy_into_the_vm_hides_the_users_secrets(agents, tools, tmp_path, monkeypatch):
+    agents.vm.global_env = {"OPENAI_API_KEY": SECRET}
+    notes = tmp_path / "notes.txt"
+    notes.write_text("notes")
+    agents.artifacts = SimpleNamespace(resolve=lambda agent_id, path: notes, has_links=lambda agent_id, path: False)
+
+    def failing_copy(vm, source, target):
+        raise FileTransferError(f"incus file push failed: Error: {SECRET} is not a folder")
+
+    monkeypatch.setattr(work_tools, "to_vm", failing_copy)
+
+    result = asyncio.run(tools.artifact_to_vm({"path": "notes.txt", "folder": "~/work"}))
+
+    assert result["is_error"] is True
+    assert result["content"][0]["text"] == "incus file push failed: Error: [hidden] is not a folder"

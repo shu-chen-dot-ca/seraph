@@ -2863,6 +2863,10 @@ class WorkTools:
         diff = result.stdout
         if diff.strip() == "":
             text = f"Found no code in {code} ({result.stderr.strip() or 'no files under 1 MB'}). code is the folder in the VM with your scripts; git must be installed."
+            # Hidden as in the bash tool: error text can hold the user's secrets too.
+            for value in sorted(list(vm_record.global_env.values()) + list(vm_record.env.values()), key=len, reverse=True):
+                if len(value) >= HIDE_MIN_LENGTH:
+                    text = text.replace(value, "[hidden]")
             return {"content": [{"type": "text", "text": text}], "is_error": True}
         if len(diff.encode()) > DIFF_LIMIT:
             text = f"The code in {code} is over {DIFF_LIMIT // 1000} KB. Keep only your scripts and small inputs there: move data and results out."
@@ -3002,7 +3006,12 @@ class WorkTools:
         try:
             saved = await asyncio.to_thread(self.agents.artifacts.from_vm, self.agent_id, vm, where.stdout.strip(), args.get("folder") or "")
         except (ArtifactsError, FileTransferError) as error:
-            return {"content": [{"type": "text", "text": str(error)}], "is_error": True}
+            # Hidden as in the bash tool: the copy's error text (incus's) can hold the user's secrets too.
+            text = str(error)
+            for value in sorted(list(vm_record.global_env.values()) + list(vm_record.env.values()), key=len, reverse=True):
+                if len(value) >= HIDE_MIN_LENGTH:
+                    text = text.replace(value, "[hidden]")
+            return {"content": [{"type": "text", "text": text}], "is_error": True}
         return {"content": [{"type": "text", "text": f"Copied into your artifacts as {saved}."}]}
 
     async def artifact_to_vm(self, args: dict) -> dict:
@@ -3037,7 +3046,12 @@ class WorkTools:
         try:
             await asyncio.to_thread(to_vm, vm, str(source), where.stdout.strip())
         except FileTransferError as error:
-            return {"content": [{"type": "text", "text": str(error)}], "is_error": True}
+            # Hidden as in the bash tool: the copy's error text (incus's) can hold the user's secrets too.
+            text = str(error)
+            for value in sorted(list(vm_record.global_env.values()) + list(vm_record.env.values()), key=len, reverse=True):
+                if len(value) >= HIDE_MIN_LENGTH:
+                    text = text.replace(value, "[hidden]")
+            return {"content": [{"type": "text", "text": text}], "is_error": True}
         return {"content": [{"type": "text", "text": f"Copied into the VM as {where.stdout.strip()}/{source.name}."}]}
 
     async def pr_examples(self, args: dict) -> dict:
@@ -3771,7 +3785,11 @@ class WorkTools:
                 )
                 return {"content": [{"type": "text", "text": text}], "is_error": True}
             if result.returncode != 0:
-                return {"content": [{"type": "text", "text": f"git diff --binary failed: {result.stderr.strip()}"}], "is_error": True}
+                text = f"git diff --binary failed: {result.stderr.strip()}"
+                for value in sorted(list(vm_record.global_env.values()) + list(vm_record.env.values()), key=len, reverse=True):
+                    if len(value) >= HIDE_MIN_LENGTH:
+                        text = text.replace(value, "[hidden]")
+                return {"content": [{"type": "text", "text": text}], "is_error": True}
             draft_diff = result.stdout
             command = f"set -o pipefail; cd {folder} && git diff --text --no-textconv {base} | head -c {BINARY_DIFF_LIMIT + 1}"
             try:
@@ -3786,7 +3804,11 @@ class WorkTools:
                 )
                 return {"content": [{"type": "text", "text": text}], "is_error": True}
             if result.returncode != 0:
-                return {"content": [{"type": "text", "text": f"git diff --text failed: {result.stderr.strip()}"}], "is_error": True}
+                text = f"git diff --text failed: {result.stderr.strip()}"
+                for value in sorted(list(vm_record.global_env.values()) + list(vm_record.env.values()), key=len, reverse=True):
+                    if len(value) >= HIDE_MIN_LENGTH:
+                        text = text.replace(value, "[hidden]")
+                return {"content": [{"type": "text", "text": text}], "is_error": True}
             readable = result.stdout
 
         # The diff is shown in the Inbox, sent to the browser and downloaded as it is: a secret (a VM env
@@ -3893,7 +3915,12 @@ class WorkTools:
         except Exception as error:
             return {"content": [{"type": "text", "text": f"Could not reach the VM: {error}"}], "is_error": True}
         if result.returncode != 0:
-            return {"content": [{"type": "text", "text": f"Could not read your branch's commits: {result.stderr.strip()}"}], "is_error": True}
+            # Hidden as in the bash tool: error text can hold the user's secrets too.
+            text = f"Could not read your branch's commits: {result.stderr.strip()}"
+            for value in sorted(list(vm_record.global_env.values()) + list(vm_record.env.values()), key=len, reverse=True):
+                if len(value) >= HIDE_MIN_LENGTH:
+                    text = text.replace(value, "[hidden]")
+            return {"content": [{"type": "text", "text": text}], "is_error": True}
         vm_email = result.stdout.split("\n")[0].strip()
         if noreply != "" and vm_email != noreply:
             text = (
