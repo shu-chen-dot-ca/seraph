@@ -3753,6 +3753,10 @@ class WorkTools:
         # RHVoice/English's cmulex.fst (a built dictionary). The draft then carries git's binary patch for it, which sending
         # applies the same way (github_account.py). The plain diff stays the one the tests' run is compared with.
         draft_diff = diff
+        # What the secret check below reads. git's binary patch packs a binary file (zlib, then base85), so a secret in
+        # one never shows in draft_diff as text: then the same change is read again with every file as text (--text; no
+        # textconv, so the bytes as they are), and that is checked.
+        readable = diff
         if re.search(r"^Binary files .+ differ$", diff, re.M):
             command = f"set -o pipefail; cd {folder} && git diff --binary {base} | head -c {BINARY_DIFF_LIMIT + 1}"
             try:
@@ -3769,14 +3773,29 @@ class WorkTools:
             if result.returncode != 0:
                 return {"content": [{"type": "text", "text": f"git diff --binary failed: {result.stderr.strip()}"}], "is_error": True}
             draft_diff = result.stdout
+            command = f"set -o pipefail; cd {folder} && git diff --text --no-textconv {base} | head -c {BINARY_DIFF_LIMIT + 1}"
+            try:
+                result = await asyncio.to_thread(vm.exec, command, 120)
+            except Exception as error:
+                return {"content": [{"type": "text", "text": f"Could not reach the VM: {error}"}], "is_error": True}
+            if len(result.stdout.encode()) > BINARY_DIFF_LIMIT:
+                text = (
+                    f"With its binary files the diff is over the {BINARY_DIFF_LIMIT // 1_000_000} MB limit. A fix's binary file is "
+                    "small (a rebuilt data file, an image): leave build output out (restore it, or add it to .git/info/exclude), "
+                    "then try again."
+                )
+                return {"content": [{"type": "text", "text": text}], "is_error": True}
+            if result.returncode != 0:
+                return {"content": [{"type": "text", "text": f"git diff --text failed: {result.stderr.strip()}"}], "is_error": True}
+            readable = result.stdout
 
         # The diff is shown in the Inbox, sent to the browser and downloaded as it is: a secret (a VM env
-        # value, e.g. written into a .env file) must never be in it. Named by its variable, never its value.
+        # value, e.g. written into a .env file or a binary file) must never be in it. Named by its variable, never its value.
         for env_name, value in list(vm_record.global_env.items()) + list(vm_record.env.items()):
-            if len(value) < HIDE_MIN_LENGTH or value not in diff:
+            if len(value) < HIDE_MIN_LENGTH or value not in readable:
                 continue
             # One chunk per file; each starts with "a/<path> b/<path>" (the first with "diff --git ").
-            chunks = diff.split("\ndiff --git ")
+            chunks = readable.split("\ndiff --git ")
             files = [chunk.split("\n")[0].split(" b/")[-1] for chunk in chunks if value in chunk]
             text = (
                 f"The diff contains the value of the environment variable {env_name}, in: {', '.join(files)}. Take it out "
@@ -3939,7 +3958,10 @@ class WorkTools:
                     "diff": fields[6].lstrip("\n"),
                 })
                 parent = fields[0]
-        # A secret in a commit goes out with the history, even when a later commit took it out again.
+        # A secret in a commit goes out with the history, even when a later commit took it out again. A binary file shows
+        # here only as "Binary files ... differ", without what is in it, and that is on purpose (no --binary): sending can't
+        # replay such a commit (github_account.py tree()) and makes one commit of draft_diff instead, which the check above
+        # read as text. With --binary its content would go out with the history, packed where this check can't read it.
         for env_name, value in list(vm_record.global_env.items()) + list(vm_record.env.items()):
             if len(value) < HIDE_MIN_LENGTH:
                 continue

@@ -79,17 +79,34 @@ THREAD = {
         ]}},
     ]},
 }
+# A change to a binary file, cache.db, whose new content holds a token: git's plain diff only says it differs, its
+# binary patch packs the content (zlib, then base85), and only read as text (--text) does the token show.
+BINARY_FILE = "diff --git a/cache.db b/cache.db\nindex b627a7e..fa188cf 100644\nBinary files a/cache.db and b/cache.db differ\n"
+BINARY_PATCH = (
+    "diff --git a/cache.db b/cache.db\n"
+    "index b627a7e02faf085f2303b43c09929ddcbd90c332..fa188cf3148607301042613452ce35723a3cf3a5 100644\n"
+    "GIT binary patch\nliteral 39\nucmWFz^vNtqWnd`D&rZ#=EzZ_0Ni8nXH83<XHZe6bx3El1N=`{lV*mj6>kI1u\n\n"
+    "literal 15\nWcmWFz^vNtqWnd`D&rZ#=WdHysMFf!m\n\n"
+)
+BINARY_AS_TEXT = (
+    "diff --git a/cache.db b/cache.db\nindex b627a7e..fa188cf 100644\n--- a/cache.db\n+++ b/cache.db\n@@ -1 +1 @@\n"
+    "-SQLite\x00\x00token=\x00\n\\ No newline at end of file\n"
+    f"+SQLite\x00\x00token={SECRET}\x00\n\\ No newline at end of file\n"
+)
 PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + bytes(13)
 MATPLOTLIB_PNG = PNG + b"\x00\x00\x00\x2ctEXtSoftware\x00Matplotlib version3.9.2, https://matplotlib.org/"
 
 
 class FakeVM:
     """vm1, whose desktop 1 agent-1 holds. Its commands answer with hand-made output: the repo folder and branch, no PR
-    template, the diff, the base commit, the git address with the co-author count and the commits, the commits in full,
-    and the picture an image's path holds. env holds the user's secrets, as a VM's settings do."""
+    template, the diff (its binary patch, and read as text), the base commit, the git address with the co-author count
+    and the commits, the commits in full, and the picture an image's path holds. env holds the user's secrets, as a
+    VM's settings do."""
 
     def __init__(self):
         self.diff = DIFF
+        self.binary = ""
+        self.as_text = ""
         self.email = NOREPLY
         self.coauthors = "0"
         self.log = LOG
@@ -110,6 +127,10 @@ class FakeVM:
             stdout = ""
         elif "rev-parse --abbrev-ref HEAD" in command:
             stdout = "/home/sam/proj\nfix-help\n"
+        elif "git diff --binary" in command:
+            stdout = self.binary
+        elif "git diff --text" in command:
+            stdout = self.as_text
         elif "git diff" in command:
             stdout = self.diff
         elif "rev-parse --verify" in command:
@@ -664,6 +685,37 @@ def test_someone_elses_commit_on_the_branch_is_refused(agents, tools, job):
     assert result["is_error"] is True
     assert "deadbee by Someone Else <else@example.com>: fix: their fix" in result["content"][0]["text"]
     assert agents.inbox.list() == []
+
+
+def test_secret_in_a_binary_file_is_refused(agents, tools, job):
+    # The draft carries git's binary patch, where the secret is packed and never shows as text.
+    agents.vm.env = {"OPENAI_API_KEY": SECRET}
+    agents.vm.diff = DIFF + BINARY_FILE
+    agents.vm.binary = DIFF + BINARY_PATCH
+    agents.vm.as_text = DIFF + BINARY_AS_TEXT
+    agents.jobs.update(job, tests={"before": None, "after": {"passed": True, "diff_hash": hashlib.sha256(agents.vm.diff.encode()).hexdigest()}})
+
+    result = asyncio.run(tools.draft_pr(dict(PR_ARGS, job_id=job)))
+
+    assert SECRET not in BINARY_PATCH
+    assert result["is_error"] is True
+    text = result["content"][0]["text"]
+    assert "The diff contains the value of the environment variable OPENAI_API_KEY, in: cache.db." in text
+    assert SECRET not in text
+    assert agents.inbox.list() == []
+
+
+def test_binary_file_without_a_secret_goes_as_gits_binary_patch(agents, tools, job):
+    agents.vm.env = {"OPENAI_API_KEY": "sk-test-not-in-this-change"}
+    agents.vm.diff = DIFF + BINARY_FILE
+    agents.vm.binary = DIFF + BINARY_PATCH
+    agents.vm.as_text = DIFF + BINARY_AS_TEXT
+    agents.jobs.update(job, tests={"before": None, "after": {"passed": True, "diff_hash": hashlib.sha256(agents.vm.diff.encode()).hexdigest()}})
+
+    result = asyncio.run(tools.draft_pr(dict(PR_ARGS, job_id=job)))
+
+    assert result.get("is_error") is None
+    assert agents.inbox.list()[0]["diff"] == DIFF + BINARY_PATCH
 
 
 # draft_comment
