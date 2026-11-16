@@ -58,12 +58,14 @@ def list_computer(path: str) -> dict:
 
 def list_vm(vm: VM, path: str) -> dict:
     # cd with no folder goes home. %Y is the type a link points to; \0 ends each entry, since a name may hold anything.
+    # A login shell may print something first (a message of the day): the folder is the line after the mark.
     go = f"cd {shlex.quote(path)}" if path else "cd"
-    command = f"{go} || exit 3; pwd; find . -mindepth 1 -maxdepth 1 -printf '%Y\\t%s\\t%T@\\t%f\\0' 2>/dev/null; true"
+    command = f"{go} || exit 3; echo sandbox-folder; pwd; find . -mindepth 1 -maxdepth 1 -printf '%Y\\t%s\\t%T@\\t%f\\0' 2>/dev/null; true"
     result = vm.exec(command, 60)
     if result.returncode != 0:
         raise FileTransferError(result.stderr.strip() or f"Could not open {path} in the VM")
-    folder, _, listing = result.stdout.partition("\n")
+    _, _, output = result.stdout.partition("sandbox-folder\n")
+    folder, _, listing = output.partition("\n")
     entries = []
     for line in listing.split("\0"):
         if line == "":

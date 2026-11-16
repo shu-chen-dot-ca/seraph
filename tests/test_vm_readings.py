@@ -462,8 +462,8 @@ def test_folder_from_the_vm_is_copied_whole(tmp_path, monkeypatch, returncode, r
 
 def test_vm_folder_listing(monkeypatch):
     vm = VM("sandbox-vm1")
-    # pwd first, then one entry per \0: type, size, modified, name. A name may hold tabs.
-    listing = "/home/ubuntu\nf\t12\t1700000000.5\tREADME.md\0d\t4096\t1700000000\tsrc\0f\t3\t1\tname\twith\ttabs\0d\t4096\t1\tDocs\0"
+    # The mark, the folder pwd prints, then one entry per \0: type, size, modified, name. A name may hold tabs.
+    listing = "sandbox-folder\n/home/ubuntu\nf\t12\t1700000000.5\tREADME.md\0d\t4096\t1700000000\tsrc\0f\t3\t1\tname\twith\ttabs\0d\t4096\t1\tDocs\0"
     monkeypatch.setattr(vm, "exec", lambda command, timeout: subprocess.CompletedProcess([], 0, listing, ""))
 
     folder = file_transfer.list_vm(vm, "")
@@ -475,9 +475,23 @@ def test_vm_folder_listing(monkeypatch):
     assert folder["entries"][3] == {"name": "README.md", "kind": "file", "size": 12, "modified": 1700000000.5}
 
 
+def test_vm_folder_listing_skips_what_a_login_shell_prints_first(monkeypatch):
+    # Commands run in a login shell (VM.exec), which may print something before the command's own output: a message of
+    # the day, a profile script's echo. It is neither the folder nor one of its entries.
+    vm = VM("sandbox-vm1")
+    listing = "Welcome to Ubuntu 24.04\nsandbox-folder\n/home/ubuntu\nd\t4096\t1\tsrc\0f\t12\t1\tREADME.md\0"
+    monkeypatch.setattr(vm, "exec", lambda command, timeout: subprocess.CompletedProcess([], 0, listing, ""))
+
+    folder = file_transfer.list_vm(vm, "")
+
+    assert folder["path"] == "/home/ubuntu"
+    assert folder["parent"] == "/home"
+    assert [entry["name"] for entry in folder["entries"]] == ["src", "README.md"]
+
+
 def test_vm_root_folder_has_no_parent(monkeypatch):
     vm = VM("sandbox-vm1")
-    monkeypatch.setattr(vm, "exec", lambda command, timeout: subprocess.CompletedProcess([], 0, "/\nd\t4096\t1\thome\0", ""))
+    monkeypatch.setattr(vm, "exec", lambda command, timeout: subprocess.CompletedProcess([], 0, "sandbox-folder\n/\nd\t4096\t1\thome\0", ""))
 
     folder = file_transfer.list_vm(vm, "/")
 
