@@ -29,8 +29,9 @@ router = APIRouter(prefix="/api")
 
 # The most the switch waits for agents to finish their tool calls.
 QUIET_SECONDS = 60
-# Install a ready release by itself. Off for now (the user's choice, 2026-11-01): Update in the header does it.
-AUTO_INSTALL = False
+# Install a ready release by itself (the user's choice, 2026-11-15: Fix problems releases every day, and switch.sh takes a
+# bad one back). Off: Update in the header does it.
+AUTO_INSTALL = True
 # The switch that waits for its moment: kept here, so it isn't dropped while it waits.
 waiting = []
 
