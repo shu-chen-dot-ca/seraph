@@ -622,7 +622,8 @@ class RepoSignals:
         issues_answered = 0
         for issue in repository["recentIssues"]["nodes"]:
             author = issue["author"]
-            if issue["authorAssociation"] in MAINTAINERS or author is None or author["__typename"] != "User":
+            # Staff's own issues aren't outsiders', and their answers are a maintainer's (a private member is a CONTRIBUTOR).
+            if issue["authorAssociation"] in MAINTAINERS or author is None or author["__typename"] != "User" or author["login"] in staff:
                 continue
             opened = datetime.fromisoformat(issue["createdAt"])
             if opened > now - timedelta(days=7) or opened < now - timedelta(days=90):
@@ -632,7 +633,7 @@ class RepoSignals:
                 other = comment["author"]
                 if other is None or other["__typename"] != "User" or other["login"] == author["login"]:
                     continue
-                if comment["authorAssociation"] not in MAINTAINERS:
+                if comment["authorAssociation"] not in MAINTAINERS and other["login"] not in staff:
                     continue
                 if datetime.fromisoformat(comment["createdAt"]) <= opened + timedelta(days=7):
                     issues_answered += 1

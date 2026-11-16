@@ -559,6 +559,27 @@ def test_issue_reply_rate_is_maintainer_answers_within_a_week(github, store):
     assert activity["issue_reply_rate"] == 0.6
 
 
+def test_issue_reply_rate_counts_staff_as_maintainers(github, store):
+    # priya merged a PR, so she is staff though GitHub shows her as CONTRIBUTOR: her answers count, her own issue isn't
+    # an outsider's.
+    github["pulls"]["finished"]["nodes"] = [{**DONE_MERGED, "author": BEN, "mergedBy": {"login": "priya", "__typename": "User"}}]
+    answer = {"createdAt": "2026-10-27T12:00:00Z", "authorAssociation": "CONTRIBUTOR", "author": PRIYA}
+    issue = {"createdAt": "2026-10-25T12:00:00Z", "authorAssociation": "NONE", "author": ANA, "comments": {"nodes": [answer]}}
+    github["activity"]["repository"]["recentIssues"]["nodes"] = [
+        issue,
+        issue,
+        issue,
+        issue,
+        {**issue, "comments": {"nodes": []}},
+        {**issue, "authorAssociation": "CONTRIBUTOR", "author": PRIYA, "comments": {"nodes": []}},
+    ]
+
+    activity = asyncio.run(store.fetch("acme/tool", judged=False))["activity"]
+
+    assert activity["issues_checked"] == 5
+    assert activity["issue_reply_rate"] == 0.8
+
+
 def test_issue_reply_rate_needs_five_issues(github, store):
     issue = {"createdAt": "2026-10-25T12:00:00Z", "authorAssociation": "NONE", "author": ANA, "comments": {"nodes": []}}
     github["activity"]["repository"]["recentIssues"]["nodes"] = [issue, issue, issue, issue]
