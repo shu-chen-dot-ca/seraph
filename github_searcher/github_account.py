@@ -321,9 +321,19 @@ class GithubAccount:
                 raise SendError(f"It is on GitHub already: {draft['sent']['url']}")
             if draft["kind"] not in ["pr", "comment", "edit"]:
                 raise SendError("Only PRs, comments and new titles and descriptions go to GitHub.")
+            # The draft's job (jobs.py): None when the jobs aren't known here (self.jobs) or it isn't there.
+            job = None
+            if draft["job"] is not None and self.jobs is not None:
+                try:
+                    job = self.jobs.get(draft["job"])
+                except KeyError:
+                    job = None
             # The claim a repo's rules ask for goes out before the PR (agents.py): on a fix_issue job, its one comment.
+            # Another job's comment (a follow_up's answer, a task's) is no claim and holds nothing; its wait_for_assignment
+            # is None too, like a claim's from before the flag. With the job unknown, every comment of it counts, as before.
             claims = []
-            if draft["kind"] == "pr" and draft["update_of"] is None and draft["job"] is not None:
+            claiming = job is None or job["kind"] == "fix_issue"
+            if draft["kind"] == "pr" and draft["update_of"] is None and draft["job"] is not None and claiming:
                 for other in self.inbox.list():
                     if other["job"] == draft["job"] and other["kind"] == "comment" and other["status"] == "pending":
                         raise SendError(f"Approve or reject {other['title']} first: the project's rules ask for it before the PR.")
@@ -350,16 +360,11 @@ class GithubAccount:
             # A claim whose job ended (cancelled or done: the issue turned out fixed already, someone else took it, or you
             # stopped it) is never posted: nobody works on that issue for you anymore (repowise#5421's claim went out
             # after its agent found the fix merged days before).
-            if draft["kind"] == "comment" and draft["job"] is not None and self.jobs is not None:
-                try:
-                    job = self.jobs.get(draft["job"])
-                except KeyError:
-                    job = None
-                if job is not None and job["kind"] == "fix_issue" and job["status"] in ["done", "cancelled"]:
-                    raise SendError(
-                        f"Not sent: this claim is for {job['id']}, which is {job['status']}, so nobody works on "
-                        f"{draft['target']} for you anymore. Reject it."
-                    )
+            if draft["kind"] == "comment" and job is not None and job["kind"] == "fix_issue" and job["status"] in ["done", "cancelled"]:
+                raise SendError(
+                    f"Not sent: this claim is for {job['id']}, which is {job['status']}, so nobody works on "
+                    f"{draft['target']} for you anymore. Reject it."
+                )
             # A comment or a new title and description from a job whose new version of a PR isn't on GitHub yet goes after
             # that version: it often says the change is there (openmed#5413's comment and #5511's new description said
             # new tests were "now added to #5511" while that push still waited for its review, and it never went). Only the

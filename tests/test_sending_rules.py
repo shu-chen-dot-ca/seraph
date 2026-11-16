@@ -289,6 +289,36 @@ def test_rejected_claim_doesnt_hold_the_pr(account, inbox, jobs, went):
     assert went == [pr["id"]]
 
 
+@pytest.mark.parametrize("kind", ["follow_up", "task"])
+@pytest.mark.parametrize("status", ["pending", "approved"])
+def test_ordinary_comment_never_holds_its_jobs_pr(account, inbox, jobs, went, kind, status):
+    # Only a fix_issue job's comment is a claim. Another job's comment has wait_for_assignment None too (draft_comment),
+    # the same as a claim from before the flag, and was taken for one: its PR waited for an assignment that never comes.
+    job = jobs.create(kind, "Answer the review", "agent-1", "user", thread=PR)
+    comment = inbox.create("comment", "agent-1", "Comment on owner/proj#40", "Renamed it as asked.", job=job["id"], target=PR, wait_for_assignment=None)
+    if status == "approved":
+        inbox.decide(comment["id"], "approved")
+    pr = inbox.create("pr", "agent-1", "fix(cli): list every flag", "Made again fresh.", job=job["id"], repo=PROJECT, target=PR)
+
+    account.send(pr["id"])
+
+    assert went == [pr["id"]]
+
+
+def test_claim_still_waits_when_the_jobs_arent_known(account, inbox, went, monkeypatch):
+    # Without the jobs, a comment of the PR's job counts as its claim, as before.
+    account.jobs = None
+    claim = inbox.create("comment", "agent-1", "Claim owner/proj#12", "/claim", job="job_0ld001", target=ISSUE, wait_for_assignment=None)
+    inbox.decide(claim["id"], "approved")
+    pr = inbox.create("pr", "agent-1", "fix(cli): list every flag", "Fixes #12.", job="job_0ld001", repo=PROJECT, target=ISSUE)
+    nobody = {"assignees": []}
+    monkeypatch.setattr(httpx, "get", lambda url, **kwargs: httpx.Response(200, json=nobody, request=httpx.Request("GET", url)))
+
+    with pytest.raises(SendError, match="assign you to owner/proj#12"):
+        account.send(pr["id"])
+    assert went == []
+
+
 @pytest.mark.parametrize("status", ["cancelled", "done"])
 def test_repowise_5421_claim_of_an_ended_job_is_never_posted(account, inbox, jobs, went, status):
     # The agent found the fix merged days before and closed the job; the claim had been approved meanwhile.
