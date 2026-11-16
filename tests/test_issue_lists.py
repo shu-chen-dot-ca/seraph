@@ -190,6 +190,20 @@ def test_undo_after_dismiss_brings_it_back_still_dismissed(issues):
     assert issues.dismissed() == ["owner/repo#1"]
 
 
+def test_restore_after_an_undo_takes_it_off_dismissed(issues, jobs):
+    # The list's Undo brought the dismissed issue back, then the toast's Undo (restore) ran. It stayed dismissed, so
+    # once removed again no agent could ever add it back.
+    issues.add([ONE])
+    issues.dismiss(["owner/repo#1"])
+    issues.undo()
+
+    assert issues.restore(["owner/repo#1"]) == []
+    assert issues.dismissed() == []
+    assert IssueList(types.SimpleNamespace(list=lambda: jobs)).dismissed() == []
+    issues.remove(["owner/repo#1"])
+    assert issues.add([ONE]) == ["owner/repo#1"]
+
+
 def test_board_is_not_an_undo_step(issues):
     issues.add([ONE])
     issues.set_board(["owner/repo#1"], ["owner/repo#1", "owner/repo#2"], ["owner/repo#2"])

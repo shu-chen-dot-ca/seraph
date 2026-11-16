@@ -21,7 +21,8 @@ dismissed is what the user took off with the × on the Dashboard's Issues board 
 never added again by an agent or a bulk add (add skips them). Only the user adding that one issue by hand
 (allow_dismissed) puts it back, and takes it off dismissed. An undo brings the item back but leaves it dismissed; undo
 snapshots hold the items only. restore puts dismissed ones back (Undo on the toast after the ×): the items are kept in
-memory when dismissed, so it works until the backend restarts.
+memory when dismissed, so it works until the backend restarts. Both take it off dismissed also when an undo put it
+back already.
 catalog and order are the Dashboard's Issues board: catalog the issues the user moved to its Catalog column (Add, or
 dragged there), order every card's place on the board, top to bottom (set_board, after a drag). Catalog's order is its
 priority: new agents take the top ones first (keep_catalog_agents in backend/issues_api.py), and a card taken
@@ -105,23 +106,31 @@ class IssueList:
 
     def add(self, items: list[dict], allow_dismissed: bool = False) -> list[str]:
         """Add filled IssueItems as one undo step. Ids already in the list are skipped, and so are dismissed ones
-        unless allow_dismissed (the user adding that issue by hand), which takes them off dismissed.
+        unless allow_dismissed (the user adding that issue by hand), which takes them off dismissed, also when they are
+        in the list already (an undo brought a dismissed one back).
 
         Returns the ids that were added.
         """
         with self.lock:
             ids = [item["id"] for item in self.data["items"]]
             new = []
+            cleared = False
             for item in items:
+                # Before the skip below: an undo may have brought it back, and it would stay dismissed for good, so
+                # never added again once removed.
+                if allow_dismissed and item["id"] in self.data["dismissed"]:
+                    self.data["dismissed"].remove(item["id"])
+                    cleared = True
                 # Also skips an id given twice in the same call.
                 if item["id"] in ids:
                     continue
-                if item["id"] in self.data["dismissed"] and not allow_dismissed:
-                    continue
                 if item["id"] in self.data["dismissed"]:
-                    self.data["dismissed"].remove(item["id"])
+                    continue
                 ids.append(item["id"])
                 new.append(copy.deepcopy(item))
+            # Nothing new, but taken off dismissed: that is kept too.
+            if not new and cleared:
+                self.save()
             if not new:
                 return []
 
