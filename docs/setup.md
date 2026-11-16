@@ -46,6 +46,8 @@ cp .env.example .env
 | `SANDBOX_MIN_FREE_RAM_GB` | `8` | Memory that must stay free |
 | `REMOTE_ACCESS_*` | | Optional: see [remote access](../remote_access/README.md) |
 
+The tokens can live in AWS Secrets Manager instead: see [Security](security.md#secrets-in-aws-secrets-manager).
+
 ## 3. Run
 
 ```bash

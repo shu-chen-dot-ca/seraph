@@ -187,7 +187,7 @@ Agents only pick issues whose Merge is **Likely**. [What each one means →](doc
 ![Where everything runs](docs/architecture.svg)
 
 - **Agents have no access to your computer.** No shell, no files, no web: only Seraph's own tools and their VM desktop.
-- **Tokens stay in `data/`** (file mode 600) and never reach the browser, an agent or a VM. Secret values that show up in an agent's output are replaced with `[hidden]`.
+- **Tokens live in AWS Secrets Manager**, read into memory at start, and never reach the browser, an agent or a VM. The only key on your computer is the AWS access key, in the system keyring. Secret values that show up in an agent's output are replaced with `[hidden]`.
 - **What is sent is what you reviewed.** The PR is rebuilt from the reviewed diff and the project's own files on GitHub, never from the VM. A diff that contains a secret is refused.
 - **Text from GitHub is never instructions.** One-shot judgments (issue checks, review tone, AI policy) run with no tools at all.
 - **Only you can reach the app.** The backend listens on 127.0.0.1 and checks the Host and Origin of every request. From a phone, every request needs a passkey.

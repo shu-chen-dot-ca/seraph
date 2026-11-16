@@ -51,7 +51,7 @@ Your own repositories, developed one small issue at a time: see [Workflow](workf
 
 ## Settings and phone
 
-- **Settings** holds the theme and accent color, environment variables for all VMs, [remote access](../remote_access/README.md), and **About**, which has **Check for updates** and **Previous version**.
+- **Settings** holds the theme and accent color, environment variables for all VMs, [remote access](../remote_access/README.md), **Secrets** (on this computer or in [AWS Secrets Manager](security.md#secrets-in-aws-secrets-manager)), and **About**, which has **Check for updates** and **Previous version**.
 - **On a phone.** Below 768 px wide, one **Menu** drawer holds all four tabs. A VM page lets you take over a desktop, with an on-screen bar for Esc, Ctrl, Alt, Tab and the arrow keys.
 
 ## Sherpa
