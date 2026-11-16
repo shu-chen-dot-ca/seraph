@@ -45,8 +45,9 @@ jobs:
           python-version: "3.14"
           enable-cache: true
       # The code reads its settings from .env when it is imported. .env is never committed; the example's values
-      # are enough for the tests, which never reach GitHub, Incus or the real data folder.
-      - run: cp .env.example .env
+      # are enough for the tests, which never reach GitHub, Incus or the real data folder. GitHub requests need a
+      # token to be made at import (token_balancer.py), so it gets a placeholder that is never sent anywhere.
+      - run: cp .env.example .env && sed -i 's/^GITHUB_TOKEN=$/GITHUB_TOKEN=placeholder/' .env
       # --locked: fail when uv.lock doesn't match pyproject.toml, instead of quietly resolving new versions.
       - run: uv sync --locked
       - run: uv run python -m compileall -q github_searcher sandbox backend
