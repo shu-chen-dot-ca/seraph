@@ -906,12 +906,23 @@ def test_deepseek_reasonix_pr_template_reaches_the_newcomer_verdict(github, stor
     assert store.get("esengine/DeepSeek-Reasonix")["newcomer_verdict"]["verdict"] == "closed"
 
 
-def test_newcomer_verdict_reads_stars_per_contributor(github, store):
-    # 4000 stars, 120 contributors.
-    asyncio.run(store.fetch("acme/tool"))
+@pytest.mark.parametrize(
+    "contributors, line",
+    [
+        (120, "All-time contributors: 120\nStars per contributor: 33"),
+        # A huge history GitHub won't count: the verdict is still asked, without the number (it raised TypeError, and
+        # Explore counted every such repo as an Error).
+        (None, "All-time contributors: unknown"),
+    ],
+)
+def test_newcomer_verdict_reads_stars_per_contributor(github, store, contributors, line):
+    github["contributors"] = contributors
+
+    signals = asyncio.run(store.fetch("acme/tool"))
 
     asked = [prompt for kind, prompt in github["prompts"] if kind == "verdict"][0]
-    assert "All-time contributors: 120\nStars per contributor: 33" in asked
+    assert line in asked
+    assert signals["newcomer_verdict"]["verdict"] == "welcome"
 
 
 # The store.

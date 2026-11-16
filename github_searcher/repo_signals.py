@@ -984,9 +984,9 @@ class RepoSignals:
         stars = signals["stars"]
         total = signals.get("contributors_total")
         newcomers = signals.get("newcomers") or {}
-        contributors_line = f"All-time contributors: {total}\nStars per contributor: {round(stars / max(total, 1))}"
-        if total is None:
-            contributors_line = "All-time contributors: unknown (GitHub wouldn't count them, usually because there are thousands)"
+        contributors_line = "All-time contributors: unknown (GitHub wouldn't count them, usually because there are thousands)"
+        if total is not None:
+            contributors_line = f"All-time contributors: {total}\nStars per contributor: {round(stars / max(total, 1))}"
         prompt = (
             f"Is the GitHub project {name} open to newcomers: would a good first pull request from an outside contributor, "
             "someone the maintainers don't know, get looked at and merged?\n"
