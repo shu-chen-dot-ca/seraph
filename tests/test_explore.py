@@ -452,6 +452,14 @@ def test_add_skips_names_already_listed_or_given_twice(repos):
     assert repos.can_undo() is False
 
 
+def test_add_skips_a_name_listed_in_another_case(repos):
+    # GitHub's names don't care about case: Acme/Tool and acme/tool are one repo.
+    repos.add([{"full_name": "Acme/Tool"}])
+
+    assert repos.add([{"full_name": "acme/tool"}, {"full_name": "acme/cli"}, {"full_name": "ACME/CLI"}]) == ["acme/cli"]
+    assert [item["full_name"] for item in repos.items()] == ["Acme/Tool", "acme/cli"]
+
+
 def test_undo_redo_and_a_new_change_clears_redo(repos):
     repos.add([{"full_name": "acme/tool", "note": ""}])
     repos.set_note("acme/tool", "Good first issues every week")

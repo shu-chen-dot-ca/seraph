@@ -93,18 +93,19 @@ class RepoList:
             return len(self.data["redo"]) > 0
 
     def add(self, items: list[dict]) -> list[str]:
-        """Add filled RepoItems as one undo step. Names already in the list are skipped.
+        """Add filled RepoItems as one undo step. Names already in the list are skipped, compared without case as GitHub
+        does (Acme/Tool is acme/tool).
 
         Returns the names that were added.
         """
         with self.lock:
-            names = [item["full_name"] for item in self.data["items"]]
+            names = [item["full_name"].lower() for item in self.data["items"]]
             new = []
             for item in items:
                 # Also skips a name given twice in the same call.
-                if item["full_name"] in names:
+                if item["full_name"].lower() in names:
                     continue
-                names.append(item["full_name"])
+                names.append(item["full_name"].lower())
                 new.append(copy.deepcopy(item))
             if not new:
                 return []
