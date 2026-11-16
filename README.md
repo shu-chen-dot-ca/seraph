@@ -294,7 +294,7 @@ uv run pytest                   # tests
 cd frontend && npm run build    # type-check and build
 ```
 
-Commits follow [Conventional Commits](https://www.conventionalcommits.org/), one scope each. CI builds the frontend, compiles every Python file and runs the tests on every pull request.
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/), one scope each. CI builds the frontend, compiles every Python file and runs the tests on every push to `main` and every pull request.
 
 ---
 
