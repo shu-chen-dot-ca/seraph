@@ -55,7 +55,8 @@ ENV_NOTE = "# GITHUB_TOKEN, GITHUB_TOKEN_2, ... and CLAUDE_CODE_OAUTH_TOKEN are 
 SETTINGS = None
 CLIENT = None
 VALUES = {}
-if SETTINGS_PATH.is_file():
+# The tests never read the vault (tests/conftest.py sets SERAPH_TESTS=1): they run as on a computer without one.
+if SETTINGS_PATH.is_file() and os.environ.get("SERAPH_TESTS") != "1":
     SETTINGS = json.loads(SETTINGS_PATH.read_text())
     lookup = subprocess.run(["secret-tool", "lookup", *KEYRING_ITEM], capture_output=True, text=True)
     if lookup.returncode != 0 or lookup.stdout.strip() == "":
