@@ -216,7 +216,8 @@ Maintainers are flooded with low-effort AI pull requests. Seraph's agents follow
 | Prompt injection from issues and comments | GitHub text is treated as data. Judgments about it run with no tools, and secrets are scrubbed from agent output. |
 | Thousands of judgments at a sane cost | Fixed rules settle the obvious cases. The model reads many items per run, never one run per item. |
 | Slow VM image builds | One declarative `image.yaml`, built in three cached stages with a snapshot after each. |
-| Updating the app while you use it | Releases install to a live copy. A new release is first started on a copy of your data, and **Previous version** rolls back. |
+| Fixing its own mistakes | Agents report what went wrong in how the app made them work. Every day at a set time, Claude Code fixes them all, each fix with a regression test. Only fixes that pass the tests and the build are pushed and released. |
+| Updating the app while you use it | Releases install to a live copy by themselves. A new release is first started on a copy of your data, and one that goes wrong in its first minutes is rolled back. |
 | Using it away from home | A passkey-protected address, over an SSH tunnel to a small forwarder. TLS ends on your own computer. |
 
 ## 🧩 More in the app

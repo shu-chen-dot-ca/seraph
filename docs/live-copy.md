@@ -13,5 +13,6 @@ deploy/install.sh v0.1.0   # once: makes ~/seraph from a release tag, and moves 
 - **Backups.** `./run.sh` first copies your data to `~/seraph/backups`, keeping the last 10 copies.
 - **Updates.**
   - New releases are prepared in the background and started on a copy of your data, on port `BACKEND_PORT + 2`.
-  - **Update** appears only after that check passes, and nothing installs until you press **Restart**.
+  - A release that passes that check installs by itself, and **Previous version** goes back.
+  - **Fix problems** (Settings) makes a release every day, after its fixes pass the tests. See [Development](development.md).
   - [`deploy/switch.sh`](../deploy/switch.sh) does the switch and the rollback.

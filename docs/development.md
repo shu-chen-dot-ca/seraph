@@ -22,4 +22,13 @@ cd frontend && npm run build    # type-check and build
 
 **CI** runs on every push to `main` and on pull requests. It builds the frontend, compiles every Python file, and runs the tests.
 
+**Fix problems** (Settings) fixes the agents' problems every day at a set time:
+
+1. Claude Code gets every open problem from the Dashboard's Problems page, in its own clone of the repo (`~/seraph/fixer`), never your working copy.
+2. Each fix comes with a regression test, in a Conventional Commit.
+3. The fixes must pass the same tests and build as CI, or they are dropped.
+4. They are pushed to `main`, the fixed problems are closed, and `main` is released. The live copy installs the release by itself and takes it back if it goes wrong.
+
+Claude Code may only edit files, run the tests and the build, and commit. It gets none of your tokens. Pull before you push: the run pushes to `main` too.
+
 **Commits** follow [Conventional Commits](https://www.conventionalcommits.org/): one line, `type(scope): summary`, and exactly one scope per commit. [`CLAUDE.md`](../CLAUDE.md) has the full conventions.
