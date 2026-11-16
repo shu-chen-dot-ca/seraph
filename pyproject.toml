@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Agents find and fix GitHub good first issues in sandbox VMs; you decide what reaches GitHub."
 requires-python = ">=3.11"
 dependencies = [
+    # Keeps the secrets in AWS Secrets Manager when you move them there (github_searcher/secret_vault.py).
+    "boto3>=1.44.3",
     "claude-agent-sdk>=0.2.160",
     # Checks passkey signatures for remote access (github_searcher/remote_access.py).
     "cryptography>=44",

@@ -62,7 +62,10 @@ def connect(body: TokenRequest) -> dict:
 
 @router.delete("/github_account")
 def disconnect() -> dict:
-    github_account.disconnect()
+    try:
+        github_account.disconnect()
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
     return github_account.status()
 
 

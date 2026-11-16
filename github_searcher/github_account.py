@@ -10,14 +10,16 @@ notifications, your profile). Signing in again later skips GitHub's question; it
 have more than one account on github.com.
 
 For that the app is registered on GitHub as an OAuth App, once, by you (the Account page walks you through it).
-save_app() keeps its client ID and secret in DATA_DIR/github_app.json, not .env. An OAuth App, not a GitHub App:
+save_app() keeps its client ID and secret in DATA_DIR/github_app.json, not .env (the secret in AWS Secrets Manager
+instead, once the secrets are there: secret_vault.py). An OAuth App, not a GitHub App:
 signing in with a GitHub App only works on the repos it is installed on, so it couldn't open PRs on other people's
 projects (fine-grained tokens can't either). An organization may block OAuth Apps it hasn't approved; for those,
 connect() also takes a classic token pasted by hand (Use a token instead).
 
 connect() checks the token with GitHub and keeps it in DATA_DIR/github_account.json, a file only this computer's user
-may read. Sign out (disconnect()) deletes it. The browser only ever gets status(): who you are signed in as, what the
-token may do and whether sign in is set up, never the token or the secret. Agents and the VMs never get them
+may read, or in AWS Secrets Manager once the secrets are there (secret_vault.py; the file keeps the rest). Sign out
+(disconnect()) deletes it. The browser only ever gets status(): who you are signed in as, what the token may do and
+whether sign in is set up, never the token or the secret. Agents and the VMs never get them
 either; only the Inbox's Approve and Send to GitHub (backend/inbox_api.py) and the GitHub tab's buttons
 (backend/github_api.py) use the token. It is kept apart from the search tokens in .env (token_balancer.py), which only
 read.
@@ -123,6 +125,7 @@ from urllib.parse import urlencode
 import httpx
 from dotenv import load_dotenv
 
+from github_searcher import secret_vault
 from github_searcher.jobs import EVIDENCE_DIR
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -174,7 +177,13 @@ class GithubAccount:
     def load(self) -> dict | None:
         if not self.path.is_file():
             return None
-        return json.loads(self.path.read_text())
+        account = json.loads(self.path.read_text())
+        # With the secrets in AWS (secret_vault.py), the token is there, not in the file.
+        if "token" not in account:
+            account["token"] = secret_vault.VALUES.get("GITHUB_SIGN_IN_TOKEN")
+        if account["token"] is None:
+            return None
+        return account
 
     def status(self) -> dict:
         """What the browser may know: who it is, what the token may do and whether sign in is set up. Never the token."""
@@ -200,13 +209,18 @@ class GithubAccount:
         # A GitHub App's client ID starts with Iv: signing in with one couldn't open PRs on other people's projects.
         if client_id.startswith("Iv"):
             raise ValueError("That is a GitHub App's Client ID. Register an OAuth App instead (step 1).")
+        app = {"client_id": client_id, "client_secret": client_secret}
+        # With the secrets in AWS (secret_vault.py), the client secret goes there and the file keeps the ID.
+        if secret_vault.SETTINGS is not None:
+            secret_vault.put("GITHUB_APP_CLIENT_SECRET", client_secret)
+            del app["client_secret"]
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         # Made readable by this computer's user only, before the secret goes in. Write, then rename.
         temporary = self.app_path.with_name("github_app.json.tmp")
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         os.chmod(temporary, 0o600)
         with os.fdopen(descriptor, "w") as file:
-            file.write(json.dumps({"client_id": client_id, "client_secret": client_secret}, indent=2))
+            file.write(json.dumps(app, indent=2))
         temporary.replace(self.app_path)
 
     def sign_in_url(self) -> str:
@@ -225,6 +239,9 @@ class GithubAccount:
             raise ValueError("That sign in didn't start here, or is too old. Click Sign in with GitHub again.")
         self.sign_in_state = None
         app = json.loads(self.app_path.read_text())
+        # With the secrets in AWS (secret_vault.py), the client secret is there.
+        if "client_secret" not in app:
+            app["client_secret"] = secret_vault.VALUES.get("GITHUB_APP_CLIENT_SECRET", "")
         form = {"client_id": app["client_id"], "client_secret": app["client_secret"], "code": code}
         try:
             response = httpx.post("https://github.com/login/oauth/access_token", data=form, headers={"Accept": "application/json"}, timeout=30)
@@ -272,6 +289,10 @@ class GithubAccount:
             "scopes": scopes,
             "connected_at": datetime.now(UTC).isoformat(),
         }
+        # With the secrets in AWS (secret_vault.py), the token goes there and the file keeps the rest.
+        if secret_vault.SETTINGS is not None:
+            secret_vault.put("GITHUB_SIGN_IN_TOKEN", token)
+            del account["token"]
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         # Made readable by this computer's user only, before the token goes in. Write, then rename.
         temporary = self.path.with_name("github_account.json.tmp")
@@ -283,6 +304,9 @@ class GithubAccount:
         return self.status()
 
     def disconnect(self) -> None:
+        """Sign out. ValueError when AWS Secrets Manager (secret_vault.py) won't let the token go: still signed in."""
+        if secret_vault.SETTINGS is not None:
+            secret_vault.put("GITHUB_SIGN_IN_TOKEN", None)
         self.path.unlink(missing_ok=True)
 
     def send(self, draft_id: str) -> dict:

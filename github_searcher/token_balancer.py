@@ -1,8 +1,9 @@
 """Every GitHub request goes through here. It spreads them over all the GitHub tokens in .env,
 paces them and waits out rate limits, so agents searching hard don't get errors back.
 
-Tokens: GITHUB_TOKEN, then GITHUB_TOKEN_2, GITHUB_TOKEN_3, ... in .env (any number; empty ones
-are skipped). Each should come from a different GitHub account: GitHub counts every limit per
+Tokens: GITHUB_TOKEN, then GITHUB_TOKEN_2, GITHUB_TOKEN_3, ... in .env, or in AWS Secrets Manager once they are
+moved there (secret_vault.py puts them in os.environ when it is imported, before BALANCER reads them). Any number; empty
+ones are skipped. Each should come from a different GitHub account: GitHub counts every limit per
 account, so two tokens of one account share one quota and add nothing.
 
 GitHub has two sorts of limits, each per account and per kind of request:
@@ -47,6 +48,9 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
+# Imported for what it does at import: with AWS Secrets Manager, it puts the tokens in os.environ.
+from github_searcher import secret_vault  # noqa: F401
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # override: the backend reloads itself on code changes, and .env changes should apply then too.
 load_dotenv(PROJECT_ROOT / ".env", override=True)
@@ -82,7 +86,7 @@ class TokenBalancer:
                 kinds[kind] = {"running": 0, "next_at": 0.0, "paused_until": 0.0, "remaining": None, "limit": None, "reset_at": 0.0}
             self.tokens.append({"name": name, "value": value, "kinds": kinds})
         if not self.tokens:
-            raise KeyError("GITHUB_TOKEN is not set in .env")
+            raise KeyError("GITHUB_TOKEN is not set in .env or in AWS Secrets Manager")
         # Guards every token's counters. Waiting requests are woken when one ends.
         self.condition = threading.Condition()
         # Requests of each kind waiting for a token right now.
