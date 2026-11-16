@@ -284,7 +284,9 @@ class Updates:
             if response.status_code != 200:
                 raise RuntimeError(f"its page answered {response.status_code}")
             topics = []
-            with connect(f"ws://127.0.0.1:{port}/api/live", open_timeout=30) as socket:
+            # max_size None: a topic of a real data copy can be over the client's 1 MB default (the browser has no such
+            # limit), and v0.2.0's first check failed on it.
+            with connect(f"ws://127.0.0.1:{port}/api/live", open_timeout=30, max_size=None) as socket:
                 started = time.monotonic()
                 while len(topics) < len(TOPICS) and time.monotonic() - started < CHECK_FEED_SECONDS:
                     try:
