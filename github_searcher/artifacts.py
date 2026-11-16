@@ -99,12 +99,17 @@ class Artifacts:
         return {"path": name, "parent": parent, "entries": entries}
 
     def new_file(self, agent_id: str, path: str) -> Path:
-        """Where a new file goes: its folder is made, and a name that is taken is refused."""
-        target = self.resolve(agent_id, path)
-        if target.name == "":
+        """Where a new file goes: its folder is made, and a name that is taken (also by a link) is refused."""
+        # Checked as written, since resolve() drops a trailing / and follows links.
+        name = path.strip().lstrip("/")
+        if name == "" or name.endswith("/"):
             raise ArtifactsError("Give the file a name")
-        if target.exists() or target.is_symlink():
+        target = self.resolve(agent_id, path)
+        if target.exists():
             raise ArtifactsError(f"{self.name_of(agent_id, target)} is already in the artifacts")
+        # A link to something that isn't there yet: the file would go where it points, under another name.
+        if (ROOT / agent_id / name).is_symlink():
+            raise ArtifactsError(f"{name} is already in the artifacts")
         target.parent.mkdir(parents=True, exist_ok=True)
         return target
 

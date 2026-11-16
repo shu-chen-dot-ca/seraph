@@ -162,6 +162,27 @@ def test_save_never_overwrites_a_file_named_like_its_temporary(agent_files, base
     assert (base / "notes.txt.tmp").read_bytes() == b"user file"
     assert (base / "notes.txt").read_bytes() == b"agent file"
     assert sorted(entry.name for entry in base.iterdir()) == ["notes.txt", "notes.txt.tmp"]
+
+
+@pytest.mark.parametrize("path", ["", "  ", "/", "screenshots/"])
+def test_new_file_needs_a_name(agent_files, base, path):
+    # "screenshots/" used to make a file named screenshots: resolve() drops the trailing /.
+    with pytest.raises(ArtifactsError, match="Give the file a name"):
+        agent_files.save(AGENT, path, b"x")
+
+    assert list(base.iterdir()) == []
+
+
+def test_new_file_refuses_a_name_taken_by_a_link(agent_files, base):
+    # resolve() follows the link, so a link to a file that isn't there yet looked free: the file went where it pointed.
+    os.symlink(base / "gone.txt", base / "notes.txt")
+
+    with pytest.raises(ArtifactsError, match="notes.txt is already in the artifacts"):
+        agent_files.save(AGENT, "notes.txt", b"x")
+
+    assert not (base / "gone.txt").exists()
+
+
 def test_save_out_of_the_folder_is_refused(agent_files, tmp_path):
     with pytest.raises(ArtifactsError):
         agent_files.save(AGENT, f"../{OTHER}/evil.txt", b"x")
