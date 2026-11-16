@@ -1,9 +1,10 @@
 /*
 The Settings dialog, opened from the bottom of the Home tab's sidebar: the theme (Light, Dark or System), the accent
 color, Reset view, the env vars for all VMs, Remote access (RemoteAccess.tsx: the address for your phone and any
-device, and the devices that may sign in there) and Secrets (Secrets.tsx: on this computer or in AWS Secrets Manager),
-then About (About.tsx: the version that runs, Check for updates and Previous version). Your GitHub account is on the
-GitHub tab (Account, GitHub.tsx).
+device, and the devices that may sign in there), Secrets (Secrets.tsx: on this computer or in AWS Secrets Manager) and
+Fix problems (ProblemFixes.tsx: the daily run that fixes the agents' problems and releases the app), then About
+(About.tsx: the version that runs, Check for updates and Previous version). Your GitHub account is on the GitHub tab
+(Account, GitHub.tsx).
 
 Reset view puts every panel, fold, sort and column back to its default: it forgets the Repos page's sort and columns
 and reloads the page (App's resetView). Theme, accent and the env vars stay.
@@ -27,6 +28,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import About from "@/About";
+import ProblemFixes from "@/ProblemFixes";
 import RemoteAccess from "@/RemoteAccess";
 import Secrets from "@/Secrets";
 import { Button } from "@/components/ui/button";
@@ -312,6 +314,7 @@ export default function SettingsDialog(props: {
 
         <RemoteAccess open={props.open} />
         <Secrets open={props.open} />
+        <ProblemFixes open={props.open} />
         <About />
       </DialogContent>
     </Dialog>
