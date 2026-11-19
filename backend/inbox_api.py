@@ -16,7 +16,8 @@ GitHub tab's thread pop-up); its agent is told with your decision that you edite
 
 Every decision goes through Agents.decide, which also puts the draft's job back in the queue and
 wakes the agent, so those endpoints run on the event loop (`async def`). The
-drafts themselves reach the browser through /api/live.
+drafts themselves reach the browser through /api/live. GET /inbox/{id} is one whole: the feed leaves out the diff of
+a draft that can't go out any more, so the Inbox reads that one when it is opened.
 
 POST /inbox/delete deletes decided drafts for good (pending ones stay: their agents wait for an answer). Their
 agents aren't told, and what was sent to GitHub stays there.
@@ -158,6 +159,15 @@ async def send(draft_id: str) -> dict:
         text = f"The user pushed your approved draft {draft_id} ({draft['title']}) onto their PR: {draft['sent']['url']}"
     agents.notify(draft["agent"], text)
     return draft
+
+
+@router.get("/inbox/{draft_id}")
+def get_draft(draft_id: str) -> dict:
+    """One draft whole: the live feed leaves out the diff of one that can't go out any more (backend/app.py)."""
+    try:
+        return inbox.get(draft_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"No draft {draft_id}")
 
 
 @router.get("/inbox/{draft_id}/patch")

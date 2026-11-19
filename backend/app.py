@@ -255,8 +255,21 @@ def topic_data(topic: str):
     if topic == "jobs":
         return jobs.list()
     # A project's PR draft only once its review passed (inbox.py): until then it isn't the user's to see.
+    # Without their diffs: those were most of the topic (28 MB over 900 drafts, sent again on every change; the page
+    # grew to 11 GB in a day and the computer ran out of memory). A commit's diff is never shown, and a draft that
+    # can't go out any more (rejected, answered or sent) shows its diff only when opened: the Inbox reads that one
+    # whole then (GET /api/inbox/<id>).
     if topic == "inbox":
-        return [draft for draft in inbox.list() if draft["review"] is None or draft["review"]["state"] == "passed"]
+        drafts = []
+        for draft in inbox.list():
+            if draft["review"] is not None and draft["review"]["state"] != "passed":
+                continue
+            for commit in draft["commits"]:
+                commit["diff"] = ""
+            if draft["status"] != "pending" and not (draft["status"] == "approved" and draft["sent"] is None):
+                draft["diff"] = ""
+            drafts.append(draft)
+        return drafts
     # The issues repository agents drafted, shown as cards in their chats (issue_drafts.py).
     if topic == "issue_drafts":
         return issue_drafts.list()
