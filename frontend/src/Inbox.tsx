@@ -155,7 +155,20 @@ export default function Inbox(props: { selected: string | null }) {
   const [anchor, setAnchor] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<{ ids: string[]; pending: number } | null>(null);
 
-  const draft = inbox.find((each) => each.id === props.selected);
+  const listed = inbox.find((each) => each.id === props.selected);
+  // The live feed leaves out the diff of a draft that can't go out any more (rejected, answered or sent,
+  // backend/app.py): the open one is read whole for it.
+  const done = listed !== undefined && listed.status !== "pending" && !(listed.status === "approved" && listed.sent === null);
+  const [whole, setWhole] = useState<Draft | null>(null);
+  useEffect(() => {
+    if (!done || props.selected === null) {
+      return;
+    }
+    api<Draft>(`/api/inbox/${props.selected}`)
+      .then(setWhole)
+      .catch(() => {});
+  }, [props.selected, done]);
+  const draft = listed !== undefined && done && whole !== null && whole.id === listed.id ? { ...listed, diff: whole.diff } : listed;
   const draftId = draft === undefined ? "" : draft.id;
   // What is being done to the open item, "" when nothing.
   const busy = busyIds[draftId] ?? "";

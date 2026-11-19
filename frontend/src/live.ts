@@ -469,7 +469,7 @@ export type Draft = {
   target: string | null;
   title: string;
   body: string;
-  diff: string;
+  diff: string; // "" in the live feed once it can't go out any more (rejected, answered or sent): GET /api/inbox/<id> has it
   branch: string;
   base: string;
   vm: string | null;
@@ -516,7 +516,7 @@ export type DraftCommit = {
   author: { name: string; email: string; date: string };
   own: boolean;
   vm_email: string;
-  diff: string;
+  diff: string; // "" in the live feed (never shown)
 };
 
 // A PR or comment Approve sent to GitHub from your account. PRs keep what following them up will need.
