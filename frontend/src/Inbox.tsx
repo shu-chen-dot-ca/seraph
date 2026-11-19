@@ -2,7 +2,8 @@
 The Inbox (on the GitHub tab, #/inbox): everything the agents want to send (PRs, comments, new commits for your open
 PRs), ask (questions) or report (a paper an agent reproduced, from the Workspace tab's Papers page), waiting for you. And one kind the app makes itself, Taken: an issue an agent has a job for
 isn't free anymore (someone else is on it now, github_searcher/agents.py issue_taken); you pick Keep working or Stop
-the agent (its job is cancelled).
+the agent (its job is cancelled). Not the blockers agents ask you to approve: those are on the Dashboard's Approvals page
+(Approvals.tsx).
 
 The page is the list, every item in one list, newest first; only the rows on screen are drawn. Pending ones are in
 bold, decided ones grayed out; they still open like any other.
@@ -168,8 +169,9 @@ export default function Inbox(props: { selected: string | null }) {
     agentNames[agent.id] = agent.name;
   }
 
-  const pendingCount = inbox.filter((each) => each.status === "pending").length;
-  const rows = inbox;
+  // Approvals (blockers agents asked you to lift) are on the Dashboard's Approvals page instead (Approvals.tsx).
+  const rows = inbox.filter((each) => each.kind !== "approval");
+  const pendingCount = rows.filter((each) => each.status === "pending").length;
 
   // Only items still in the list shown count as picked (another tab may have deleted some).
   const rowIds = rows.map((each) => each.id);

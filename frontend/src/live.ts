@@ -427,8 +427,11 @@ export type TestRun = {
 
 // What a draft is about, in plain words for the user (github_searcher/inbox.py). PRs have problem, cause, fix, risks,
 // checklist and also_tested; comments have problem and why. A report on a paper (draft_report) has paper, claims,
-// verdict, results, problems and unchecked.
+// verdict, results, problems and unchecked. An approval has kind (cla: an agreement to sign, or other) and link (the
+// page to read or act on, "" when none).
 export type DraftOverview = {
+  kind?: "cla" | "other";
+  link?: string;
   project?: string;
   problem?: string;
   cause?: string;
@@ -459,7 +462,7 @@ export type DraftStatus = "pending" | "approved" | "rejected" | "replied";
 
 export type Draft = {
   id: string;
-  kind: "pr" | "comment" | "question" | "taken" | "report" | "edit"; // taken: old, made by the app when an issue an agent worked on was taken (agents decide that themselves now); report: on a paper; edit: a new title and description for your own PR or issue
+  kind: "pr" | "comment" | "question" | "taken" | "report" | "edit" | "approval"; // taken: old, made by the app when an issue an agent worked on was taken (agents decide that themselves now); report: on a paper; edit: a new title and description for your own PR or issue; approval: a blocker only you can lift, on the Dashboard's Approvals page (not the Inbox)
   agent: string;
   job: string | null;
   repo: string | null;

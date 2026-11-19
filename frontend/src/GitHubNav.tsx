@@ -53,7 +53,7 @@ export default function GitHubNav(props: { page: string; section: string; repo: 
     };
   }, []);
 
-  const pending = inbox.filter((draft) => draft.status === "pending").length;
+  const pending = inbox.filter((draft) => draft.status === "pending" && draft.kind !== "approval").length;
   const unread = notifications.items.filter((item) => item.unread).length;
   const openPRs = prs.items.filter((pr) => pr.state === "open").length;
   const openIssues = prs.issues.filter((issue) => issue.state === "open").length;

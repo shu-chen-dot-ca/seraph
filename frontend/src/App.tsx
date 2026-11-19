@@ -174,7 +174,7 @@ export default function App() {
   // Only the names: App re-renders every page under it, and the VM list changes every second.
   const vmNamesText = useLiveValue((topics) => topics.vms.map((vm) => vm.name).join(" "));
   // Only the count, for the Home tab: drafts waiting in the Inbox for your decision.
-  const pending = useLiveValue((topics) => topics.inbox.filter((draft) => draft.status === "pending").length);
+  const pending = useLiveValue((topics) => topics.inbox.filter((draft) => draft.status === "pending" && draft.kind !== "approval").length);
   // Only the count, for the Home tab too: Workflow's reviewed pull requests waiting for your decision.
   const waiting = useLiveValue((topics) =>
     topics.workflow.reduce((count, each) => count + (each.decides === "you" ? Object.values(each.prs).filter((pr) => pr.state === "waiting").length : 0), 0),

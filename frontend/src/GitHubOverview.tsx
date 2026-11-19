@@ -55,7 +55,7 @@ export default function GitHubOverview() {
     agentNames[agent.id] = agent.name;
   }
 
-  const pending = inbox.filter((draft) => draft.status === "pending").sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const pending = inbox.filter((draft) => draft.status === "pending" && draft.kind !== "approval").sort((a, b) => a.created_at.localeCompare(b.created_at));
   const unread = notifications.items.filter((item) => item.unread);
   const failing = yourRepos.repos.filter((repo) => repo.checks === "failed");
   const repoRows = [...failing, ...yourRepos.repos.filter((repo) => repo.checks !== "failed")].slice(0, ROWS);

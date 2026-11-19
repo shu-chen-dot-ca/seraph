@@ -60,7 +60,7 @@ type Task = {
 const STEPS = ["Issue", "Agent", "Draft", "PR", "Merged"];
 const ACTIVE = ["queued", "working", "waiting_on_user", "waiting_on_maintainers"];
 const DRAFT_LABEL: Record<string, string> = { pending: "Waiting for you", approved: "Approved", rejected: "Rejected", replied: "Redrafting" };
-const KIND_LABEL: Record<string, string> = { pr: "PR", comment: "Comment", question: "Question", taken: "Taken" };
+const KIND_LABEL: Record<string, string> = { pr: "PR", comment: "Comment", question: "Question", taken: "Taken", approval: "Approval" };
 const CHECKS_TEXT: Record<string, string> = {
   waiting: "waiting for a maintainer to run the checks",
   running: "checks running",
@@ -463,7 +463,11 @@ export default function Tasks(props: { state: string; view: string; task: string
                 {selected.drafts.length === 0 && <div className="text-muted-foreground">No drafts.</div>}
                 <div className="rounded-md border empty:hidden">
                   {selected.drafts.map((draft) => (
-                    <a key={draft.id} href={`#/inbox/${draft.id}`} className="flex items-center gap-2 border-b px-3 py-1.5 last:border-b-0 hover:bg-accent/50">
+                    <a
+                      key={draft.id}
+                      href={`#/inbox/${draft.id}`}
+                      className="flex items-center gap-2 border-b px-3 py-1.5 last:border-b-0 hover:bg-accent/50"
+                    >
                       <StatusDot tone={DRAFT_TONE[draft.status] ?? "gray"} />
                       <span className="w-16 shrink-0 text-xs text-muted-foreground">{KIND_LABEL[draft.kind] ?? draft.kind}</span>
                       <span className="min-w-0 flex-1 truncate">{draft.title}</span>
