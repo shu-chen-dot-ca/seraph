@@ -75,6 +75,11 @@ class ArchiveRequest(BaseModel):
     archived: bool
 
 
+class PlanRequest(BaseModel):
+    names: list[str]
+    planned: bool
+
+
 class RefreshRequest(BaseModel):
     names: list[str]
 
@@ -138,6 +143,16 @@ def archive_repos(body: ArchiveRequest) -> dict:
     # Its issues on the Issues board's Open and Catalog go now, not after keep_tags' round.
     auto_remove_issues()
     return {"archived": repos.archived()}
+
+
+@router.post("/repos/plan")
+def plan_repos(body: PlanRequest) -> dict:
+    """Add to Planned (planned true) or Remove from Planned (false) on the Dashboard's Repository page: the repos you
+    want to contribute to. Repos not in the list are left out."""
+    listed = [item["full_name"] for item in repos.items()]
+    names = [name for name in body.names if name in listed]
+    repos.set_planned(names, body.planned)
+    return {"planned": repos.planned()}
 
 
 @router.get("/repos/issues")

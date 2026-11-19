@@ -5,7 +5,8 @@ list in its own file: RepoList("tracked.json").
 
 One JSON file, DATA_DIR/repos.json:
 
-    {"items": [RepoItem, ...], "undo": [[RepoItem, ...], ...], "redo": [[RepoItem, ...], ...], "archived": [full_name, ...]}
+    {"items": [RepoItem, ...], "undo": [[RepoItem, ...], ...], "redo": [[RepoItem, ...], ...], "archived": [full_name, ...],
+     "planned": [full_name, ...]}
 
     RepoItem = {"full_name", "description", "stars", "default_branch", "html_url",
                 "note", "added_by": "user" | "<agent id>", "added_at", "tag"?}
@@ -19,6 +20,8 @@ agent's change the same way as the user's: every change pushes a copy of the who
 
 archived is the repos the user deleted on the Dashboard's Repository page while it has pull requests (open, closed or merged) of
 theirs: they stay in the list and show in its Archived section (set_archived). Not an undo step.
+planned is the repos the user wants to contribute to, picked on that page (Add to Planned): its Planned section
+(set_planned). Not an undo step either.
 The backend keeps one RepoList that the API and every agent share, so each method takes the
 lock. version goes up by one on every change; the live feed compares it to see what to send.
 """
@@ -47,11 +50,12 @@ class RepoList:
         self.path = DATA_DIR / filename
         self.lock = threading.Lock()
         self.version = 0
-        self.data = {"items": [], "undo": [], "redo": [], "archived": []}
+        self.data = {"items": [], "undo": [], "redo": [], "archived": [], "planned": []}
         if self.path.exists():
             self.data = json.loads(self.path.read_text())
-            # Lists from before archived have none.
+            # Lists from before archived or planned have none.
             self.data.setdefault("archived", [])
+            self.data.setdefault("planned", [])
 
     def save(self) -> None:
         """Write the list to disk. Called with the lock held, after every change."""
@@ -64,6 +68,7 @@ class RepoList:
             "undo": self.data["undo"][-SAVED_STEPS:],
             "redo": self.data["redo"][-SAVED_STEPS:],
             "archived": self.data["archived"],
+            "planned": self.data["planned"],
         }
         temporary = self.path.with_name(self.path.name + ".tmp")
         temporary.write_text(json.dumps(saved))
@@ -82,6 +87,17 @@ class RepoList:
             self.data["archived"] = [name for name in self.data["archived"] if name not in full_names]
             if archived:
                 self.data["archived"] += full_names
+            self.save()
+
+    def planned(self) -> list[str]:
+        with self.lock:
+            return list(self.data["planned"])
+
+    def set_planned(self, full_names: list[str], planned: bool) -> None:
+        with self.lock:
+            self.data["planned"] = [name for name in self.data["planned"] if name not in full_names]
+            if planned:
+                self.data["planned"] += full_names
             self.save()
 
     def can_undo(self) -> bool:
