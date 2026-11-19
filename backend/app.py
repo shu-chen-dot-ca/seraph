@@ -11,7 +11,7 @@ topic_data() is each topic of the live feed below; Sherpa reads the pages' data 
 The browser never polls. It keeps one websocket open on /api/live, gets every
 topic when it connects, then only the topics that changed. Every store has a
 `version` number that goes up on each change, so finding the changes is a
-cheap comparison every 250 ms.
+cheap comparison every 250 ms. The big topics go at most every BIG_TOPIC_SECONDS, with all their changes since.
 
 The browser also says, on the same websocket, whether it shows a Resource page: {"watch_resource": true or false}.
 While none does, the NVIDIA GPU is never asked for its numbers, so it can sleep (sandbox/resource_usage.py).
@@ -42,6 +42,7 @@ import asyncio
 import json
 import os
 import threading
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -72,6 +73,10 @@ ALLOWED_HOSTS = LOCAL_HOSTS + ([REMOTE_DOMAIN] if REMOTE_DOMAIN != "" else [])
 THREADS = 64
 # The live feed ends for a browser that takes nothing for this long (feed).
 SEND_SECONDS = 30
+# The big topics (repos, issues, tracked, jobs, inbox, prs, agents) go to a browser at most this often (feed): while
+# GitHub is read again they change every second or two, one issue or PR at a time, and each change sent the whole
+# topic again (over 1 MB a second all day long, the page's memory grew until the computer ran out).
+BIG_TOPIC_SECONDS = 5
 # A new release's check before it goes live (module docstring).
 CHECK = os.environ.get("SERAPH_CHECK", "") == "1"
 
@@ -306,6 +311,8 @@ async def feed(websocket: WebSocket, watch: dict) -> None:
     """The live feed of one browser, until it goes away."""
     # The version of each topic this browser has; None until it is sent.
     sent = {"repos": None, "issues": None, "tracked": None, "explore": None, "github": None, "jobs": None, "inbox": None, "issue_drafts": None, "prs": None, "your_repos": None, "notifications": None, "agents": None, "vms": None, "images": None, "resource": None, "updates": None, "projects": None, "crashes": None, "problems": None, "workflow": None, "automation": None}
+    # When each big topic last went (time.monotonic()): again only BIG_TOPIC_SECONDS later, with every change since.
+    sent_at = {"repos": 0.0, "issues": 0.0, "tracked": 0.0, "jobs": 0.0, "inbox": 0.0, "prs": 0.0, "agents": 0.0}
     outside = remote_access.from_outside(websocket.headers)
     cookie = websocket.cookies.get(COOKIE)
     while True:
@@ -315,14 +322,18 @@ async def feed(websocket: WebSocket, watch: dict) -> None:
             return
         # The version is noted before the data is read: a change in between is sent again next tick, never lost.
         messages = []
-        if sent["repos"] != (repos.version, repo_signals.version):
+        now = time.monotonic()
+        if sent["repos"] != (repos.version, repo_signals.version) and now - sent_at["repos"] >= BIG_TOPIC_SECONDS:
             sent["repos"] = (repos.version, repo_signals.version)
+            sent_at["repos"] = now
             messages.append({"topic": "repos", "data": topic_data("repos")})
-        if sent["issues"] != (issues.version, issue_facts.version, issue_tags.version):
+        if sent["issues"] != (issues.version, issue_facts.version, issue_tags.version) and now - sent_at["issues"] >= BIG_TOPIC_SECONDS:
             sent["issues"] = (issues.version, issue_facts.version, issue_tags.version)
+            sent_at["issues"] = now
             messages.append({"topic": "issues", "data": topic_data("issues")})
-        if sent["tracked"] != (tracked.version, tracked_issues.version, issue_tags.version, repo_signals.version):
+        if sent["tracked"] != (tracked.version, tracked_issues.version, issue_tags.version, repo_signals.version) and now - sent_at["tracked"] >= BIG_TOPIC_SECONDS:
             sent["tracked"] = (tracked.version, tracked_issues.version, issue_tags.version, repo_signals.version)
+            sent_at["tracked"] = now
             messages.append({"topic": "tracked", "data": topic_data("tracked")})
         if sent["explore"] != explore.version:
             sent["explore"] = explore.version
@@ -331,17 +342,20 @@ async def feed(websocket: WebSocket, watch: dict) -> None:
         if sent["github"] != BALANCER.version:
             sent["github"] = BALANCER.version
             messages.append({"topic": "github", "data": topic_data("github")})
-        if sent["jobs"] != jobs.version:
+        if sent["jobs"] != jobs.version and now - sent_at["jobs"] >= BIG_TOPIC_SECONDS:
             sent["jobs"] = jobs.version
+            sent_at["jobs"] = now
             messages.append({"topic": "jobs", "data": topic_data("jobs")})
-        if sent["inbox"] != inbox.version:
+        if sent["inbox"] != inbox.version and now - sent_at["inbox"] >= BIG_TOPIC_SECONDS:
             sent["inbox"] = inbox.version
+            sent_at["inbox"] = now
             messages.append({"topic": "inbox", "data": topic_data("inbox")})
         if sent["issue_drafts"] != issue_drafts.version:
             sent["issue_drafts"] = issue_drafts.version
             messages.append({"topic": "issue_drafts", "data": topic_data("issue_drafts")})
-        if sent["prs"] != pr_tracking.version:
+        if sent["prs"] != pr_tracking.version and now - sent_at["prs"] >= BIG_TOPIC_SECONDS:
             sent["prs"] = pr_tracking.version
+            sent_at["prs"] = now
             messages.append({"topic": "prs", "data": topic_data("prs")})
         if sent["your_repos"] != your_repositories.version:
             sent["your_repos"] = your_repositories.version
@@ -349,8 +363,9 @@ async def feed(websocket: WebSocket, watch: dict) -> None:
         if sent["notifications"] != notifications.version:
             sent["notifications"] = notifications.version
             messages.append({"topic": "notifications", "data": topic_data("notifications")})
-        if sent["agents"] != agents.version:
+        if sent["agents"] != agents.version and now - sent_at["agents"] >= BIG_TOPIC_SECONDS:
             sent["agents"] = agents.version
+            sent_at["agents"] = now
             messages.append({"topic": "agents", "data": topic_data("agents")})
         if sent["vms"] != vms.version:
             sent["vms"] = vms.version
