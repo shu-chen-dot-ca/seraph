@@ -1,12 +1,8 @@
 /*
 The whole app: a 36px header, a left list and one page on the right.
 The header's left has two tabs, the open one in full color with the accent under it:
-- Dashboard, the first page you see, with its own left list (DashboardNav.tsx): Pull requests (your own, Open and Closed,
-  and Actions, what agents put on GitHub: PullRequests.tsx, plain), Issues (the Issues list as a board, IssueBoard.tsx), Repository (the Repos page's repos as
-  cards, RepositoryCards.tsx), Agents (every agent in a table, AgentList.tsx), Problems (what went wrong in how the app
-  made agents work, as they reported it: Problems.tsx), Automation (Seraph finds repos, works on them and archives the
-  ones that don't merge ours, by itself: Automation.tsx) and Virtual Machine (the VMs page and each
-  VM's page, the same pages as Home's).
+- Dashboard, the first page you see, with its own left list (DashboardNav.tsx): Repository (the Repos page's repos as
+  cards, RepositoryCards.tsx) and Virtual Machine (the VMs page and each VM's page, the same pages as Home's).
 - Home, the backup with every page, with one left list (Sidebar.tsx) in four parts: with one left list (Sidebar.tsx) in four parts:
   - the work: Explore, Repos, Tracked, Issues, Jobs, Agents, VMs and Resource;
   - GitHub (GitHubNav.tsx): Overview, Inbox, Notifications, Pull requests, Issues, Tasks, Account, Your repositories
@@ -22,7 +18,7 @@ The header's left has two tabs, the open one in full color with the accent under
 The VM pages (#/vms...) and the agents' chats (#/agents/<id>) are on both tabs: they stay on the tab they were opened
 from (a reload puts them on the Dashboard), so an agent opened anywhere on the Dashboard opens there.
 Every other page is on the tab its address says. Each tab goes back to the last page you had open under it (Dashboard
-starts at Pull requests, Home at Issues); a reload forgets that. On its right: Sign
+starts at Repository, Home at Issues); a reload forgets that. On its right: Sign
 in while you aren't signed in to GitHub (straight to GitHub's sign-in page once sign in is
 set up, else the Account page, which walks you through setting it up), or, signed in, your GitHub picture
 and @login, a link to Account (GitHub.tsx), where Sign out is. Before those, in the live copy: Update once a newer
@@ -31,7 +27,7 @@ found from git's origin remote (vite.config.ts), so no account name is written h
 (SettingsDialog), opened from the bottom of Home's left list.
 
 Phone mode, on a narrow screen (under 768px, a phone): no tabs and no left list. The header's left has Menu instead
-(with the same count as the Home tab) and the open page's name. Menu slides in both tabs' left lists, the Dashboard's
+(with the Home and Dashboard tabs' counts together) and the open page's name. Menu slides in both tabs' left lists, the Dashboard's
 on top of Home's. Picking a page closes it, and so does a tap beside it. The pages are the same as on a computer.
 
 The page lives in the URL hash, so refresh and back/forward work and switching pages never reloads:
@@ -54,8 +50,7 @@ The page lives in the URL hash, so refresh and back/forward work and switching p
          #/vm (PhoneVM.tsx)
   Workflow: #/workflow  #/workflow?repo=owner/name (Workflow.tsx; takes tab=pulls|issues|chat|settings (none: Overview),
          state=closed and open=<number>, that pull request or issue)
-  Dashboard: #/dashboard (= #/dashboard/pulls, takes state=closed|actions and open=owner/name%23n)  #/dashboard/issues  #/dashboard/repos
-         #/dashboard/agents (takes state=closed)  #/dashboard/problems (takes state=closed)  #/dashboard/automation (takes tab=activity|settings)
+  Dashboard: #/dashboard (= #/dashboard/repos)
 Anything else (also no hash at all) opens the Dashboard. Links are plain <a href="#/..."> everywhere; App only reads the hash.
 
 A VM page, once visited, stays mounted (hidden) while you are elsewhere, so its desktop iframe keeps its
@@ -67,11 +62,8 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import AgentChat from "@/AgentChat";
-import AgentList from "@/AgentList";
 import Agents from "@/Agents";
-import Automation from "@/Automation";
 import DashboardNav from "@/DashboardNav";
-import IssueBoard from "@/IssueBoard";
 import Explore from "@/Explore";
 import GitHub from "@/GitHub";
 import GitHubOverview from "@/GitHubOverview";
@@ -82,7 +74,6 @@ import Jobs from "@/Jobs";
 import Notifications from "@/Notifications";
 import Papers from "@/Papers";
 import PhoneVM from "@/PhoneVM";
-import Problems from "@/Problems";
 import PullRequests from "@/PullRequests";
 import Repos from "@/Repos";
 import Resource from "@/Resource";
@@ -158,7 +149,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   // The last address open under each header tab, where its tab goes back to.
   const [lastHome, setLastHome] = useState("#/issues");
-  const [lastDashboard, setLastDashboard] = useState("#/dashboard/pulls");
+  const [lastDashboard, setLastDashboard] = useState("#/dashboard/repos");
   // Whether the Dashboard tab is the open one. The VM pages are on both tabs, so the address alone can't say. The app
   // opens on the Dashboard; only Home's own pages open Home.
   const [onDashboard, setOnDashboard] = useState(() => {
@@ -244,11 +235,11 @@ export default function App() {
     pageName = id;
   }
   if (page === "dashboard") {
-    pageName = id === "repos" ? "Repository" : id === "issues" ? "Issues" : id === "agents" ? "Agents" : id === "automation" ? "Automation" : "Pull requests";
+    pageName = "Repository";
   }
 
   // Keep the address for its tab (setting state while rendering, like visitedVMs below). No hash at all is the Dashboard,
-  // kept as its Pull requests. Only a page of that tab counts: for a moment after a tab is clicked, the address is still
+  // kept as its Repository. Only a page of that tab counts: for a moment after a tab is clicked, the address is still
   // the other tab's.
   if (onHome && page !== "dashboard" && hash !== "" && hash !== lastHome) {
     setLastHome(hash);
@@ -461,23 +452,7 @@ export default function App() {
                 open={query.get("open")}
               />
             )}
-            {page === "dashboard" && (id === null || id === "pulls") && (
-              <PullRequests
-                state={query.get("state") === "closed" ? "closed" : query.get("state") === "actions" ? "actions" : "open"}
-                view="created"
-                visibility="all"
-                repo={null}
-                sort="created-desc"
-                open={query.get("open")}
-                base="#/dashboard/pulls"
-                plain={true}
-              />
-            )}
-            {page === "dashboard" && id === "issues" && <IssueBoard />}
-            {page === "dashboard" && id === "repos" && <RepositoryCards />}
-            {page === "dashboard" && id === "agents" && <AgentList state={query.get("state") === "closed" ? "closed" : "open"} />}
-            {page === "dashboard" && id === "problems" && <Problems state={query.get("state") === "closed" ? "closed" : "open"} />}
-            {page === "dashboard" && id === "automation" && <Automation tab={query.get("tab") === "activity" ? "activity" : query.get("tab") === "settings" ? "settings" : "repos"} />}
+            {page === "dashboard" && <RepositoryCards />}
             {page === "pulls" && (
               <PullRequests
                 key={query.get("view") ?? "created"}
