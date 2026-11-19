@@ -5,8 +5,11 @@ private repos are there too; never the search tokens. Nothing is kept here: each
 read(your_repositories, view) searches GitHub for one of GitHub's own views (VIEWS): created (you opened it), assigned
 (it is assigned to you), mentioned (it mentions you) and review-requested (it asks you for a review). PRs in archived
 repos are left out, like on GitHub. Open and closed (merged too) are searched one after the other, the most recently
-updated first, at most MAX_PAGES pages of 100 each, so every open one is there even when there are many closed ones.
-The page filters them (visibility, repository) and sorts them itself.
+updated first, at most MAX_ITEMS of each, so every open one is there even when there are many closed ones. GitHub
+gives up on a search after about 10 seconds (502), and the review decision is its slow part: 100 closed PRs with it
+never came back (11-16), and 100 without it took 9 of those 10. So the pages are small (PAGES): open ones, where the
+page shows it, with it, and closed ones (review "none") without it. The page filters them (visibility, repository)
+and sorts them itself.
 
     {"items": [{"id": "owner/name#n", "repo", "private", "number", "title", "url", "state": "open" | "closed" | "merged",
                 "draft", "author", "created_at", "updated_at", "closed_at", "labels": [{"name", "color"}], "comments",
@@ -22,16 +25,18 @@ from github_searcher.pr_tracking import ROLLUP
 
 # Each view, and GitHub's search word for it.
 VIEWS = {"created": "author", "assigned": "assignee", "mentioned": "mentions", "review-requested": "review-requested"}
-MAX_PAGES = 5
+MAX_ITEMS = 500
+# Each state's page size, and whether its review decision is read (see above).
+PAGES = {"open": {"first": 25, "review": True}, "closed": {"first": 50, "review": False}}
 
 SEARCH_QUERY = """
-query($query: String!, $after: String) {
-  search(query: $query, type: ISSUE, first: 100, after: $after) {
+query($query: String!, $after: String, $first: Int!, $review: Boolean!) {
+  search(query: $query, type: ISSUE, first: $first, after: $after) {
     issueCount
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
-        number title url state isDraft createdAt updatedAt closedAt reviewDecision author { login }
+        number title url state isDraft createdAt updatedAt closedAt reviewDecision @include(if: $review) author { login }
         changedFiles additions deletions
         repository { nameWithOwner isPrivate }
         labels(first: 10) { nodes { name color } }
@@ -57,8 +62,10 @@ def read(your_repositories, view: str) -> dict:
     for state in ["open", "closed"]:
         query = f"is:pr is:{state} {VIEWS[view]}:{login} archived:false sort:updated-desc"
         after = None
-        for _ in range(MAX_PAGES):
-            search = your_repositories.graphql(SEARCH_QUERY, {"query": query, "after": after})["search"]
+        first = PAGES[state]["first"]
+        for _ in range(MAX_ITEMS // first):
+            variables = {"query": query, "after": after, "first": first, "review": PAGES[state]["review"]}
+            search = your_repositories.graphql(SEARCH_QUERY, variables)["search"]
             counts[state] = search["issueCount"]
             nodes.extend(search["nodes"])
             if not search["pageInfo"]["hasNextPage"]:
@@ -87,7 +94,7 @@ def read(your_repositories, view: str) -> dict:
             "closed_at": node["closedAt"],
             "labels": [{"name": label["name"], "color": label["color"]} for label in node["labels"]["nodes"]],
             "comments": node["comments"]["totalCount"],
-            "review": (node["reviewDecision"] or "none").lower(),
+            "review": (node.get("reviewDecision") or "none").lower(),
             "checks": checks,
             "files": node["changedFiles"],
             "additions": node["additions"],
