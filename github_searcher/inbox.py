@@ -7,7 +7,7 @@ Approving tells the agent. With the user's GitHub account connected (the GitHub 
 Approve on a PR or comment also sends it to GitHub as them, first; "sent" then says what went out
 (mark_sent). Each draft is one JSON file, DATA_DIR/inbox/<id>.json:
 
-    {"id": "draft_a1b2c3", "kind": "pr" | "comment" | "question" | "report" | "edit" | "taken" (old) | ..., "agent": "<agent id>",
+    {"id": "draft_a1b2c3", "kind": "pr" | "comment" | "question" | "report" | "edit" | "approval" | "taken" (old) | ..., "agent": "<agent id>",
      "job": "job_..." | null, "repo": "owner/name" | null, "target": "owner/name#n" | null,
      "title", "body": "markdown",
      "diff": "unified diff (pr only)", "branch": "branch in the VM (pr only)", "base": "origin/main (pr only)",
@@ -78,6 +78,14 @@ it, or the text no longer matches the PR; work_tools.py draft_edit): "target" is
 "previous" the text as it was when drafted, "diff" the change between them (one part for the title, one for the
 description), and "overview" {"project", "problem", "why"} like a comment's. Approve changes them on GitHub, only while
 they are still "previous" (github_account.py).
+
+"approval" is a blocker only the user can lift, on the Dashboard's Approvals page (frontend/src/Approvals.tsx; work_tools.py
+ask_approval), not in the Inbox: a CLA or another agreement to sign, something to do by hand, an account, a payment,
+a secret. "title" says what needs approving, "body" what it means and what happens on Approve and on Reject, and
+"overview" is {"kind": "cla" | "other", "link": the page to read or act on, or ""}. Approve lets the agent go on (a CLA:
+it signs it the way the project asks), Reject makes it give the job up (Agents.decide). Nothing is sent anywhere, and no
+Level of automation decides one: only the user does. The user's decision on a repo's CLA goes to every request to sign
+it that still waits.
 
 A comment with "reply_to" is an answer inside one of a PR's conversations on lines of code, below that conversation's
 first comment (GitHub takes no replies to replies), instead of below the PR. With "resolve" too, Approve marks that

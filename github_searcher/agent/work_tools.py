@@ -103,8 +103,11 @@ The GitHub tools (github_tools.py) only read GitHub; these change what the user 
 - report_problem puts what went wrong in how the app made the agent work (a rule or tool that led it the wrong way,
   something a maintainer or the user had to correct) on the Dashboard's Problems list (problems.py), for the user to
   fix all at one time. Nobody answers it.
-- Questions: agents ask the user nothing (there is no tool for it). They decide themselves, and give a job up when it
-  can only go on with something only the user could do, or they aren't sure (prompt.md, Nothing waits on the user).
+- Questions: agents ask the user nothing (there is no tool for it); every choice is theirs. A blocker only the user can
+  lift (a CLA to sign, something to do by hand, an account, a payment, a secret) goes to the Dashboard's Approvals page
+  with ask_approval (inbox.py "approval"), and its job waits there until the user decides: approved, the agent goes on;
+  rejected, it gives the job up (prompt.md, Approvals). A repo's CLA is asked once: a decision on it answers the next
+  job's request at once.
 - Projects: on one of the user's own repositories that agents develop all the time (github_searcher/projects.py), the
   rules are the repo's own files, so draft_pr and run_tests don't wait for contributing_guide or pr_examples; a PR's
   title must be a Conventional Commit. A fix_issue job with a thread there makes that PR again on the new main: its
@@ -730,6 +733,34 @@ class WorkTools:
                 },
             )(self.report_problem),
             tool(
+                "ask_approval",
+                "Ask the user to approve a blocker only they can lift, on the Dashboard's Approvals page: a CLA or another "
+                "agreement the project needs signed (kind cla), or something else only the user can give or allow (kind "
+                "other): something done by hand on GitHub or elsewhere, logging in to or paying for a service, a secret or an "
+                "account nobody gave you, special hardware. Never for a choice you can make yourself, and never for what a rule "
+                "here forbids. Ask as early as you can: at understand, before the claim, the VM and the work. job_id is the "
+                "job it holds up; it waits on the user until they decide, and you get a message with the decision: approved, "
+                "do what you asked for and go on; rejected, give the job up. title: what needs approving, a few plain words "
+                "(\"Sign kimai's Contributor License Agreement\"). body: for someone who doesn't know the project: what it is "
+                "and why the job needs it; for an agreement, what it makes the user agree to in plain words (whose it is, a "
+                "license or a transfer of the copyright, whether they may relicense or sell the code, the law it falls under, "
+                "any personal details it asks for); what you do on Approve (how it gets signed: the bot's sign line, a PR to "
+                "a contributors file, a license line in the PR) and that you give the job up on Reject. Where only a web page "
+                "signed in as the user can sign it (cla-assistant.io, EasyCLA), say that approving means they sign it there "
+                "themselves. link: the page to read or act on (the agreement, its sign page).",
+                {
+                    "type": "object",
+                    "properties": {
+                        "job_id": {"type": "string"},
+                        "kind": {"type": "string", "enum": ["cla", "other"]},
+                        "title": {"type": "string"},
+                        "body": {"type": "string"},
+                        "link": {"type": "string"},
+                    },
+                    "required": ["job_id", "kind", "title", "body"],
+                },
+            )(self.ask_approval),
+            tool(
                 "paper_read",
                 "Read the paper of one of your reproduce_paper jobs: its pages as pictures (formulas, tables and figures as "
                 f"printed), then their text. pages: one page ('3') or a range ('1-5'), at most {PAPER_PAGES} at a time. The "
@@ -1170,6 +1201,8 @@ class WorkTools:
             return f"Taking back the commits of {args.get('pr')} after {(args.get('back_to') or '')[:10]}"
         if name == "report_problem":
             return "Reporting a problem: " + (args.get("text") or "").split("\n")[0][:120]
+        if name == "ask_approval":
+            return "Asking for approval: " + (args.get("title") or "")[:120]
         if name == "paper_read":
             return f"Reading the paper, pages {args.get('pages')}"
         if name == "draft_report":
@@ -2693,6 +2726,70 @@ class WorkTools:
                 job_id = job["id"]
         item = await asyncio.to_thread(self.agents.problems.add, self.agent_id, job_id, about, text)
         text = f"Reported as {item['id']} on the Dashboard's Problems list; the user fixes them all at one time. Go on with your work."
+        return {"content": [{"type": "text", "text": text}]}
+
+    async def ask_approval(self, args: dict) -> dict:
+        try:
+            job = self.agents.jobs.get(args["job_id"])
+        except KeyError:
+            return {"content": [{"type": "text", "text": f"No job {args['job_id']}."}], "is_error": True}
+        if job["agent"] != self.agent_id:
+            return {"content": [{"type": "text", "text": f"{job['id']} is not your job."}], "is_error": True}
+        if job["status"] in CLOSED_STATUSES:
+            text = f"{job['id']} is {job['status']} (the user may have cancelled it): nothing to approve for it anymore. Move on."
+            return {"content": [{"type": "text", "text": text}], "is_error": True}
+        kind = (args.get("kind") or "").strip()
+        if kind not in ["cla", "other"]:
+            return {"content": [{"type": "text", "text": "kind is cla (an agreement to sign) or other."}], "is_error": True}
+        if kind == "cla" and job["repo"] is None:
+            return {"content": [{"type": "text", "text": f"A CLA belongs to a repo, and {job['id']} has none: use kind other."}], "is_error": True}
+        title = " ".join((args.get("title") or "").split())
+        body = (args.get("body") or "").strip()
+        link = (args.get("link") or "").strip()
+        if not title or not body:
+            return {"content": [{"type": "text", "text": "Give title (what needs approving) and body (what it means, and what happens on Approve and on Reject)."}], "is_error": True}
+        if len(title) > 120:
+            text = f"title is {len(title)} characters; keep it under 120: a few plain words. The body says the rest."
+            return {"content": [{"type": "text", "text": text}], "is_error": True}
+        if link and not link.startswith("https://"):
+            return {"content": [{"type": "text", "text": "link must be a https:// address."}], "is_error": True}
+        found = EMOJI.findall(" ".join([title, body]))
+        if found:
+            return {"content": [{"type": "text", "text": NO_EMOJI + " ".join(sorted(set(found)))}], "is_error": True}
+        for each in self.agents.inbox.list():
+            if each["kind"] != "approval" or each["status"] not in ["approved", "rejected"]:
+                continue
+            if each["job"] == job["id"] and each["title"] == title:
+                text = f"The user {each['status']} this for {job['id']} already ({each['id']}): no new request. Go on as that decision says."
+                return {"content": [{"type": "text", "text": text}], "is_error": True}
+            # A repo's CLA is decided once (Agents.decide gives the decision to every request still waiting).
+            if kind != "cla" or each["overview"].get("kind") != "cla" or (each["repo"] or "").lower() != (job["repo"] or "").lower():
+                continue
+            note = ""
+            if each["reply"]:
+                note = f" Their note: {each['reply']}"
+            if each["status"] == "approved":
+                text = (
+                    f"The user approved {job['repo']}'s CLA already ({each['id']}, {each['decided_at'][:10]}).{note} No new request: "
+                    "go on with the job, and sign it the way the project asks when its bot asks (unless its bot says signed already)."
+                )
+            else:
+                text = (
+                    f"The user rejected {job['repo']}'s CLA ({each['id']}, {each['decided_at'][:10]}).{note} No new request: give "
+                    f"{job['id']} up at once (prompt: Approvals)."
+                )
+            return {"content": [{"type": "text", "text": text}], "is_error": True}
+
+        target = job["thread"] or job["issue"]
+        draft = self.agents.inbox.create(
+            "approval", self.agent_id, title, body, job=job["id"], repo=job["repo"], target=target, overview={"kind": kind, "link": link}
+        )
+        self.agents.jobs.update(job["id"], status="waiting_on_user", drafts=job["drafts"] + [draft["id"]])
+        text = (
+            f"{draft['id']} is on the user's Approvals page. Nothing was done or sent. {job['id']} waits on the user until they "
+            "decide, and you'll get a message with their decision. Don't go on with it meanwhile: release_vm if you hold a "
+            "desktop for nothing else, and move on to your next job."
+        )
         return {"content": [{"type": "text", "text": text}]}
 
     async def paper_read(self, args: dict) -> dict:

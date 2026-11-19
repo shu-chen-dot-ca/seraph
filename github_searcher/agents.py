@@ -2029,7 +2029,7 @@ class Agents:
         if job is not None and job["status"] == "waiting_on_user" and not claim and not others:
             job = self.jobs.update(job["id"], status="queued")
 
-        kinds = {"pr": "PR", "comment": "comment", "question": "question", "report": "report", "edit": "title and description"}
+        kinds = {"pr": "PR", "comment": "comment", "question": "question", "report": "report", "edit": "title and description", "approval": "approval request"}
         about = f"your {kinds.get(draft['kind'], draft['kind'])} draft {draft_id} ({draft['title']})"
         job_name = job["id"] if job is not None else "your work"
         # Approve sends a PR or comment first when the user's GitHub account is connected (inbox_api.py): then it is on GitHub.
@@ -2086,6 +2086,26 @@ class Agents:
             text = f"The user approved {about}. They post it themselves. Carry on with {job_name}."
         elif decision == "approved" and draft["kind"] == "report":
             text = f"The user approved {about}. It finishes {job_name}: mark the job done with job_update."
+        elif decision == "approved" and draft["kind"] == "approval":
+            # A blocker only the user could lift (work_tools.py ask_approval): the agent goes on and does what it asked for.
+            text = f"The user approved {about}."
+            if reply:
+                text += f" Their note: {reply}"
+            text += (
+                f" Do what you asked approval for, and carry on with {job_name}. A CLA: sign it the way the project asks, from "
+                "the user's account, through your drafts (the bot's sign line as a draft_comment on the PR once its bot asks, a "
+                "PR adding the user to its contributors file, or the license line in the PR's text), then check its bot says "
+                "signed. One only a sign page can sign (cla-assistant.io) the user signed there themselves: its bot updates the check."
+            )
+        elif decision == "rejected" and draft["kind"] == "approval":
+            text = f"The user rejected {about}."
+            if reply:
+                text += f" Their note: {reply}"
+            text += (
+                f" Give {job_name} up (prompt: Approvals): no PR yet, cancel it with job_update and take back a claim you "
+                "posted (delete_comment); a PR of ours open, close_pr with a short polite comment, then mark the job done. A "
+                "blocker the whole repo has (its CLA) also repos_remove's the repo."
+            )
         elif decision == "approved":
             text = f"The user approved {about}. Carry on with {job_name}."
         elif decision == "rejected" and claim:
@@ -2138,6 +2158,17 @@ class Agents:
                 "decided (you hear it then). Go on with your other jobs."
             )
         self.notify(draft["agent"], text)
+        # A repo's CLA is signed once: the same decision goes to the other jobs' requests to sign it, still waiting.
+        if draft["kind"] == "approval" and draft["overview"].get("kind") == "cla" and decision in ["approved", "rejected"]:
+            for other in self.inbox.list():
+                if other["kind"] != "approval" or other["status"] != "pending" or other["overview"].get("kind") != "cla":
+                    continue
+                if (other["repo"] or "").lower() != (draft["repo"] or "").lower():
+                    continue
+                try:
+                    self.decide(other["id"], decision, reply)
+                except (KeyError, ValueError):
+                    pass  # Decided in the meantime.
         return draft
 
     def on_grant(self, vm_name: str, agent_id: str) -> None:
@@ -2252,8 +2283,8 @@ class Agents:
                 text = (
                     f"Heartbeat: you have open jobs and nothing is running: {titles}. Carry on with them now, from where you "
                     "left off (queue_for_vm when you need the VM). Don't stop or wait without a reason. When one is truly "
-                    "blocked on something only the user could give, or can't be done, give it up: cancel it "
-                    "with job_update and say why. A blocker in the app you reported may be fixed by now: try again first."
+                    "blocked on something only the user could give or allow, ask_approval; when it can't be done, give it up: "
+                    "cancel it with job_update and say why. A blocker in the app you reported may be fixed by now: try again first."
                 )
                 self.pending[agent.id].append({"from": "System", "text": text, "shown": False})
                 self.wake[agent.id].set()

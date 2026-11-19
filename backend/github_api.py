@@ -23,8 +23,8 @@ What each open PR of yours needs from us (the Issues board's Needs action, else 
 PRS_CHECK_SECONDS (pr_tracking.update_actions): by rules, and by Claude (judge_prs), which reads a PR again, JUDGE_BATCH
 at a time, when it changed on GitHub or a job on it ended since it last did, never while a job on it is open. One that
 needs action, as Claude last read it, with no job open on it, goes to its agent as a follow_up job saying what it needs
-(never for a draft you approved and only have to send). Every need is the agent's, never yours: it settles a CLA too
-(Nothing waits on the user in agent/prompt.md). Once that job ended, the PR waits for others until something really
+(never for a draft you approved and only have to send). Every need is the agent's: a CLA too, which it asks you to
+approve on the Dashboard's Approvals page first and then signs (Approvals in agent/prompt.md). Once that job ended, the PR waits for others until something really
 changes on it (pr_tracking's action state: a commit, checks, a conflict, the draft state, labels, someone else's comment
 or review, a comment on an issue it fixes), so Needs action only has PRs an agent works on, and a job that ended finding
 nothing we can do isn't given the same need again for nothing. Agents work in the Issues board's order:
@@ -1003,8 +1003,8 @@ async def keep_prs() -> None:
                     reason += f" ({action['detail']})"
                 if "CLA not signed" in action["reasons"]:
                     reason += (
-                        ". The user signs nothing: settle the CLA as Nothing waits on the user says (no blocker when it is "
-                        "signed or on its way, or the project merges the user's PRs with it pending; else close the PR)"
+                        ". Settle the CLA as Approvals says: no blocker when it is signed or on its way, or the project "
+                        "merges the user's PRs with it pending; else ask_approval with kind cla, and sign it once approved"
                     )
                 if tries > 0:
                     reason += ". Your last job on it ended without settling this, and something changed on it since"

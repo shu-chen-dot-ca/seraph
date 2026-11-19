@@ -1,7 +1,8 @@
 """The Inbox: the user decides on the agents' drafts (PRs, comments, questions), and on the app's old questions from when
 an issue an agent works on got taken (approve: keep working, reject: stop the agent; new ones aren't made: the agent
 decides that itself now, github_searcher/agents.py issue_taken). An answer to a question is the user's (answered_by
-"user"); a timed one nobody answers in time the app answers itself (Agents.answer_questions).
+"user"); a timed one nobody answers in time the app answers itself (Agents.answer_questions). The blockers agents ask
+you to approve (kind "approval", a CLA to sign and the like) are decided here too, from the Dashboard's Approvals page.
 
 Approving tells the agent. Only with send (the Inbox asks "are you sure?" first, and only when your
 GitHub account is connected: the GitHub tab, Account) does Approve on a PR or comment send it to GitHub as you,
