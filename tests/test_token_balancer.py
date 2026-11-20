@@ -256,6 +256,21 @@ def test_rate_limited_request_goes_again_with_the_next_token(balancer, github):
     assert balancer.tokens[1]["kinds"]["search"]["running"] == 0
 
 
+def test_token_github_no_longer_takes_is_left_out_for_every_kind(balancer, github):
+    # GITHUB_TOKEN, 2026-11-20: revoked, it answered 401 with no quota, so it looked the fullest and took every GraphQL
+    # read while the other tokens waited. Now the request goes again with the next token and it is left out for an hour.
+    github.answers.append((401, {}, '{"message": "Bad credentials"}'))
+    github.answers.append((200, {}, '{"data": {}}'))
+
+    response = balancer.request("POST", "https://api.github.com/graphql", json={"query": "{ viewer { login } }"})
+
+    assert response.status_code == 200
+    assert [sent["headers"]["Authorization"] for sent in github.sent] == ["Bearer token-one", "Bearer token-two"]
+    for kind in ["core", "graphql", "search", "code_search"]:
+        assert balancer.tokens[0]["kinds"][kind]["paused_until"] > time.monotonic() + 50 * 60
+    assert balancer.tokens[0]["kinds"]["graphql"]["running"] == 0
+
+
 def test_request_that_fails_frees_its_place(balancer, github):
     github.fails = True
 

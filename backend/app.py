@@ -26,7 +26,9 @@ The page itself comes from Vite in the dev copy (./run.sh). The live copy (deplo
 built page (frontend/dist) from here, at /, so it needs no Vite.
 
 Every exception nobody caught (in a request, a background task on the event loop, or a thread) is reported to the app's
-own errors (github_searcher/crashes.py).
+own errors (github_searcher/crashes.py). A background keeper that fails starts again a minute later (keep_alive), so the
+app carries on by itself after the internet comes back; at start it waits for its secrets the same way
+(github_searcher/secret_vault.py).
 
 SERAPH_CHECK=1 in .env is the check a new release gets before it goes live (github_searcher/updates.py): it runs on a
 copy of data/, and nothing in the background starts (no agents, no keepers), so it never acts on anything; it only
@@ -73,8 +75,26 @@ SEND_SECONDS = 30
 BIG_TOPIC_SECONDS = 5
 # How much of a finished job's notes the jobs topic carries (the agent chat shows three lines of them).
 FINISHED_NOTES_CHARS = 400
+# A background keeper that failed starts again this much later (keep_alive).
+KEEPER_RETRY_SECONDS = 60
 # A new release's check before it goes live (module docstring).
 CHECK = os.environ.get("SERAPH_CHECK", "") == "1"
+
+
+async def keep_alive(keeper) -> None:
+    """Runs one of the background keepers (the list in lifespan) as long as the backend runs. One that fails with an
+    error it doesn't handle itself (the internet down after a power cut, GitHub or Claude not answering) is one of the
+    app's errors, and starts again KEEPER_RETRY_SECONDS later instead of staying stopped until the next restart. One that
+    ends by itself (keep_updates in the dev copy) stays ended."""
+    while True:
+        try:
+            await keeper()
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            crashes.add("backend", f"{keeper.__name__} stopped: {type(error).__name__}: {error}", traceback.format_exc())
+        await asyncio.sleep(KEEPER_RETRY_SECONDS)
 
 
 @asynccontextmanager
@@ -114,24 +134,24 @@ async def lifespan(app: FastAPI):
     keepers = [
         # What is left of every GitHub quota, so Explore's first run knows how many workers it may have.
         asyncio.create_task(asyncio.to_thread(BALANCER.prime)),
-        asyncio.create_task(issues_api.keep_facts()),
-        asyncio.create_task(issues_api.keep_tags()),
-        asyncio.create_task(issues_api.keep_new_tags()),
-        asyncio.create_task(repo_automation_api.keep_adding()),
-        asyncio.create_task(repo_automation_api.keep_catalog()),
-        asyncio.create_task(repo_automation_api.keep_drafts()),
-        asyncio.create_task(automation_api.keep_automation()),
-        asyncio.create_task(issues_api.keep_catalog_agents()),
-        asyncio.create_task(issues_api.keep_stale_prs()),
-        asyncio.create_task(repos_api.keep_signals()),
-        asyncio.create_task(github_api.keep_prs()),
-        asyncio.create_task(github_api.keep_branches_clean()),
-        asyncio.create_task(github_api.keep_forks_trimmed()),
-        asyncio.create_task(github_api.keep_assignments_released()),
-        asyncio.create_task(github_api.keep_profile_readme()),
-        asyncio.create_task(github_api.keep_your_repositories()),
-        asyncio.create_task(updates_api.keep_updates()),
-        asyncio.create_task(problem_fixes_api.keep_problem_fixes()),
+        asyncio.create_task(keep_alive(issues_api.keep_facts)),
+        asyncio.create_task(keep_alive(issues_api.keep_tags)),
+        asyncio.create_task(keep_alive(issues_api.keep_new_tags)),
+        asyncio.create_task(keep_alive(repo_automation_api.keep_adding)),
+        asyncio.create_task(keep_alive(repo_automation_api.keep_catalog)),
+        asyncio.create_task(keep_alive(repo_automation_api.keep_drafts)),
+        asyncio.create_task(keep_alive(automation_api.keep_automation)),
+        asyncio.create_task(keep_alive(issues_api.keep_catalog_agents)),
+        asyncio.create_task(keep_alive(issues_api.keep_stale_prs)),
+        asyncio.create_task(keep_alive(repos_api.keep_signals)),
+        asyncio.create_task(keep_alive(github_api.keep_prs)),
+        asyncio.create_task(keep_alive(github_api.keep_branches_clean)),
+        asyncio.create_task(keep_alive(github_api.keep_forks_trimmed)),
+        asyncio.create_task(keep_alive(github_api.keep_assignments_released)),
+        asyncio.create_task(keep_alive(github_api.keep_profile_readme)),
+        asyncio.create_task(keep_alive(github_api.keep_your_repositories)),
+        asyncio.create_task(keep_alive(updates_api.keep_updates)),
+        asyncio.create_task(keep_alive(problem_fixes_api.keep_problem_fixes)),
     ]
     yield
     explore.save_for_restart()

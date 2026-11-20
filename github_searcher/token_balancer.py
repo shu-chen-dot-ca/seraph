@@ -18,7 +18,9 @@ So for every request this:
    requests of that kind running, and at least GAP[kind] seconds after its last one of that kind.
    Of those it takes the one with the most quota left;
 2. on a rate-limit answer pauses that token for that kind (Retry-After, else until its quota
-   resets, else PAUSE seconds) and sends the request again with the next token that may go;
+   resets, else PAUSE seconds) and sends the request again with the next token that may go. A token GitHub no longer
+   takes (401 Bad credentials: revoked or expired) is left out for every kind for BAD_TOKEN_PAUSE the same way, so the
+   others carry on; it is tried again after that, in case it is back;
 3. gives up when that would take more than MAX_WAIT seconds, with a 429 answer that says when a
    token is free again, so callers handle it like any other GitHub error.
 
@@ -61,6 +63,8 @@ RUNNING = {"core": 4, "graphql": 2, "search": 1, "code_search": 1}
 GAP = {"core": 0, "graphql": 0, "search": 2, "code_search": 6}
 # A secondary limit without Retry-After: GitHub asks to wait at least a minute.
 PAUSE = 60
+# A token GitHub answers 401 for is left out this long, then tried again.
+BAD_TOKEN_PAUSE = 60 * 60
 MAX_WAIT = 120
 
 
@@ -129,7 +133,7 @@ class TokenBalancer:
                 raise
             if not self.done(token, kind, response):
                 return response
-            print(f"[github] {token['name']} hit a {kind} rate limit, trying again")
+            print(f"[github] {token['name']} can't send {kind} requests now, trying again with the next token")
 
     def take(self, kind: str, deadline: float) -> dict | float:
         """Wait for a token that may send a request of this kind now, and count it as running.
@@ -188,7 +192,8 @@ class TokenBalancer:
                 self.condition.wait(wait)
 
     def done(self, token: dict, kind: str, response: httpx.Response | None) -> bool:
-        """A request ended: note what GitHub says is left. Returns whether it was rate limited (then the token is paused)."""
+        """A request ended: note what GitHub says is left. Returns whether to send it again with another token: it was rate
+        limited, or the token no longer works (then the token is paused)."""
         with self.condition:
             state = token["kinds"][kind]
             state["running"] -= 1
@@ -207,6 +212,14 @@ class TokenBalancer:
                 state["limit"] = int(limit)
             if reset.isdigit():
                 state["reset_at"] = now + max(0, int(reset) - time.time())
+
+            # Revoked or expired. It sends no quota, so it looked the fullest and took every request (GITHUB_TOKEN,
+            # 2026-11-20: every GraphQL read failed with Bad credentials while three good tokens waited).
+            if response.status_code == 401:
+                for each in token["kinds"].values():
+                    each["paused_until"] = now + BAD_TOKEN_PAUSE
+                print(f"[github] {token['name']} doesn't work any more (GitHub answered 401: Bad credentials). Left out for an hour; replace it.")
+                return True
 
             retry_after = response.headers.get("retry-after", "")
             limited = False

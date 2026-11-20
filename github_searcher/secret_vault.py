@@ -15,8 +15,9 @@ should be an IAM user's that may only use secrets named seraph/* (docs/security.
 
 At import, with AWS, the secret is read once. The search tokens and the Claude login go into os.environ, in memory only:
 token_balancer.py reads them there (it imports this first), and the agents' Claude Code gets them from it. VALUES keeps
-all of them, for github_account.py. When AWS or the keyring can't be reached, the app doesn't start, with why: nothing
-falls back to disk.
+all of them, for github_account.py. When AWS or the keyring can't be reached (no internet yet after a reboot or a power
+cut, the keyring still locked until you log in), the app waits: it says why and asks again every RETRY_SECONDS until
+both answer, then starts. Nothing falls back to disk.
 
 move() moves what is on this computer to AWS: it adds it to the secret, reads the secret back to check it, keeps the
 access key in the keyring, and only then removes it from .env and the two files (.env keeps a comment where they were).
@@ -30,6 +31,7 @@ github_account.py). One change at a time is enough: they come from your own clic
 import json
 import os
 import subprocess
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -50,6 +52,8 @@ SECRET_NAME = "seraph/secrets"
 KEYRING_ITEM = ["app", "seraph", "key", "aws"]
 # Written in .env where the secrets were.
 ENV_NOTE = "# GITHUB_TOKEN, GITHUB_TOKEN_2, ... and CLAUDE_CODE_OAUTH_TOKEN are in AWS Secrets Manager (Settings → Secrets)."
+# How long the app waits before asking the keyring or AWS again, when either can't be reached at start.
+RETRY_SECONDS = 15
 
 # None: on this computer.
 SETTINGS = None
@@ -58,23 +62,30 @@ VALUES = {}
 # The tests never read the vault (tests/conftest.py sets SERAPH_TESTS=1): they run as on a computer without one.
 if SETTINGS_PATH.is_file() and os.environ.get("SERAPH_TESTS") != "1":
     SETTINGS = json.loads(SETTINGS_PATH.read_text())
-    lookup = subprocess.run(["secret-tool", "lookup", *KEYRING_ITEM], capture_output=True, text=True)
-    if lookup.returncode != 0 or lookup.stdout.strip() == "":
-        raise RuntimeError(
-            "Can't reach the vault: the AWS access key isn't in the system keyring, or the keyring is locked. "
-            "Log in to the desktop (it unlocks the keyring), then start Seraph again."
+    # Until both answer: the app can do nothing without its secrets, so it waits (module docstring).
+    while True:
+        lookup = subprocess.run(["secret-tool", "lookup", *KEYRING_ITEM], capture_output=True, text=True)
+        if lookup.returncode != 0 or lookup.stdout.strip() == "":
+            print(
+                "Can't reach the vault: the AWS access key isn't in the system keyring, or the keyring is locked (logging in to "
+                f"the desktop unlocks it). Trying again in {RETRY_SECONDS} s.",
+                flush=True,
+            )
+            time.sleep(RETRY_SECONDS)
+            continue
+        key = json.loads(lookup.stdout)
+        CLIENT = boto3.client(
+            "secretsmanager",
+            region_name=SETTINGS["region"],
+            aws_access_key_id=key["access_key_id"],
+            aws_secret_access_key=key["secret_access_key"],
         )
-    key = json.loads(lookup.stdout)
-    CLIENT = boto3.client(
-        "secretsmanager",
-        region_name=SETTINGS["region"],
-        aws_access_key_id=key["access_key_id"],
-        aws_secret_access_key=key["secret_access_key"],
-    )
-    try:
-        VALUES = json.loads(CLIENT.get_secret_value(SecretId=SETTINGS["secret_name"])["SecretString"])
-    except (BotoCoreError, ClientError) as error:
-        raise RuntimeError(f"Can't reach the vault (AWS Secrets Manager, {SETTINGS['region']}): {error}") from None
+        try:
+            VALUES = json.loads(CLIENT.get_secret_value(SecretId=SETTINGS["secret_name"])["SecretString"])
+            break
+        except (BotoCoreError, ClientError) as error:
+            print(f"Can't reach the vault (AWS Secrets Manager, {SETTINGS['region']}): {error}. Trying again in {RETRY_SECONDS} s.", flush=True)
+            time.sleep(RETRY_SECONDS)
 # The search tokens and the Claude login, for token_balancer.py and the agents' Claude Code.
 for name, value in VALUES.items():
     if name.startswith("GITHUB_TOKEN") or name == "CLAUDE_CODE_OAUTH_TOKEN":
