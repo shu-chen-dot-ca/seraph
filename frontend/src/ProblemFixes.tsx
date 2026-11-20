@@ -1,11 +1,11 @@
 /*
-Settings → Fix problems: every day at a set time, Claude Code fixes every open problem the agents reported
+Settings → Fix problems: every day at a set time, Claude Code works through the open feedback on the Feedback page
 (github_searcher/problems.py), each fix with a regression test; the fixes that pass the tests are pushed to main, main is released, and the live
 copy installs the release by itself (github_searcher/problem_fixes.py has how it works).
 
 The switch turns the daily run on or off, and the time (this computer's) says when; each change is saved at once. Fix
 now starts a run straight away. Below, the last runs: when, how it went (fixed, released, or why not), the commits
-pushed, and the problems it left open with why.
+pushed, the ones it closed with no change needed and the ones it left open, each with why.
 
 GET /api/problem_fixes each time Settings opens and after every change.
 */
@@ -26,6 +26,7 @@ type Run = {
   state: "running" | "done" | "failed";
   problems: string[];
   fixed: string[];
+  no_change?: { id: string; why: string }[]; // closed with nothing to change in the app (not on runs from before)
   not_fixed: { id: string; why: string }[];
   commits: string[];
   release: string | null;
@@ -152,6 +153,15 @@ export default function ProblemFixes(props: { open: boolean }) {
                   {run.commits.map((commit) => (
                     <div key={commit} className="truncate">
                       {commit}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(run.no_change ?? []).length > 0 && (
+                <div className="text-xs text-muted-foreground">
+                  {(run.no_change ?? []).map((each) => (
+                    <div key={each.id}>
+                      Closed with no change {each.id}: {each.why}
                     </div>
                   ))}
                 </div>

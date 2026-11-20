@@ -30,10 +30,8 @@ nothing we can do isn't given the same need again for nothing. Agents work in th
 the ones with a job queued or working on a PR that needs action get priority (agents.set_pr_priority): ahead in the
 VM's line, more CPU, stepped down last; then the ones reviewing a PR draft before the Inbox, the board's Review
 (agents.set_review_priority): next in the line, stepped down after the rest; then the rest (In progress and Catalog).
-The button on a repo's card on the Repository page (repo_list.py priority) moves its work: the agents with a job queued
-or working on a prioritized repo get priority like the PR ones; a deprioritized repo's PRs that need action don't, and
-the agents whose jobs are all on deprioritized repos go last (agents.set_low_priority). A stopped repo's PRs get no new
-follow_up job (agents.follow_up): a job already open on one still hears what changed.
+A removed repo's PRs (repo_list.py removed) get no new follow_up job (agents.follow_up): a job already open on one still
+hears what changed.
 
 keep_profile_readme(), also in the background, keeps the merged pull requests table on your GitHub profile's README
 and Seraph's own (github_searcher/profile_readme.py): every time Seraph starts, whenever a PR of yours shows up merged
@@ -82,7 +80,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 
 from backend.issues_api import AUTO_REMOVE_FILE, AUTO_REMOVE_OFF
-from backend.shared import agents, github_account, inbox, issues, pr_tracking, repos, your_repositories
+from backend.shared import agents, github_account, inbox, issues, pr_tracking, your_repositories
 from github_searcher.claude_judge import judge
 from github_searcher.github_account import DATA_DIR, PICTURES_BRANCH, SendError
 from github_searcher import profile_readme
@@ -899,20 +897,15 @@ async def keep_prs() -> None:
                 if agents.follow_up(entry) is not None:
                     pr_tracking.mark_action_given(pr["id"], base, key, action["state"])
 
-            # The agents working on a PR that needs action go first in the VM's line, but not on a deprioritized repo;
-            # so do the agents with a job queued or working on a prioritized repo (the button on its card, repo_list.py).
-            priority = {name.lower(): each for name, each in repos.priorities().items()}
+            # The agents working on a PR that needs action go first in the VM's line.
             first = set()
             for pr in prs:
                 action = pr.get("action")
-                if action is None or not action["needs"] or priority.get(pr["repo"].lower()) == "low":
+                if action is None or not action["needs"]:
                     continue
                 for job in own[pr["id"]]:
                     if job["status"] in ["queued", "working"]:
                         first.add(job["agent"])
-            for job in all_jobs:
-                if job["status"] in ["queued", "working"] and job["repo"] is not None and priority.get(job["repo"].lower()) == "high":
-                    first.add(job["agent"])
             agents.set_pr_priority(first)
             # Then the agents reviewing a PR draft before the Inbox (the board's Review), ahead of In progress and Catalog.
             reviewing = set()
@@ -920,17 +913,6 @@ async def keep_prs() -> None:
                 if job["kind"] == "review" and job["status"] in ["queued", "working"]:
                     reviewing.add(job["agent"])
             agents.set_review_priority(reviewing)
-            # Last, the agents whose jobs queued or working are all on deprioritized repos.
-            low = set()
-            others = set()
-            for job in all_jobs:
-                if job["status"] not in ["queued", "working"]:
-                    continue
-                if job["repo"] is not None and priority.get(job["repo"].lower()) == "low":
-                    low.add(job["agent"])
-                else:
-                    others.add(job["agent"])
-            agents.set_low_priority(low - others - first - reviewing)
         except Exception as error:
             # A file or an agent failed: the next round tries again.
             print(f"[github] could not work out what your PRs need: {error}")

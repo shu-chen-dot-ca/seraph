@@ -96,6 +96,8 @@ class TokenBalancer:
         # Requests of each kind waiting for a token right now.
         self.waiting = {kind: 0 for kind in RUNNING}
         self.version = 0
+        # The Feedback page's list (problems.py), set by backend/shared.py: a token that stops working goes there.
+        self.problems = None
 
     def slots(self, kind: str) -> int:
         """How many requests of this kind can run at once over all tokens."""
@@ -219,6 +221,16 @@ class TokenBalancer:
                 for each in token["kinds"].values():
                     each["paused_until"] = now + BAD_TOKEN_PAUSE
                 print(f"[github] {token['name']} doesn't work any more (GitHub answered 401: Bad credentials). Left out for an hour; replace it.")
+                # On the Feedback page too, once while it is open there.
+                text = (
+                    f"{token['name']} doesn't work any more: GitHub answers 401 Bad credentials, so it was revoked or it "
+                    "expired. The other tokens take its requests meanwhile. Replace it in AWS Secrets Manager (Settings → "
+                    "Secrets → Open in AWS), then restart the app."
+                )
+                if self.problems is not None:
+                    reported = [item for item in self.problems.list() if item["text"] == text and item["closed_at"] is None]
+                    if not reported:
+                        self.problems.add("seraph", None, None, text)
                 return True
 
             retry_after = response.headers.get("retry-after", "")

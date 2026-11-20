@@ -5,6 +5,7 @@ merge leave. The page's settings say how much of that goes on.
 Its settings and what it did, in AUTOMATION_FILE (DATA_DIR/automation.json):
 
     {"on": bool, "active_repos": int,
+     "add_repos": bool,                                False: Add repositories off (below)
      "take_new": bool,                                 False: Pause new issues (below)
      "rules": {"fast_days", "normal_days", "max_open_days", "close_days", "idle_days", "leave_days": int},
      "new_repos": the level of automation the repos it adds get (a repo's, repo_automation_api.py),
@@ -62,12 +63,16 @@ on:
 Only repos it archived are unarchived or get their PRs closed: one you archived stays yours. Turning it off stops the
 Explore run it started.
 
+Add repositories off (add_repos False): nothing goes into Repos from Explore's found list, no Explore run starts, and
+the one it started stops. The rest of Manage repositories goes on.
+
 Take new issues off (take_new False, on or off): agents take no new issues from the Issues board's Catalog
 (backend/issues_api.py take_from_catalog), not even ours; the cards wait there until it is on again. Everything else goes
 on: the jobs already started, follow-ups on our PRs, tagging, Explore, the labels and the archiving.
 
 The page's settings, and where each is obeyed:
 - Manage repositories (on): everything above that adds, archives and closes.
+- Add repositories (add_repos): above.
 - Take new issues (take_new): above.
 - Create pull requests, Reply to reviews and comments, Pull requests per day, Open pull requests and Open pull requests
   per repository: what keep_drafts sends (backend/repo_automation_api.py); the last two also hold back taking issues
@@ -120,6 +125,7 @@ AUTO_SETTINGS.update({"add_issues": True, "queue_issues": True, "take_issues": T
 OPEN_JOB = ["queued", "working", "waiting_on_user", "paused"]
 # The Automation page's settings (PUT /api/automation), as they are until it saves: what went on before they existed.
 SETTINGS = {
+    "add_repos": True,
     "send_prs": True,
     "send_comments": True,
     "max_prs_per_day": None,
@@ -140,6 +146,7 @@ STATE = {"tried": []}
 
 class AutomationRequest(BaseModel):
     on: bool
+    add_repos: bool
     take_new: bool
     send_prs: bool
     send_comments: bool
@@ -180,6 +187,7 @@ async def put_automation(body: AutomationRequest) -> dict:
     if any(policy not in POLICY_ORDER for policy in body.ai_policies):
         raise HTTPException(status_code=400, detail=f"The AI policies are some of {', '.join(POLICY_ORDER)}.")
     automation["on"] = body.on
+    automation["add_repos"] = body.add_repos
     automation["take_new"] = body.take_new
     automation["send_prs"] = body.send_prs
     automation["send_comments"] = body.send_comments
@@ -440,9 +448,14 @@ async def automate() -> None:
         pr_tracking.wanted = True
         log.append({"at": at, "repo": pr["repo"], "what": f"Closed #{pr['number']}", "why": f"Still open {rules['close_days']} business days after the repo was archived"})
 
-    # Keep active_repos active: what Explore found goes into Repos, the best first.
+    # Keep active_repos active: what Explore found goes into Repos, the best first. Not with Add repositories off: nothing
+    # is added, and the Explore run it started stops.
     archived = repos.archived()
     room = automation["active_repos"] - len([item for item in repos.items() if item["full_name"] not in archived])
+    if not automation["add_repos"]:
+        room = 0
+        if explore.run is not None and explore.run["status"] == "running" and explore.run["started_at"] == automation["run"]:
+            explore.stop()
     ranked = []
     for entry in explore.found:
         # Only the AI policies the Automation page allows (never no_ai), and at least its Minimum stars.

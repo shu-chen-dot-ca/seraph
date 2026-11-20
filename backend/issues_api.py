@@ -55,9 +55,8 @@ you), with tags read within twice the board's Catalog refresh time (refresh_cata
 under its Open PRs at once (its open PRs of yours and its issues with an open job before a
 PR, from queued to waiting on you; backend/repo_automation_api.py): a repo at it is skipped and the next card of
 another repo goes. With the Dashboard's Automation on, the cards of the repos it ranks first go first (its labels: Fast,
-Normal, New, Slow, ...; then the most PRs merged a day: backend/automation_api.py), each in the board's order. Then the
-button on a repo's card on the Repository page (repo_list.py priority): a prioritized repo's cards go first, a
-deprioritized one's last, and a stopped one's wait, ours too, until it is set back. Only cards that are Catalog's own:
+Normal, New, Slow, ...; then the most PRs merged a day: backend/automation_api.py), each in the board's order. The cards
+of a repo in the Repository page's Removed section (repo_list.py removed) wait, ours too. Only cards that are Catalog's own:
 no job (or only cancelled ones), not paused, open on GitHub, and, like Assign, with its Merge in and not fixed, out of
 scope or can't validate, and unlike Assign not claimed either: someone else is on it (assigned, or their open pull
 request closes it), so a second fix isn't wanted; nor maintainers only, waiting, no
@@ -91,7 +90,7 @@ Its stale_pr_days (14 at first, None: off) closes PRs that stalled: an open PR o
 (opened from its draft, never one you opened by hand) with no update on GitHub for that many days is made again by its
 agent as a fresh PR, all its changes on the newest code with a clean history and every review point done
 (Agents.remake_pr); once the new one is on GitHub the old one is closed (github_account.py). Never one on an archived
-or stopped repo: it waits there as it is. keep_stale_prs() looks every STALE_CHECK_SECONDS. Once per PR: not while a job on it is open, and never again after its remake job.
+or removed repo: it waits there as it is. keep_stale_prs() looks every STALE_CHECK_SECONDS. Once per PR: not while a job on it is open, and never again after its remake job.
 
 An open job on a board issue the app no longer wants done is stopped by its agent (Agents.stop_job tells it, once):
 the issue was deleted on GitHub or moved away (keep_facts finds it gone, drop_gone_issue: it then leaves the list for
@@ -578,12 +577,9 @@ def take_from_catalog() -> None:
     ranks = {name.lower(): (each["rank"], -(each.get("per_day") or 0)) for name, each in automation["labels"].items()}
     if automation["on"]:
         waiting.sort(key=lambda issue_id: (-1, 0) if issue_id.lower() in opened else ranks.get(issue_id.split("#")[0].lower(), (len(ranks), 0)))
-    # The button on a repo's card (repo_list.py): a stopped repo's cards wait, ours too; a prioritized repo's go first and a
-    # deprioritized one's last, each in the order above.
-    priority = {name.lower(): each for name, each in repos.priorities().items()}
-    waiting = [issue_id for issue_id in waiting if priority.get(issue_id.split("#")[0].lower()) != "stopped"]
-    rank = {"high": 0, "normal": 1, "low": 2}
-    waiting.sort(key=lambda issue_id: rank[priority.get(issue_id.split("#")[0].lower(), "normal")])
+    # A removed repo's cards wait (repo_list.py), ours too.
+    removed = [name.lower() for name in repos.removed()]
+    waiting = [issue_id for issue_id in waiting if issue_id.split("#")[0].lower() not in removed]
 
     # Each repo's Open PRs at once (backend/repo_automation_api.py): its open PRs of yours and its issues with an open
     # job before a PR (queued to waiting on you) count, by repo in lower case; while they reach it, its cards wait.
@@ -652,12 +648,12 @@ def remake_stale_prs() -> None:
     cutoff = (datetime.now(UTC) - timedelta(days=rules["stale_pr_days"])).strftime("%Y-%m-%dT%H:%M:%SZ")
     all_jobs = jobs.list()
     archived = [name.lower() for name in repos.archived()]
-    stopped = [name.lower() for name, each in repos.priorities().items() if each == "stopped"]
+    removed = [name.lower() for name in repos.removed()]
     for pr in pr_tracking.summary()["items"]:
-        # Only an open PR of yours an agent owns: never one you opened by hand, nor one on an archived or stopped repo.
+        # Only an open PR of yours an agent owns: never one you opened by hand, nor one on an archived or removed repo.
         if pr["relation"] != "author" or pr["state"] != "open" or pr["agent"] is None or pr["draft_id"] is None:
             continue
-        if pr["repo"].lower() in archived or pr["repo"].lower() in stopped:
+        if pr["repo"].lower() in archived or pr["repo"].lower() in removed:
             continue
         if pr["updated_at"] > cutoff:
             continue

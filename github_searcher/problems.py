@@ -1,16 +1,19 @@
-"""Problems: what went wrong in how the app made an agent work, reported by the agent itself (work_tools.py
-report_problem), so the user can fix them all at one time from the Dashboard's Problems page (frontend/src/Problems.tsx).
+"""Feedback: anything that went wrong or could go better, so Seraph gets better. The agents report it themselves
+(work_tools.py report_problem), the app adds what it sees on its own (a GitHub token that stopped working,
+token_balancer.py, with agent "seraph"), and the Feedback page shows it (frontend/src/Feedback.tsx). Fix problems
+(problem_fixes.py) works through the open ones every day.
 
-Not the projects' own bugs and not the app's crashes (crashes.py): a rule or a tool that led an agent the wrong way, or
-something a maintainer or the user had to correct. For example: an agent claimed an issue someone else's open pull
-request already closed, and the maintainer said no second fix was needed.
+Not the projects' own bugs and not the app's crashes (crashes.py). Everything else: a rule or a tool that led an agent
+the wrong way, something a maintainer or the user had to correct, a maintainer who was unhappy with us, an issue that was
+already taken, a GitHub error, a VM that ran out of memory. For example: an agent claimed an issue someone else's open
+pull request already closed, and the maintainer said no second fix was needed.
 
 Kept in DATA_DIR/problems.json, a list, the newest first, MAX_KEPT at most:
 
-    {"id": "prb_a1b2c3", "at": ISO time, "agent": agent id, "job": job id | None, "about": "owner/name#n" | None,
+    {"id": "prb_a1b2c3", "at": ISO time, "agent": agent id | "seraph", "job": job id | None, "about": "owner/name#n" | None,
      "text": what happened, why, and what should have happened, "closed_at": ISO time | None}
 
-Closed ones (Close on the page, once they are fixed) stay, on the page's Closed tab.
+Closed ones (once Fix problems fixed them, or found nothing to change) stay, on the page's Closed tab.
 """
 
 import copy

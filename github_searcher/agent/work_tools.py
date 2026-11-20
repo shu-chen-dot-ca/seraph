@@ -95,14 +95,16 @@ The GitHub tools (github_tools.py) only read GitHub; these change what the user 
   (its newest pushes on a PR of its own: the branch goes back to a commit it had before one of them, only while nobody
   pushed since). A stalled PR of its own is made again as a fresh one: draft_pr with replaces (and every remake job,
   Agents.remake_pr, does it by itself); once the new one is on GitHub the old one is closed (github_account.py).
-- report_problem puts what went wrong in how the app made the agent work (a rule or tool that led it the wrong way,
-  something a maintainer or the user had to correct) on the Dashboard's Problems list (problems.py), for the user to
-  fix all at one time. Nobody answers it.
+- report_problem puts anything that went wrong or could go better on the Feedback page (problems.py): the app's rules,
+  tools and checks, GitHub errors, a VM that ran out of memory, a maintainer who was unhappy with us, an issue that was
+  already taken. Fix problems (problem_fixes.py) works through them every day. Nobody answers it.
 - Questions: agents ask the user nothing (there is no tool for it); every choice is theirs. A blocker only the user can
   lift (a CLA to sign, something to do by hand, an account, a payment, a secret) goes to the Dashboard's Blockers page
-  with ask_approval (inbox.py "approval"), and its job waits there until the user decides: approved, the agent goes on;
-  rejected, it gives the job up (prompt.md, Approvals). A repo's CLA is asked once: a decision on it answers the next
-  job's request at once.
+  with ask_approval (inbox.py "approval"), and its job waits there until the user decides: approved (Done, which means
+  it is done), the agent goes on; rejected, it gives the job up (prompt.md, Approvals). A repo's CLA is asked once: a
+  decision on it answers the next job's request at once. A problem in the app or its tools is never a blocker. Every
+  hour the agent tries a blocker again (agents.py keep_going); one that went away by itself it takes back with
+  clear_blocker.
 - Evidence: what the user looks at to decide on a draft. Real screenshots of the project running on
   the VM's desktop (its window, or a terminal running it), screen recordings (GIF) and command runs
   (a test failing, then passing), each "before" or "after" the agent's change, under a topic that
@@ -572,13 +574,15 @@ class WorkTools:
             )(self.drop_commits),
             tool(
                 "report_problem",
-                "Report a problem in how the app made you work, so the user can fix the app: a rule or a tool that led you "
-                "the wrong way (you claimed or started an issue someone else was already on, a tool refused what it should "
-                "allow or allowed what it shouldn't, your instructions said two different things), or anything a maintainer "
-                "or the user had to correct you on. Not the project's own bugs, and not a question: it goes on the "
-                "Dashboard's Problems list, which the user fixes all at one time; nobody answers it, so go on with your work. "
-                "text: what happened (with links), why as far as you can tell (the rule or tool), and what should have "
-                "happened instead. about: the issue or PR it happened on (owner/name#number), if any.",
+                "Report anything that went wrong or could have gone better, so Seraph can get better: a rule or a tool that "
+                "led you the wrong way (you claimed or started an issue someone else was already on, a tool refused what it "
+                "should allow or allowed what it shouldn't, your instructions said two different things), anything a "
+                "maintainer or the user had to correct you on, a maintainer who was unhappy, rude or aggressive with us, an "
+                "issue the app gave you that was already taken or fixed, a GitHub error or a tool that failed, a VM that ran "
+                "out of memory, restarted, filled its disk or was too slow, a repo that cost far more time than it was worth. "
+                "Not the project's own bugs, and not a question: it goes on the Feedback page, which is worked through every "
+                "day; nobody answers it, so go on with your work. text: what happened (with links), why as far as you can "
+                "tell, and what should have happened instead. about: the issue or PR it happened on (owner/name#number), if any.",
                 {
                     "type": "object",
                     "properties": {"text": {"type": "string"}, "about": {"type": "string"}},
@@ -590,10 +594,13 @@ class WorkTools:
                 "Ask the user to approve a blocker only they can lift, on the Dashboard's Blockers page: a CLA or another "
                 "agreement the project needs signed (kind cla), or something else only the user can give or allow (kind "
                 "other): something done by hand on GitHub or elsewhere, logging in to or paying for a service, a secret or an "
-                "account nobody gave you, special hardware. Never for a choice you can make yourself, and never for what a rule "
-                "here forbids. Ask as early as you can: at understand, before the claim, the VM and the work. job_id is the "
-                "job it holds up; it waits on the user until they decide, and you get a message with the decision: approved, "
-                "do what you asked for and go on; rejected, give the job up. title: what needs approving, a few plain words "
+                "account nobody gave you, special hardware. Never for a choice you can make yourself, never for what a rule "
+                "here forbids, and never for a problem in the app or its tools (a GitHub error, a token, a tool or VM that "
+                "fails): report_problem that, and try again later. Ask as early as you can: at understand, before the claim, "
+                "the VM and the work. job_id is the job it holds up; it waits on the user until they decide, and you get a "
+                "message with the decision: approved (Done means it is done: don't check it or ask again), do what you asked "
+                "for and go on; rejected, give the job up. Every hour you are asked to try it again: when it went away by "
+                "itself, take it back with clear_blocker. title: what needs approving, a few plain words "
                 "(\"Sign kimai's Contributor License Agreement\"). body: for someone who doesn't know the project: what it is "
                 "and why the job needs it; for an agreement, what it makes the user agree to in plain words (whose it is, a "
                 "license or a transfer of the copyright, whether they may relicense or sell the code, the law it falls under, "
@@ -613,6 +620,18 @@ class WorkTools:
                     "required": ["job_id", "kind", "title", "body"],
                 },
             )(self.ask_approval),
+            tool(
+                "clear_blocker",
+                "Take back your own blocker (ask_approval) that still waits on the user's Blockers page, once it went away "
+                "by itself and no longer holds its job up: the agreement shows signed, or it was a problem in the app or its "
+                "tools after all. It leaves the page without the user, and its job is open again: carry on with it. "
+                "draft_id: the blocker's draft. note: what you found, in a line.",
+                {
+                    "type": "object",
+                    "properties": {"draft_id": {"type": "string"}, "note": {"type": "string"}},
+                    "required": ["draft_id", "note"],
+                },
+            )(self.clear_blocker),
             tool(
                 "artifacts_list",
                 "See what is in your artifacts: your own folder on the user's computer, the Artifacts tab of your page. The user "
@@ -960,6 +979,8 @@ class WorkTools:
             return "Reporting a problem: " + (args.get("text") or "").split("\n")[0][:120]
         if name == "ask_approval":
             return "Asking for approval: " + (args.get("title") or "")[:120]
+        if name == "clear_blocker":
+            return f"Taking back blocker {args.get('draft_id')}: " + (args.get("note") or "")[:120]
         if name == "draft_pr" and args.get("pr") and args.get("rebase") is True:
             return f"Drafting a rebase of {args['pr']}: {args.get('title')}"
         if name == "draft_pr" and args.get("pr"):
@@ -2057,7 +2078,7 @@ class WorkTools:
             if job["status"] == "working":
                 job_id = job["id"]
         item = await asyncio.to_thread(self.agents.problems.add, self.agent_id, job_id, about, text)
-        text = f"Reported as {item['id']} on the Dashboard's Problems list; the user fixes them all at one time. Go on with your work."
+        text = f"Reported as {item['id']} on the Feedback page; it is worked through every day. Go on with your work."
         return {"content": [{"type": "text", "text": text}]}
 
     async def ask_approval(self, args: dict) -> dict:
@@ -2089,9 +2110,17 @@ class WorkTools:
         if found:
             return {"content": [{"type": "text", "text": NO_EMOJI + " ".join(sorted(set(found)))}], "is_error": True}
         for each in self.agents.inbox.list():
-            if each["kind"] != "approval" or each["status"] not in ["approved", "rejected"]:
+            if each["kind"] != "approval" or each["status"] not in ["approved", "rejected", "cleared"]:
                 continue
-            if each["job"] == job["id"] and each["title"] == title:
+            # Done means it is done: what the user did for this job isn't asked for again, whatever it is called now.
+            if each["job"] == job["id"] and each["status"] == "approved" and each["overview"].get("kind") == kind:
+                text = (
+                    f"The user did {each['id']} ({each['title']}) for {job['id']} already: Done means it is done. No new "
+                    "request: go on with the job. A bot or page that doesn't show it yet catches up by itself."
+                )
+                return {"content": [{"type": "text", "text": text}], "is_error": True}
+            # One the agent took back may come again: then it is asked again.
+            if each["job"] == job["id"] and each["title"] == title and each["status"] != "cleared":
                 text = f"The user {each['status']} this for {job['id']} already ({each['id']}): no new request. Go on as that decision says."
                 return {"content": [{"type": "text", "text": text}], "is_error": True}
             # A repo's CLA is decided once (Agents.decide gives the decision to every request still waiting).
@@ -2104,6 +2133,11 @@ class WorkTools:
                 text = (
                     f"The user approved {job['repo']}'s CLA already ({each['id']}, {each['decided_at'][:10]}).{note} No new request: "
                     "go on with the job, and sign it the way the project asks when its bot asks (unless its bot says signed already)."
+                )
+            elif each["status"] == "cleared":
+                text = (
+                    f"{job['repo']}'s CLA showed signed already ({each['id']}, {each['decided_at'][:10]}: {each['reply']}). No "
+                    "new request: go on with the job."
                 )
             else:
                 text = (
@@ -2122,6 +2156,24 @@ class WorkTools:
             "decide, and you'll get a message with their decision. Don't go on with it meanwhile: release_vm if you hold a "
             "desktop for nothing else, and move on to your next job."
         )
+        return {"content": [{"type": "text", "text": text}]}
+
+    async def clear_blocker(self, args: dict) -> dict:
+        draft_id = (args.get("draft_id") or "").strip()
+        note = " ".join((args.get("note") or "").split())
+        if not note:
+            return {"content": [{"type": "text", "text": "Say in a line what you found: why it no longer holds the job up."}], "is_error": True}
+        try:
+            draft = self.agents.inbox.get(draft_id)
+        except KeyError:
+            return {"content": [{"type": "text", "text": f"No draft {draft_id}."}], "is_error": True}
+        if draft["kind"] != "approval" or draft["agent"] != self.agent_id:
+            return {"content": [{"type": "text", "text": f"{draft_id} isn't a blocker of yours."}], "is_error": True}
+        if draft["status"] != "pending":
+            text = f"{draft_id} is {draft['status']} already: nothing to take back. Go on as that says."
+            return {"content": [{"type": "text", "text": text}], "is_error": True}
+        self.agents.decide(draft_id, "cleared", note, "agent")
+        text = f"{draft_id} is off the user's Blockers page. Carry on with {draft['job']} now (queue_for_vm when you need the VM)."
         return {"content": [{"type": "text", "text": text}]}
 
     async def artifacts_list(self, args: dict) -> dict:

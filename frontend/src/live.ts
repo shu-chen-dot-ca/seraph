@@ -131,7 +131,7 @@ export type ReportResult = { what: string; paper: string; ours: string; authors:
 // A problem the agent found in a paper; evidence is the command run on the job that shows it.
 export type ReportProblem = { title: string; what: string; why: string; evidence: string };
 
-export type DraftStatus = "pending" | "approved" | "rejected" | "replied";
+export type DraftStatus = "pending" | "approved" | "rejected" | "replied" | "cleared"; // cleared: an approval its agent took back
 
 export type Draft = {
   id: string;
@@ -580,6 +580,7 @@ export type UpdatesData = {
 // has none.
 export type AutomationData = {
   on: boolean; // Manage repositories: finds and adds repositories, archives the ones that don't merge ours
+  add_repos: boolean; // Add repositories: off, nothing new is added
   take_new: boolean; // Take new issues
   send_prs: boolean; // Create pull requests
   send_comments: boolean; // Reply to reviews and comments
@@ -591,11 +592,27 @@ export type AutomationData = {
   ai_policies: string[]; // the AI policies whose repositories may be worked on: "welcome", "disclose", "none", "unclear"
 };
 
+// The tokens the agents used (github_searcher/token_usage.py), per model and stretch of time (at: its start). The
+// stretches are 5 minutes for the last two hours, an hour for the last 8 days, then a day from local midnight.
+export type TokensData = { slices: { at: string; model: string; tokens: number }[] };
+
+// The Feedback page (github_searcher/problems.py): what the agents reported, and what the app saw itself (agent
+// "seraph"), newest first. closed_at: once Fix problems fixed it or found nothing to change.
+export type Feedback = {
+  id: string;
+  at: string;
+  agent: string;
+  job: string | null;
+  about: string | null; // "owner/name#n"
+  text: string;
+  closed_at: string | null;
+};
+
 // ---- The live store ----
 
 export type Topics = {
-  // archived, planned, priority, removed: the Repositories page (repo_list.py); a repo not in priority is normal.
-  repos: ListData<RepoItem> & { archived: string[]; planned: string[]; priority: Record<string, "high" | "low" | "stopped">; removed: string[] };
+  // archived, planned, removed: the Repositories page (repo_list.py).
+  repos: ListData<RepoItem> & { archived: string[]; planned: string[]; removed: string[] };
   jobs: Job[];
   inbox: Draft[]; // only the approval requests still waiting: the Blockers page
   prs: PRsData;
@@ -604,13 +621,15 @@ export type Topics = {
   images: ImagesData;
   updates: UpdatesData;
   automation: AutomationData;
+  tokens: TokensData;
+  problems: Feedback[];
 };
 
 // Empty until the first message, so components never deal with "not loaded yet".
 // `loaded` says which topics have arrived, for the few places that must tell "empty" from "not yet".
 const store = {
   topics: {
-    repos: { items: [], can_undo: false, can_redo: false, archived: [], planned: [], priority: {}, removed: [] },
+    repos: { items: [], can_undo: false, can_redo: false, archived: [], planned: [], removed: [] },
     jobs: [],
     inbox: [],
     prs: { items: [], issues: [], checked_at: null, error: null, refreshing: false },
@@ -634,6 +653,7 @@ const store = {
     },
     automation: {
       on: false,
+      add_repos: false,
       take_new: false,
       send_prs: false,
       send_comments: false,
@@ -644,6 +664,8 @@ const store = {
       min_stars: null,
       ai_policies: [],
     },
+    tokens: { slices: [] },
+    problems: [],
   } as Topics,
   loaded: {} as Partial<Record<keyof Topics, boolean>>,
   connected: false,

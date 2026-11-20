@@ -6,7 +6,7 @@ list in its own file: RepoList("tracked.json").
 One JSON file, DATA_DIR/repos.json:
 
     {"items": [RepoItem, ...], "undo": [[RepoItem, ...], ...], "redo": [[RepoItem, ...], ...], "archived": [full_name, ...],
-     "planned": [full_name, ...], "priority": {full_name: "high" | "low" | "stopped"}, "removed": [full_name, ...]}
+     "planned": [full_name, ...], "removed": [full_name, ...]}
 
     RepoItem = {"full_name", "description", "stars", "default_branch", "html_url",
                 "note", "added_by": "user" | "<agent id>", "added_at", "tag"?}
@@ -22,11 +22,9 @@ archived is the repos the user deleted on the Dashboard's Repository page while 
 theirs: they stay in the list and show in its Archived section (set_archived). Not an undo step.
 planned is the repos the user wants to contribute to, picked on that page (Add to Planned): its Planned section
 (set_planned). Not an undo step either.
-priority is the button on the right of each card on that page (set_priority), a repo not in it is normal: high
-(Prioritized: its work goes first), low (Deprioritized: its work goes last) or stopped (Stopped: no new work there, what
-is going finishes). backend/issues_api.py, backend/github_api.py and agents.py act on it. Not an undo step either.
 removed is the repos with pull requests of the user's (merged, closed or open) deleted with Delete in the ⋯ of their
-card on that page: they stay, in its Removed section, stopped (set_removed, backend/repos_api.py). Not an undo step
+card on that page: they stay, in its Removed section, stopped: no new work there, what is going finishes (set_removed,
+backend/repos_api.py). backend/issues_api.py, backend/repo_automation_api.py and agents.py act on it. Not an undo step
 either.
 The backend keeps one RepoList that the API and every agent share, so each method takes the
 lock. version goes up by one on every change; the live feed compares it to see what to send.
@@ -56,13 +54,12 @@ class RepoList:
         self.path = DATA_DIR / filename
         self.lock = threading.Lock()
         self.version = 0
-        self.data = {"items": [], "undo": [], "redo": [], "archived": [], "planned": [], "priority": {}, "removed": []}
+        self.data = {"items": [], "undo": [], "redo": [], "archived": [], "planned": [], "removed": []}
         if self.path.exists():
             self.data = json.loads(self.path.read_text())
-            # Lists from before archived, planned, priority or removed have none.
+            # Lists from before archived, planned or removed have none.
             self.data.setdefault("archived", [])
             self.data.setdefault("planned", [])
-            self.data.setdefault("priority", {})
             self.data.setdefault("removed", [])
 
     def save(self) -> None:
@@ -77,7 +74,6 @@ class RepoList:
             "redo": self.data["redo"][-SAVED_STEPS:],
             "archived": self.data["archived"],
             "planned": self.data["planned"],
-            "priority": self.data["priority"],
             "removed": self.data["removed"],
         }
         temporary = self.path.with_name(self.path.name + ".tmp")
@@ -119,26 +115,6 @@ class RepoList:
             self.data["removed"] = [name for name in self.data["removed"] if name not in full_names]
             if removed:
                 self.data["removed"] += full_names
-            self.save()
-
-    def priorities(self) -> dict[str, str]:
-        with self.lock:
-            return dict(self.data["priority"])
-
-    def priority_of(self, full_name: str) -> str:
-        """"high", "low", "stopped" or "normal", the name compared without case."""
-        with self.lock:
-            for name, priority in self.data["priority"].items():
-                if name.lower() == full_name.lower():
-                    return priority
-        return "normal"
-
-    def set_priority(self, full_name: str, priority: str) -> None:
-        """"high", "low" or "stopped"; "normal" takes it out."""
-        with self.lock:
-            self.data["priority"].pop(full_name, None)
-            if priority != "normal":
-                self.data["priority"][full_name] = priority
             self.save()
 
     def can_undo(self) -> bool:

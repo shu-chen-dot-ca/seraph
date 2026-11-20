@@ -7,15 +7,21 @@ Every endpoint is `async def`: Agents lives on the backend's event loop (each
 agent is a Claude conversation driven by an asyncio task). The list of agents
 reaches the browser through /api/live; an agent's summary there has its
 history_length, and the browser fetches the new entries with /history?since=.
+
+keep_token_usage(), which the app runs in the background, reads the tokens the agents used from their conversations
+every TOKEN_USAGE_SECONDS (github_searcher/token_usage.py), for the Dashboard's Tokens chart.
 """
+
+import asyncio
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.shared import agents, jobs
+from backend.shared import agents, jobs, token_usage
 from sandbox.vms import VMsError
 
 router = APIRouter(prefix="/api")
+TOKEN_USAGE_SECONDS = 60
 
 
 class MessageRequest(BaseModel):
@@ -171,3 +177,11 @@ async def cancel_job(job_id: str) -> dict:
     job = jobs.update(job_id, status="cancelled")
     agents.notify(job["agent"], f"The user cancelled {job_id} ({job['title']}). Stop working on it and go on with your other jobs.")
     return job
+
+
+async def keep_token_usage() -> None:
+    """Runs as long as the backend: reads what is new in the agents' conversations every TOKEN_USAGE_SECONDS. The first
+    read after a start goes through every file once, in a thread, so nothing waits for it."""
+    while True:
+        await asyncio.to_thread(token_usage.read)
+        await asyncio.sleep(TOKEN_USAGE_SECONDS)

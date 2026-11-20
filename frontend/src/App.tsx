@@ -16,14 +16,15 @@ the open page's name. Menu slides in the left list. Picking a page closes it, an
 the same as on a computer.
 
 The page lives in the URL hash, so refresh and back/forward work and switching pages never reloads:
-  #/ (Overview.tsx)
+  #/ (Dashboard.tsx)
   #/pulls (PullRequests.tsx; takes state=progress|open|merged|closed)
   #/repos (RepositoryCards.tsx)
   #/blockers (Blockers.tsx)
   #/automation (Automation.tsx)
+  #/feedback (Feedback.tsx; takes state=open|closed)
   #/vms  #/vms?tab=images  #/vms?tab=defaults (VMs.tsx)  #/vms/<vm name>  #/vms/<vm name>?tab=notes (VMPage.tsx)
   #/agents/<agent id> (AgentChat.tsx, opened from the VM pages and their notes)
-Anything else (also no hash at all) opens the Overview. Links are plain <a href="#/..."> everywhere; App only reads the
+Anything else (also no hash at all) opens the Dashboard. Links are plain <a href="#/..."> everywhere; App only reads the
 hash.
 
 A VM page, once visited, stays mounted (hidden) while you are elsewhere, so its desktop iframe keeps its
@@ -37,7 +38,8 @@ import { toast } from "sonner";
 import AgentChat from "@/AgentChat";
 import Automation from "@/Automation";
 import Blockers from "@/Blockers";
-import Overview from "@/Overview";
+import Dashboard from "@/Dashboard";
+import Feedback from "@/Feedback";
 import PullRequests from "@/PullRequests";
 import RepositoryCards from "@/RepositoryCards";
 import SettingsDialog, { type ThemeMode } from "@/SettingsDialog";
@@ -52,15 +54,16 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { api, useConnected, useLive, useLiveValue, useLoaded, type GithubAccountStatus } from "@/live";
 import { cn } from "@/lib/utils";
 
-const PAGES = ["pulls", "repos", "blockers", "automation", "vms", "agents"];
+const PAGES = ["pulls", "repos", "blockers", "automation", "feedback", "vms", "agents"];
 // The open page's name in phone mode's header, where there is no left list to show it.
 const PAGE_NAMES: Record<string, string> = {
-  overview: "Overview",
+  dashboard: "Dashboard",
   pulls: "Pull requests",
   repos: "Repositories",
   blockers: "Blockers",
   vms: "Virtual machines",
   automation: "Automation",
+  feedback: "Feedback",
 };
 // This repo on GitHub, or "": vite.config.ts puts it in from git's origin remote.
 declare const __REPO_URL__: string;
@@ -155,13 +158,13 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  // "#/vms/vm1?x=y" → page "vms", id "vm1", query "x=y". Anything unknown opens the Overview.
+  // "#/vms/vm1?x=y" → page "vms", id "vm1", query "x=y". Anything unknown opens the Dashboard.
   const [pathPart, queryPart] = hash.replace(/^#\/?/, "").split("?");
   const parts = pathPart.split("/");
   const id = parts.length > 1 && parts[1] !== "" ? decodeURIComponent(parts.slice(1).join("/")) : null;
-  let page = PAGES.includes(parts[0]) ? parts[0] : "overview";
+  let page = PAGES.includes(parts[0]) ? parts[0] : "dashboard";
   if (page === "agents" && id === null) {
-    page = "overview";
+    page = "dashboard";
   }
   const query = new URLSearchParams(queryPart ?? "");
   // Phone mode's header: the open page's name, a VM's own name on its page, an agent's name on its chat.
@@ -300,11 +303,12 @@ export default function App() {
             <Sidebar page={page} id={id} onOpenSettings={() => openSettings(null)} />
           </div>
           <main className="relative min-w-0 flex-1 overflow-hidden">
-            {page === "overview" && <Overview />}
+            {page === "dashboard" && <Dashboard />}
             {page === "pulls" && <PullRequests state={query.get("state") ?? "open"} />}
             {page === "repos" && <RepositoryCards />}
             {page === "blockers" && <Blockers />}
             {page === "automation" && <Automation />}
+            {page === "feedback" && <Feedback state={query.get("state") ?? "open"} />}
             {page === "agents" && id !== null && <AgentChat key={id} agentId={id} />}
             {page === "vms" && id === null && (
               <VMs tab={query.get("tab") === "images" ? "images" : query.get("tab") === "defaults" ? "defaults" : "vms"} />

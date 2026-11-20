@@ -17,7 +17,7 @@ mark_sent). Each draft is one JSON file, DATA_DIR/inbox/<id>.json:
      "vm": "vm1" | null, "path": "repo folder in the VM (pr only)" | null,
      "evidence": [Evidence, ...] (a copy of the job's, see jobs.py),
      "overview": {...} (for the user, see below), "template": ".github/pull_request_template.md" | null,
-     "status": "pending" | "approved" | "rejected" | "replied", "reply": "the user's text",
+     "status": "pending" | "approved" | "rejected" | "replied" | "cleared", "reply": "the user's text",
      "created_at", "decided_at": null until decided, "sent": null | what went to GitHub (github_account.py),
      "update_of": "owner/name#n" | null (pr only: a new version of the user's open PR, see below),
      "rebase_of": "sha" | null (update_of only: the new version replaces the PR's commits, see below),
@@ -31,7 +31,8 @@ mark_sent). Each draft is one JSON file, DATA_DIR/inbox/<id>.json:
      "wait_for_assignment": bool | null (a fix_issue job's claim only: the repo's rules want a maintainer to assign the
      user before a PR, so its PR waits for that, github_account.py; null on claims from before, which all were such),
      "reply_to": GitHub's id of a review comment | null (comment only, see below),
-     "resolve": GitHub's id of a review conversation | null (a comment with reply_to only, see below)}
+     "resolve": GitHub's id of a review conversation | null (a comment with reply_to only, see below),
+     "retried_at": ISO time | null (approval only: when its agent was last asked to try it again, see below)}
 
 "body" is what would be sent to GitHub; "overview" is only for the user, who doesn't know the
 project: plain words on what is wrong and what the draft does about it.
@@ -79,8 +80,10 @@ ask_approval): a CLA or another agreement to sign, something to do by hand, an a
 a secret. "title" says what needs approving, "body" what it means and what happens on Approve and on Reject, and
 "overview" is {"kind": "cla" | "other", "link": the page to read or act on, or ""}. Approve lets the agent go on (a CLA:
 it signs it the way the project asks), Reject makes it give the job up (Agents.decide). Nothing is sent anywhere, and no
-Level of automation decides one: only the user does. The user's decision on a repo's CLA goes to every request to sign
-it that still waits.
+Level of automation decides one: only the user does, and Done means it is done (the agent doesn't check it or ask
+again). The user's decision on a repo's CLA goes to every request to sign it that still waits. Every hour its agent is
+also asked to try it again (Agents.keep_going, "retried_at"): one that went away by itself (the agreement shows signed)
+the agent takes back (work_tools.py clear_blocker) as "cleared", and it leaves the page without the user.
 
 A comment with "reply_to" is an answer inside one of a PR's conversations on lines of code, below that conversation's
 first comment (GitHub takes no replies to replies), instead of below the PR. With "resolve" too, Approve marks that
@@ -142,7 +145,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 DATA_DIR = PROJECT_ROOT / os.environ["DATA_DIR"]
-DECISIONS = ["approved", "rejected", "replied"]
+# "cleared": an approval its agent took back, as it went away by itself (no decision of the user's).
+DECISIONS = ["approved", "rejected", "replied", "cleared"]
 # Asking the user (once set in Settings; no page changes it now): how long a timed question waits before the app answers it
 # with the agent's recommendation, and the kinds of question that always wait for the user (all of them until the
 # user switches some off). Read from the file each time it is needed; these are the defaults.
@@ -325,6 +329,7 @@ class Inbox:
                 "wait_for_assignment": wait_for_assignment,
                 "reply_to": reply_to,
                 "resolve": resolve,
+                "retried_at": None,
             }
             self.drafts[draft_id] = draft
             self.save(draft)
@@ -349,6 +354,13 @@ class Inbox:
                 draft["answered_by"] = answered_by
             self.save(draft)
             return copy.deepcopy(draft)
+
+    def retried(self, draft_id: str) -> None:
+        """Its agent was asked to try this blocker again now (Agents.keep_going)."""
+        with self.lock:
+            draft = self.drafts[draft_id]
+            draft["retried_at"] = datetime.now(UTC).isoformat()
+            self.save(draft)
 
     def edit(self, draft_id: str, title: str, body: str) -> dict:
         """The user changes a pending PR, comment or edit draft's title and text before deciding. Returns the draft as it is now."""

@@ -4,8 +4,8 @@ Every router imports what it needs from here, so all of them work on the same li
 signals about their issues and repos), Explore, jobs, the inbox, your GitHub account (which sends the drafts as you),
 your PRs on GitHub and how each stands, with the agent that follows each, your repositories (read with your sign-in,
 for cloning and for knowing which repos are yours), VMs, their images (and the images' agents), the VM queue, the
-agents' artifacts, agents, remote access (the devices that may sign in from elsewhere), updates (the live copy's new
-releases), the app's own errors and the problems agents report. The order matters: the Issues list asks jobs which
+agents' artifacts, agents, the tokens the agents used, remote access (the devices that may sign in from elsewhere), updates (the live copy's new
+releases), the app's own errors and the Feedback page's list. The order matters: the Issues list asks jobs which
 issues an agent is working on (those can't be removed), the queue keeps its state on the VM records, and Agents needs
 everything else (it also sets the queue's on_grant / on_kick callbacks). Agents only starts its worker tasks in the
 app's lifespan (backend/app.py), because they need the running event loop.
@@ -26,7 +26,9 @@ from github_searcher.problem_fixes import ProblemFixes
 from github_searcher.problems import Problems
 from github_searcher.repo_list import RepoList
 from github_searcher.repo_signals import RepoSignals
+from github_searcher.token_usage import TokenUsage
 from github_searcher.remote_access import RemoteAccess
+from github_searcher.token_balancer import BALANCER
 from github_searcher.updates import Updates
 from github_searcher.your_repositories import YourRepositories
 from sandbox.image_agent import ImageAgents
@@ -58,9 +60,13 @@ image_agents = ImageAgents(images)
 queue = VMQueue(vms)
 artifacts = Artifacts()
 agents = Agents(repos, issues, jobs, inbox, vms, queue, repo_signals, issue_tags, explore, artifacts, your_repositories, crashes)
-# What went wrong in how the app made agents work, as they report it (Fix problems in Settings fixes them).
+# The Feedback page: what the agents report and what the app sees itself, like a GitHub token that stopped working
+# (Fix problems in Settings works through them).
 problems = Problems()
 agents.problems = problems
+BALANCER.problems = problems
+# The tokens the agents used, per model and over time (the Dashboard's Tokens chart).
+token_usage = TokenUsage()
 remote_access = RemoteAccess()
 updates = Updates(github_account, crashes)
 # Fix problems: the daily run that fixes the problems, pushes the fixes and releases the app (Settings).

@@ -1,15 +1,16 @@
 /*
 The left list (App.tsx): one place for the whole app. Every line is a link to a page; the open one is marked:
-- Overview (#/, Overview.tsx): panels with charts.
+- Dashboard (#/, Dashboard.tsx): numbers, limits, charts and tables.
 - Pull requests (#/pulls, PullRequests.tsx), with how many of yours are open.
 - Repositories (#/repos): the repositories as cards (RepositoryCards.tsx), with how many.
 - Blockers (#/blockers, Blockers.tsx), with how many wait for you.
 - Virtual machines: the VMs page (#/vms) and one child per VM (#/vms/<name>), which folds.
 - Automation (#/automation, Automation.tsx).
-Settings stays pinned at the bottom; it opens SettingsDialog, which App owns.
+Feedback (#/feedback, Feedback.tsx), with how many are open, and Settings stay pinned at the bottom; Settings opens
+SettingsDialog, which App owns.
 */
 
-import { BookMarked, ChevronRight, Gauge, GitPullRequest, LayoutDashboard, Monitor, OctagonAlert, Settings } from "lucide-react";
+import { BookMarked, ChevronRight, Gauge, GitPullRequest, LayoutDashboard, MessageSquareWarning, Monitor, OctagonAlert, Settings } from "lucide-react";
 import { useState } from "react";
 
 import { StatusDot, VM_TONE } from "@/components/ui/status-dot";
@@ -22,6 +23,7 @@ export default function Sidebar(props: { page: string; id: string | null; onOpen
   const vms = useLive("vms");
   const prs = useLive("prs");
   const inbox = useLive("inbox");
+  const feedback = useLive("problems");
   const running = vms.filter((vm) => vm.status === "running").length;
   const openPRs = prs.items.filter((pr) => pr.relation === "author" && pr.state === "open").length;
   const blockers = inbox.filter((draft) => draft.kind === "approval" && draft.status === "pending").length;
@@ -32,9 +34,9 @@ export default function Sidebar(props: { page: string; id: string | null; onOpen
   return (
     <nav className="flex w-56 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground select-none">
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        <a href="#/" className={cn(row, "pl-6", props.page === "overview" && selected)}>
+        <a href="#/" className={cn(row, "pl-6", props.page === "dashboard" && selected)}>
           <LayoutDashboard className="size-4 text-muted-foreground" />
-          Overview
+          Dashboard
         </a>
 
         <a href="#/pulls" className={cn(row, "pl-6", props.page === "pulls" && selected)}>
@@ -99,6 +101,11 @@ export default function Sidebar(props: { page: string; id: string | null; onOpen
       </div>
 
       <div className="border-t p-2">
+        <a href="#/feedback" className={cn(row, "pl-6", props.page === "feedback" && selected)}>
+          <MessageSquareWarning className="size-4 text-muted-foreground" />
+          Feedback
+          <span className="ml-auto text-muted-foreground tabular-nums">{feedback.filter((item) => item.closed_at === null).length}</span>
+        </a>
         <button type="button" className={cn(row, "w-full pl-6")} onClick={props.onOpenSettings}>
           <Settings className="size-4 text-muted-foreground" />
           Settings

@@ -51,6 +51,9 @@ its place in a VM's line (the grant wakes it), a run of its going (watch_runs wa
 draft of the job still waiting with its reviewer or in the Inbox whatever the job's status says, or the user stopped it),
 or being archived. How long it has been out: since the newest entry in its history with a time
 (its turn's end, an error, a message), so restarts don't put it off.
+A blocker waiting for the user on the Blockers page (ask_approval) is tried again by its agent every
+BLOCKER_RETRY_SECONDS (keep_going): what held the job up may have gone away by itself (the agreement shows signed). Then
+the agent takes it back (clear_blocker, "cleared") and goes on, and the user never has to look at it.
 A VM steps down when it runs out of room (watch_room, every ROOM_CHECK_SECONDS, from the VM's load, free memory and free
 disk). Full (the load of the last minute at its number of CPUs or more, less than ROOM_MEMORY_PERCENT of its memory free,
 or less than ROOM_DISK_GB of its disk free), it takes nobody new (VMQueue.full, with why): agents wait in its line instead
@@ -127,10 +130,7 @@ whenever that changes).
 Agents work on the Issues board in its order: Needs action, then Review, then In progress and Catalog. The agents on a
 pull request of the user's that needs action get priority like the user's (set_pr_priority); the agents reviewing a PR
 draft (a review job queued or working, set_review_priority) come next in a VM's waiting line (VMQueue.reviewing), and
-the rest after them. The button on a repo's card (repo_list.py priority) moves its work: an agent with a job queued or
-working on a prioritized repo gets priority like the user's too, and one whose open jobs are all on deprioritized repos
-goes last in the line and gives its desktop back first (set_low_priority, VMQueue.deprioritized). All are worked out
-again by backend/github_api.py every few seconds.
+the rest after them. Both are worked out again by backend/github_api.py every few seconds.
 
 Everything here runs in the backend's event loop. notify() and the queue callbacks may be called
 from request threads, so they hand their work to the loop. version goes up on every change the
@@ -177,6 +177,8 @@ RUN_CHECK_SECONDS = 10
 # The heartbeat: an agent with open work out of its turn this long, for no reason, is told to carry on; looked this often.
 HEARTBEAT_SECONDS = 10 * 60
 HEARTBEAT_CHECK_SECONDS = 60
+# A blocker waiting for the user is tried again by its agent this often (keep_going).
+BLOCKER_RETRY_SECONDS = 60 * 60
 # How often each running VM's load, free memory and free disk are read (watch_room). Full: the load of the last minute at
 # its number of CPUs or more, less than ROOM_MEMORY_PERCENT of its memory free, or less than ROOM_DISK_GB of its disk free
 # (a fresh clone and build of a big project, or a long test run's files, need about that). Overloaded: the load of the
@@ -821,29 +823,6 @@ class Agents:
             self.queue.reviewing.discard(agent_id)
             self.version += 1
 
-    def set_low_priority(self, agent_ids: set[str]) -> None:
-        """The agents whose open jobs are all on deprioritized repos (the button on a repo's card, repo_list.py;
-        backend/github_api.py, every few seconds): they go last in a VM's line (VMQueue.deprioritized), and an overloaded
-        VM takes their desktop back first (watch_room), until they have work elsewhere."""
-        for agent_id in agent_ids:
-            if agent_id not in self.agents or agent_id in self.queue.deprioritized:
-                continue
-            self.queue.deprioritized.add(agent_id)
-            # Waiting for a VM: to the back of the line now.
-            vm_name, place = self.queue.place(agent_id)
-            if place is not None and place > 0:
-                try:
-                    self.queue.move_down(vm_name, agent_id)
-                except (ValueError, VMsError):
-                    # It left the line meanwhile.
-                    pass
-            self.version += 1
-        for agent_id in list(self.queue.deprioritized):
-            if agent_id in agent_ids:
-                continue
-            self.queue.deprioritized.discard(agent_id)
-            self.version += 1
-
     async def delete(self, agent_id: str) -> None:
         """Stop the agent and delete it. Its open jobs become cancelled; its drafts stay in the Inbox.
         Not an agent that made PRs: it keeps its conversation for updates on them (archive it instead)."""
@@ -863,7 +842,6 @@ class Agents:
         self.queue.leave_all(agent_id)
         self.queue.prioritized.discard(agent_id)
         self.queue.reviewing.discard(agent_id)
-        self.queue.deprioritized.discard(agent_id)
         self.pr_priority.discard(agent_id)
         self.jobs.delete_for_agent(agent_id)
         self.version += 1
@@ -1375,8 +1353,9 @@ class Agents:
         own = entry.get("relation", "author") == "author"
         ended = entry.get("state", "open") != "open"
         own_pr = entry["kind"] == "pr" and head is not None and own and not ended
-        # A stopped repo gets no new work: only a job already open on it hears it.
-        if self.repos.priority_of(repo) == "stopped" and holder_job is None:
+        # A removed repo gets no new work: only a job already open on it hears it.
+        removed = [name.lower() for name in self.repos.removed()]
+        if repo.lower() in removed and holder_job is None:
             open_ones = []
             for job in self.jobs.for_agent(agent.id):
                 if job["status"] not in ["done", "cancelled"] and job["kind"] == "follow_up" and job["thread"] == thread:
@@ -1537,7 +1516,8 @@ class Agents:
     def decide(self, draft_id: str, decision: str, reply: str = "", answered_by: str = "user") -> dict:
         """The user's decision on a draft (approved, rejected or replied) goes to its agent, and its job is open again,
         unless another draft of it still waits (a PR draft with its reviewer or in the Inbox). answered_by is "automation"
-        when the repo's or issue's Level of automation answers an old question at once (backend/repo_automation_api.py)."""
+        when the repo's or issue's Level of automation answers an old question at once (backend/repo_automation_api.py),
+        and "agent" when the agent took its own blocker back ("cleared", work_tools.py clear_blocker): it knows already."""
         draft = self.inbox.decide(draft_id, decision, reply, answered_by)
         job = None
         if draft["job"] is not None:
@@ -1620,15 +1600,20 @@ class Agents:
             text = f"The user approved {about}. They post it themselves. Carry on with {job_name}."
         elif decision == "approved" and draft["kind"] == "approval":
             # A blocker only the user could lift (work_tools.py ask_approval): the agent goes on and does what it asked for.
-            text = f"The user approved {about}."
+            # The user clicks Done only once it is done, so the agent never checks it or asks for it again.
+            text = f"The user approved {about}: Done means it is done."
             if reply:
                 text += f" Their note: {reply}"
             text += (
-                f" Do what you asked approval for, and carry on with {job_name}. A CLA: sign it the way the project asks, from "
-                "the user's account, through your drafts (the bot's sign line as a draft_comment on the PR once its bot asks, a "
-                "PR adding the user to its contributors file, or the license line in the PR's text), then check its bot says "
-                "signed. One only a sign page can sign (cla-assistant.io) the user signed there themselves: its bot updates the check."
+                f" Carry on with {job_name}. Don't check whether they did it and don't ask for it again: a bot or page that "
+                "doesn't show it yet catches up by itself. What you said you would do on Approve, do now. A CLA: sign it the "
+                "way the project asks, from the user's account, through your drafts (the bot's sign line as a draft_comment on "
+                "the PR once its bot asks, a PR adding the user to its contributors file, or the license line in the PR's "
+                "text). One only a sign page can sign (cla-assistant.io) the user signed there themselves."
             )
+        elif decision == "cleared":
+            # The agent took its own blocker back: it went away by itself (work_tools.py clear_blocker).
+            text = f"{about} is off the Blockers page: it doesn't hold {job_name} up any more. Carry on with it."
         elif decision == "rejected" and draft["kind"] == "approval":
             text = f"The user rejected {about}."
             if reply:
@@ -1680,9 +1665,10 @@ class Agents:
                 f"\n{job['id']} still waits on your other draft {', '.join(others)}: nothing to do for it until that one is "
                 "decided (you hear it then). Go on with your other jobs."
             )
-        self.notify(draft["agent"], text)
+        if answered_by != "agent":
+            self.notify(draft["agent"], text)
         # A repo's CLA is signed once: the same decision goes to the other jobs' requests to sign it, still waiting.
-        if draft["kind"] == "approval" and draft["overview"].get("kind") == "cla" and decision in ["approved", "rejected"]:
+        if draft["kind"] == "approval" and draft["overview"].get("kind") == "cla" and decision in ["approved", "rejected", "cleared"]:
             for other in self.inbox.list():
                 if other["kind"] != "approval" or other["status"] != "pending" or other["overview"].get("kind") != "cla":
                     continue
@@ -1766,10 +1752,34 @@ class Agents:
         its turn for HEARTBEAT_SECONDS, is woken to carry on, unless it waits in a VM's line, a run of its goes, the user
         stopped it, or it is archived. A job waiting on the user isn't open work here: the user's answer wakes it. Nor is
         one with a draft that still waits (a PR draft with its reviewer or in the Inbox), whatever its status
-        says: the reviewer's verdict or the user's decision wakes it. A fix_issue job's claim holds nothing up."""
+        says: the reviewer's verdict or the user's decision wakes it. A fix_issue job's claim holds nothing up. A blocker
+        waiting for the user is tried again by its agent every BLOCKER_RETRY_SECONDS."""
         while True:
             await asyncio.sleep(HEARTBEAT_CHECK_SECONDS)
             now = datetime.now(UTC)
+            # A blocker waiting for the user, tried again by its agent every BLOCKER_RETRY_SECONDS: it may have gone away
+            # by itself (2026-11-20: 7 jobs asked the user to renew a GitHub token, and sat there after GitHub worked again).
+            for draft in self.inbox.pending():
+                if draft["kind"] != "approval":
+                    continue
+                last = draft.get("retried_at") or draft["created_at"]
+                if now - datetime.fromisoformat(last) < timedelta(seconds=BLOCKER_RETRY_SECONDS):
+                    continue
+                agent = self.agents.get(draft["agent"])
+                if agent is None or agent.record["archived_at"] is not None or agent.busy or agent.stopped:
+                    continue
+                self.inbox.retried(draft["id"])
+                text = (
+                    f"Blocker check: {draft['id']} ({draft['title']}) has held {draft['job']} up on the user's Blockers page "
+                    f"since {draft['created_at'][:16].replace('T', ' ')} UTC. See if it is still in the way: try again what "
+                    "needed it (the call or check that failed, whether the CLA bot or the project shows it signed now). Gone: "
+                    "take it back with clear_blocker and carry on with the job. A problem in the app or its tools (a GitHub "
+                    "error, a token, a tool or VM that fails) was never a blocker: clear_blocker it, report_problem it if you "
+                    "haven't, and carry on; if it still fails, stop for now and the heartbeat wakes you to try again. Still in "
+                    "the way: leave it as it is and go back to what you were doing; you are asked again in an hour."
+                )
+                self.pending[agent.id].append({"from": "System", "text": text, "shown": False})
+                self.wake[agent.id].set()
             running = []
             for vm_record in self.vms.list():
                 running += [run["agent"] for run in vm_record.runs]
@@ -1807,7 +1817,9 @@ class Agents:
                     f"Heartbeat: you have open jobs and nothing is running: {titles}. Carry on with them now, from where you "
                     "left off (queue_for_vm when you need the VM). Don't stop or wait without a reason. When one is truly "
                     "blocked on something only the user could give or allow, ask_approval; when it can't be done, give it up: "
-                    "cancel it with job_update and say why. A blocker in the app you reported may be fixed by now: try again first."
+                    "cancel it with job_update and say why. A problem in the app or its tools you reported (a GitHub error, a "
+                    "tool or VM that fails) may be fixed by now: try again. It is never a blocker for the user and never a "
+                    "reason to give a job up: if it still fails, stop for now and you are woken to try again."
                 )
                 self.pending[agent.id].append({"from": "System", "text": text, "shown": False})
                 self.wake[agent.id].set()
@@ -1909,17 +1921,10 @@ class Agents:
                     continue
                 if len(vm_record.desktops) < 2:
                     continue
-                # Overloaded: a desktop is taken back. From an agent whose work goes last (deprioritized) before anyone
-                # else. Never from an agent the user gave priority; from one on a pull request that needs action only
-                # when nobody else is left, from one reviewing a PR draft only when nobody but those is. From one out of
-                # its turn first (nothing is cut off), then from the highest desktop.
-                low = None
-                for line in vm_record.desktops.values():
-                    agent = self.agents.get(line["holder"])
-                    if agent is None or agent.id not in self.queue.deprioritized:
-                        continue
-                    if low is None or low.busy or not agent.busy:
-                        low = agent
+                # Overloaded: a desktop is taken back. Never from an agent the user gave priority; from one on a pull
+                # request that needs action only when nobody else is left, from one reviewing a PR draft only when
+                # nobody but those is. From one out of its turn first (nothing is cut off), then from the highest
+                # desktop.
                 chosen = None
                 for line in vm_record.desktops.values():
                     agent = self.agents.get(line["holder"])
@@ -1941,8 +1946,6 @@ class Agents:
                         continue
                     if fallback is None or fallback.busy or not agent.busy:
                         fallback = agent
-                if low is not None:
-                    chosen = low
                 if chosen is None:
                     chosen = reviewer
                 if chosen is None:

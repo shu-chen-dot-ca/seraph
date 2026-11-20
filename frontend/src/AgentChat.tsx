@@ -51,7 +51,7 @@ compact is a slim version of this page for showing next to something else (no pa
 agent's name, a link to this page, where it is, Interrupt), the job it is on, and the conversation with the composer;
 no tabs, target VM, context, job lists or Desktop. Esc interrupts only from the message box there.
 
-After Delete the app goes to the Overview (#/). Its jobs and drafts show as plain text: there are no pages for them.
+After Delete the app goes to the Dashboard (#/). Its jobs and drafts show as plain text: there are no pages for them.
 */
 
 import {

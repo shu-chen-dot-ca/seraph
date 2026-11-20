@@ -301,8 +301,8 @@ async def add_issues() -> None:
     # Not an archived repo, nor one that doesn't take AI-made contributions (its AI policy, repo_signals.py), nor one that
     # isn't open to outside contributors (its newcomer verdict): none of their issues would be merge likely.
     skipped = [name.lower() for name in repos.archived()]
-    # Nor a stopped one (the button on its card, repo_list.py): no new work there.
-    skipped += [name.lower() for name, each in repos.priorities().items() if each == "stopped"]
+    # Nor a removed one (repo_list.py): no new work there.
+    skipped += [name.lower() for name in repos.removed()]
     skipped += [name.lower() for name, each in repo_signals.all().items() if (each.get("ai_policy") or {}).get("tag") == "no_ai"]
     skipped += [name.lower() for name, each in repo_signals.all().items() if (each.get("newcomer_verdict") or {}).get("verdict") == "closed"]
     # Nor one at its Open PRs at once: its issues can't be taken now.
@@ -401,9 +401,9 @@ async def pick_for_catalog() -> None:
     settings = {}
     if SETTINGS_FILE.is_file():
         settings = json.loads(SETTINGS_FILE.read_text())
-    # By repo name in lower case: an issue's repo may be spelled its own way. An archived or stopped repo takes nothing.
+    # By repo name in lower case: an issue's repo may be spelled its own way. An archived or removed repo takes nothing.
     archived = [name.lower() for name in repos.archived()]
-    archived += [name.lower() for name, each in repos.priorities().items() if each == "stopped"]
+    archived += [name.lower() for name in repos.removed()]
     by_name = {repo.lower(): rules for repo, rules in settings.items() if repo.lower() not in archived}
     picked = {}
     if PICKED_FILE.is_file():

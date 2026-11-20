@@ -8,7 +8,7 @@ The browser never polls. It keeps one websocket open on /api/live, gets every to
 topics that changed. Every store has a `version` number that goes up on each change, so finding the changes is a
 cheap comparison every 250 ms. The big topics go at most every BIG_TOPIC_SECONDS, with all their changes since. The
 topics are only what the pages show (TOPICS): the repos, your PRs, jobs, the blockers waiting for you, agents, VMs,
-images, updates and the Automation's settings. A topic is read and encoded once per change, and that same text goes to
+images, updates, the Automation's settings, the tokens the agents used and the Feedback page's list. A topic is read and encoded once per change, and that same text goes to
 every open browser (TEXTS).
 
 Only this machine's own pages may use the API: the Host must be localhost or
@@ -55,7 +55,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocketDisconnect, WebSocketDisconnected
 
 from backend import agents_api, artifacts_api, automation_api, errors_api, github_account_api, github_api, images_api, inbox_api, issues_api, problem_fixes_api, remote_access_api, repo_automation_api, repos_api, secrets_api, updates_api, vms_api
-from backend.shared import agents, crashes, explore, images, inbox, issue_tags, jobs, pr_tracking, remote_access, repos, updates, vms
+from backend.shared import agents, crashes, explore, images, inbox, issue_tags, jobs, pr_tracking, problems, remote_access, repos, token_usage, updates, vms
 from github_searcher.remote_access import COOKIE, DOMAIN as REMOTE_DOMAIN
 from github_searcher.token_balancer import BALANCER
 from github_searcher.updates import HOME
@@ -152,6 +152,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(keep_alive(github_api.keep_your_repositories)),
         asyncio.create_task(keep_alive(updates_api.keep_updates)),
         asyncio.create_task(keep_alive(problem_fixes_api.keep_problem_fixes)),
+        asyncio.create_task(keep_alive(agents_api.keep_token_usage)),
     ]
     yield
     explore.save_for_restart()
@@ -218,7 +219,7 @@ async def live(websocket: WebSocket) -> None:
 
 
 # The live feed's topics, by name: what the pages show.
-TOPICS = ["repos", "jobs", "inbox", "prs", "agents", "vms", "images", "updates", "automation"]
+TOPICS = ["repos", "jobs", "inbox", "prs", "agents", "vms", "images", "updates", "automation", "tokens", "problems"]
 # Topics older releases had. The live copy checks a new release with its own list of topics (updates.py TOPICS), so in
 # that check these go once too, empty, or a live copy from before the trim would refuse every new release.
 OLD_TOPICS = ["issues", "tracked", "explore", "github", "issue_drafts", "your_repos", "notifications", "resource", "projects", "crashes"]
@@ -229,9 +230,9 @@ TEXTS = {}
 
 def topic_data(topic: str):
     """One topic of the live feed as the pages get it."""
-    # The Repositories cards: the list, and which are archived, planned, prioritized or removed.
+    # The Repositories cards: the list, and which are archived, planned or removed.
     if topic == "repos":
-        return {"items": repos.items(), "can_undo": repos.can_undo(), "can_redo": repos.can_redo(), "archived": repos.archived(), "planned": repos.planned(), "priority": repos.priorities(), "removed": repos.removed()}
+        return {"items": repos.items(), "can_undo": repos.can_undo(), "can_redo": repos.can_redo(), "archived": repos.archived(), "planned": repos.planned(), "removed": repos.removed()}
     # Jobs without what no page shows (their evidence and timeline: half the topic), and a finished one with only the
     # start of its notes and no test runs: the topic goes out again on every change, and the jobs only grow.
     if topic == "jobs":
@@ -262,15 +263,21 @@ def topic_data(topic: str):
     # The Automation page (automation_api.py): its settings, its repos' labels and what it did.
     if topic == "automation":
         return automation_api.summary()
+    # The tokens the agents used, per model and over time (token_usage.py): the Dashboard's Tokens chart.
+    if topic == "tokens":
+        return token_usage.summary()
+    # The Feedback page: what the agents reported and what the app saw itself, open and closed (problems.py).
+    if topic == "problems":
+        return problems.list()
     raise ValueError(f"No topic {topic}: one of {', '.join(TOPICS)}")
 
 
 async def feed(websocket: WebSocket) -> None:
     """The live feed of one browser, until it goes away."""
     # The version of each topic this browser has; None until it is sent.
-    sent = {"repos": None, "jobs": None, "inbox": None, "prs": None, "agents": None, "vms": None, "images": None, "updates": None, "automation": None}
+    sent = {"repos": None, "jobs": None, "inbox": None, "prs": None, "agents": None, "vms": None, "images": None, "updates": None, "automation": None, "tokens": None, "problems": None}
     # When each big topic last went (time.monotonic()): again only BIG_TOPIC_SECONDS later, with every change since.
-    sent_at = {"repos": 0.0, "jobs": 0.0, "inbox": 0.0, "prs": 0.0, "agents": 0.0}
+    sent_at = {"repos": 0.0, "jobs": 0.0, "inbox": 0.0, "prs": 0.0, "agents": 0.0, "problems": 0.0}
     outside = remote_access.from_outside(websocket.headers)
     cookie = websocket.cookies.get(COOKIE)
     if CHECK:
@@ -294,6 +301,8 @@ async def feed(websocket: WebSocket) -> None:
             "images": (images.version, vm_images),
             "updates": updates.version,
             "automation": issues_api.AUTOMATION_VERSION["version"],
+            "tokens": token_usage.version,
+            "problems": problems.version,
         }
         # The version is noted before the data is read: a change in between is sent again next tick, never lost.
         messages = []

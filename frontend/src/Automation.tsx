@@ -4,7 +4,7 @@ its controls on the right. The page starts from the live "automation" topic and 
 (PUT /api/automation with every field), which is enabled only when something changed. Your edits stay shown until the
 live topic has them, so nothing flips back while it comes.
 - Activities: one switch each. Manage repositories (on: finds and adds repositories, archives the ones that don't
-  merge ours), Take new issues (take_new), Create pull requests (send_prs), Reply to reviews and comments
+  merge ours), Add repositories (add_repos: off, nothing new is added), Take new issues (take_new), Create pull requests (send_prs), Reply to reviews and comments
   (send_comments).
 - Limits: Pull requests per day, Open pull requests and Open pull requests per repository, each a number and a switch;
   off means no limit (null) and its number can't be changed. Concurrent agents is a number only, at least 1.
@@ -27,6 +27,7 @@ import { api, useLive, useLoaded, type AutomationData } from "@/live";
 
 const ACTIVITIES = [
   { key: "on", title: "Manage repositories" },
+  { key: "add_repos", title: "Add repositories" },
   { key: "take_new", title: "Take new issues" },
   { key: "send_prs", title: "Create pull requests" },
   { key: "send_comments", title: "Reply to reviews and comments" },
@@ -61,7 +62,7 @@ export default function Automation() {
 
   // The settings as the backend has them, in the page's shape. A limit that is off shows a usual number.
   const saved: Form = {
-    activities: { on: automation.on, take_new: automation.take_new, send_prs: automation.send_prs, send_comments: automation.send_comments },
+    activities: { on: automation.on, add_repos: automation.add_repos, take_new: automation.take_new, send_prs: automation.send_prs, send_comments: automation.send_comments },
     numbers: {
       max_prs_per_day: String(automation.max_prs_per_day ?? 10),
       max_open_prs: String(automation.max_open_prs ?? 30),
@@ -82,6 +83,7 @@ export default function Automation() {
   // What Save sends, and the same from the backend, to tell whether anything changed. Policies in the page's order.
   const body = {
     on: form.activities.on,
+    add_repos: form.activities.add_repos,
     take_new: form.activities.take_new,
     send_prs: form.activities.send_prs,
     send_comments: form.activities.send_comments,
@@ -94,6 +96,7 @@ export default function Automation() {
   };
   const current = {
     on: automation.on,
+    add_repos: automation.add_repos,
     take_new: automation.take_new,
     send_prs: automation.send_prs,
     send_comments: automation.send_comments,

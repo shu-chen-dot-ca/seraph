@@ -1,5 +1,5 @@
-"""The Repositories page's cards (frontend/src/RepositoryCards.tsx): Planned, Delete and the priority button, and keeping
-the repos' signals fresh.
+"""The Repositories page's cards (frontend/src/RepositoryCards.tsx): Planned and Delete, and keeping the repos' signals
+fresh.
 
 The list reaches the browser through /api/live (topic "repos"). The Automation fills it (backend/automation_api.py,
 through Explore).
@@ -40,11 +40,6 @@ class DeleteRequest(BaseModel):
     name: str
 
 
-class PriorityRequest(BaseModel):
-    name: str
-    priority: str  # "high", "low", "stopped" or "normal"
-
-
 @router.post("/repos/plan")
 def plan_repos(body: PlanRequest) -> dict:
     """Add to Planned (planned true) or Remove from Planned (false) on the Repositories page: the repos you
@@ -68,26 +63,11 @@ async def delete_repo(body: DeleteRequest) -> dict:
     history = [pr for pr in pr_tracking.summary()["items"] if pr["relation"] == "author" and pr["repo"].lower() == body.name.lower()]
     if history:
         repos.set_removed([body.name], True)
-        repos.set_priority(body.name, "stopped")
         return {"removed": body.name}
     repos.set_planned([body.name], False)
-    repos.set_priority(body.name, "normal")
     repos.remove([body.name])
     auto_remove_issues()
     return {"deleted": body.name}
-
-
-@router.post("/repos/priority")
-def set_repo_priority(body: PriorityRequest) -> dict:
-    """The button on the right of a card on the Repositories page: Prioritized (high), Deprioritized (low),
-    Stopped, or back to normal (repo_list.py)."""
-    if body.priority not in ["high", "low", "stopped", "normal"]:
-        raise HTTPException(status_code=400, detail="priority must be high, low, stopped or normal.")
-    listed = [item["full_name"] for item in repos.items()]
-    if body.name not in listed:
-        raise HTTPException(status_code=404, detail=f"{body.name} is not in Repos.")
-    repos.set_priority(body.name, body.priority)
-    return {"priority": repos.priorities()}
 
 
 async def keep_signals() -> None:
