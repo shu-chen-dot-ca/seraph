@@ -1,5 +1,5 @@
-"""A repo's automation (the robot on its card on the Dashboard's Repository page, and a click on an issue card's logo on
-the Issues board: frontend/src/AutomationDialog.tsx): what agents do there without asking you, as you.
+"""A repo's automation: what agents do there without asking you, as you. Each repo the Automation adds gets its
+new_repos settings (backend/automation_api.py); no page changes a repo's own any more.
 
 The settings, by repo, in SETTINGS_FILE (a repo not in it has DEFAULTS):
 
@@ -11,16 +11,13 @@ The Issue levels and Open PRs at once each come in two: until one of your PRs on
 at first; max_prs_first: 1), and after, once you are a contributor there (levels: Easy, Medium and Hard; max_prs: 5).
 Your merged PRs are the ones pr_tracking.py follows. Settings from before levels_first have Easy for it.
 
-and an issue's own level (the robot on its card on the Issues board: frontend/src/IssueAutomationDialog.tsx), which goes
-over its repo's for the drafts of the jobs on that issue, in ISSUE_SETTINGS_FILE:
+and an issue's own level (set from an old page), which goes over its repo's for the drafts of the jobs on that issue, in
+ISSUE_SETTINGS_FILE:
 
     {"owner/name#n": {"questions", "comments", "pull_requests": bool}, ...}
 
-GET /api/repos/automation gives them all with the defaults (the live "automation" topic too: backend/automation_api.py,
-the Dashboard's Automation → Settings, which opens the same dialogs); PUT /api/repos/automation gives the picked repos the same
-ones (the dialog's Save, for one repo or many); PUT /api/issues/automation sets one issue's own, or drops it (level
-null: its repo's counts again). How many agents work at once is the Issues board's (max_agents in
-backend/issues_api.py), not a repo's.
+How many agents work at once is the Issues board's (max_agents in backend/issues_api.py, Concurrent agents on the
+Automation page), not a repo's.
 
 What each does:
 - Add issues: keep_adding() below puts the repo's open issues whose level is among its Issue levels in the Issues list.
@@ -34,7 +31,12 @@ What each does:
   reviewer passed it) or an edit (a new title and description of your PR or issue) is sent as you, as Approve with
   Send does (github_account.py), then approved, so its agent hears it the same way. One GitHub refuses (or that has to
   wait, like a PR whose claim isn't decided yet, or whose claimed issue isn't assigned to you yet: github_account.py)
-  stays in the Inbox for you, and is tried again after SEND_RETRY_SECONDS.
+  stays in the Inbox, and is tried again after SEND_RETRY_SECONDS. The Automation page (backend/automation_api.py) goes
+  over every repo's: Create pull requests off holds every new PR (also one made again in place of an old one), Reply
+  to reviews and comments off holds everything a follow-up job drafts on a PR already open (comments, edits, new
+  versions), Pull requests per day holds new PRs once that many went out since midnight, and Open pull requests (all
+  repos together) and Open pull requests per repository hold new PRs like a repo's Open PRs at once. What is held
+  waits in the Inbox and goes once the setting allows it. A claim on an issue goes by its repo's level only.
   Pull requests also lets agents update the branch of your open PRs there (update_branch, work_tools.py).
 - Open PRs at once: how many of your PRs may be open on the repo at the same time, max_prs_first until one of yours
   there is merged (1 at first), max_prs after (5). Two places hold to it. Catalog to In progress: agents take no more
@@ -43,8 +45,7 @@ What each does:
   open PRs are at it; the ones over it wait in the Inbox (the board's Review) until one is merged or closed. New
   versions of open PRs, and a PR made again in place of an old one, always go. No new PR goes to an archived repo
   (the Dashboard's Automation archives the ones that don't merge ours: backend/automation_api.py), but one for an issue
-  our agents opened: we never give one of those up. You can still send
-  one by hand: Approve in the Inbox, or Publish on the Pull requests page.
+  our agents opened: we never give one of those up.
 - Open issues: agents may open new issues on the repo as you, claimed for you (assigned, else your comment saying you
   are on it), where the project's rules allow it (open_issue, work_tools.py); each goes to the top of the Issues
   board's Catalog, before every other card, where another agent takes it first, whatever the repo's Take issues and
@@ -90,18 +91,14 @@ import traceback
 from datetime import UTC, datetime
 
 import httpx
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
-from backend.issues_api import AUTOMATION_VERSION, HELD, TAGGED
+from backend.issues_api import DASHBOARD_AUTOMATION_FILE, HELD, TAGGED
 from backend.shared import agents, github_account, inbox, issue_facts, issue_tags, issues, jobs, pr_tracking, repo_signals, repos
 from github_searcher.claude_judge import judge
 from github_searcher.github_account import SendError
 from github_searcher.inbox import AUTOMATION_FILE, ISSUE_AUTOMATION_FILE
 from github_searcher.issue_tags import DATA_DIR, RULES_VERSION
 from github_searcher.search import get_open_issues
-
-router = APIRouter(prefix="/api")
 
 SETTINGS_FILE = AUTOMATION_FILE
 ISSUE_SETTINGS_FILE = ISSUE_AUTOMATION_FILE
@@ -123,7 +120,6 @@ DEFAULTS = {
     "levels": ["easy", "medium", "hard"],
     "instructions": "",
 }
-LEVELS = ["easy", "medium", "hard"]
 CATALOG_CHECK_SECONDS = 60
 ADD_CHECK_SECONDS = 60
 # How often Add issues reads a repo's open issues from GitHub again.
@@ -154,79 +150,6 @@ SCHEMA = {
 }
 
 
-class AutomationRequest(BaseModel):
-    repos: list[str]
-    add_issues: bool = False
-    queue_issues: bool = False
-    take_issues: bool
-    questions: bool
-    comments: bool
-    pull_requests: bool
-    open_issues: bool = False
-    max_prs_first: int = 1
-    max_prs: int = 5
-    levels_first: list[str] = ["easy"]
-    levels: list[str]
-    instructions: str
-
-
-class IssueLevel(BaseModel):
-    questions: bool
-    comments: bool
-    pull_requests: bool
-
-
-class IssueAutomationRequest(BaseModel):
-    id: str  # owner/name#n
-    level: IssueLevel | None  # None: its repo's counts again
-
-
-@router.get("/repos/automation")
-def get_automation() -> dict:
-    settings = {}
-    if SETTINGS_FILE.is_file():
-        settings = json.loads(SETTINGS_FILE.read_text())
-    own = {}
-    if ISSUE_SETTINGS_FILE.is_file():
-        own = json.loads(ISSUE_SETTINGS_FILE.read_text())
-    return {"defaults": DEFAULTS, "repos": settings, "issues": own}
-
-
-@router.put("/issues/automation")
-def put_issue_automation(body: IssueAutomationRequest) -> dict:
-    """Set one issue's own level, or drop it (level None); returns every issue's."""
-    own = {}
-    if ISSUE_SETTINGS_FILE.is_file():
-        own = json.loads(ISSUE_SETTINGS_FILE.read_text())
-    if body.level is None:
-        own.pop(body.id, None)
-    else:
-        own[body.id] = body.level.model_dump()
-    ISSUE_SETTINGS_FILE.write_text(json.dumps(own, indent=2))
-    AUTOMATION_VERSION["version"] += 1
-    return {"issues": own}
-
-
-@router.put("/repos/automation")
-def put_automation(body: AutomationRequest) -> dict:
-    """Give these repos the same settings; returns them all."""
-    if not body.repos:
-        raise HTTPException(status_code=400, detail="No repository picked.")
-    if any(level not in LEVELS for level in body.levels + body.levels_first):
-        raise HTTPException(status_code=400, detail="The levels are easy, medium and hard.")
-    if body.max_prs_first < 1 or body.max_prs_first > 50 or body.max_prs < 1 or body.max_prs > 50:
-        raise HTTPException(status_code=400, detail="Open PRs at once is 1 to 50.")
-    settings = {}
-    if SETTINGS_FILE.is_file():
-        settings = json.loads(SETTINGS_FILE.read_text())
-    for repo in body.repos:
-        settings[repo] = body.model_dump(exclude={"repos"})
-        settings[repo]["instructions"] = body.instructions.strip()
-    SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
-    AUTOMATION_VERSION["version"] += 1
-    return {"defaults": DEFAULTS, "repos": settings}
-
-
 # When each draft's send last failed, by id (only in memory: a restart tries them all again).
 failed_at = {}
 
@@ -251,7 +174,21 @@ async def act_on_drafts() -> None:
     own = {}
     if ISSUE_SETTINGS_FILE.is_file():
         own = json.loads(ISSUE_SETTINGS_FILE.read_text())
-    issue_of_job = {job["id"]: job["issue"] for job in jobs.list()}
+    # The Automation page's settings (backend/automation_api.py).
+    automation = {}
+    if DASHBOARD_AUTOMATION_FILE.is_file():
+        automation = json.loads(DASHBOARD_AUTOMATION_FILE.read_text())
+    send_prs = automation.get("send_prs", True)
+    send_comments = automation.get("send_comments", True)
+    per_repo = automation.get("max_open_per_repo")
+    max_open = automation.get("max_open_prs")
+    per_day = automation.get("max_prs_per_day")
+    # New PRs sent since midnight here (local time), for Pull requests per day.
+    midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC).isoformat()
+    sent_today = inbox.new_prs_sent_since(midnight)
+    all_jobs = jobs.list()
+    issue_of_job = {job["id"]: job["issue"] for job in all_jobs}
+    kind_of_job = {job["id"]: job["kind"] for job in all_jobs}
     archived = [name.lower() for name in repos.archived()]
     # The issues our agents opened as you (lower case): a PR for one still goes to an archived repo.
     opened = []
@@ -268,8 +205,9 @@ async def act_on_drafts() -> None:
         if pr["relation"] == "author" and pr["state"] == "merged":
             merged[pr["repo"].lower()] = merged.get(pr["repo"].lower(), 0) + 1
 
-    for draft in inbox.list():
-        if draft["status"] != "pending" or draft["repo"] is None:
+    total_open = sum(open_prs.values())
+    for draft in inbox.pending():
+        if draft["repo"] is None:
             continue
         rules = by_name.get(draft["repo"].lower(), DEFAULTS)
         level = {"questions": rules["questions"], "comments": rules["comments"], "pull_requests": rules["pull_requests"]}
@@ -302,7 +240,21 @@ async def act_on_drafts() -> None:
         limit = rules.get("max_prs_first", 1)
         if merged.get(name, 0) > 0:
             limit = rules.get("max_prs", 5)
+        if per_repo is not None:
+            limit = min(limit, per_repo)
         if send and new_pr and open_prs.get(name, 0) >= limit:
+            send = False
+        # The Automation page: Create pull requests is every new PR (also one made again in place of an old one), Reply
+        # to reviews and comments everything on a PR already open (a follow-up job's comments and edits, and new
+        # versions). A claim on an issue goes by its repo's level only.
+        opens_pr = draft["kind"] == "pr" and draft["update_of"] is None
+        if opens_pr and not send_prs:
+            send = False
+        if not opens_pr and kind_of_job.get(draft["job"]) == "follow_up" and not send_comments:
+            send = False
+        if opens_pr and per_day is not None and sent_today >= per_day:
+            send = False
+        if send and new_pr and max_open is not None and total_open >= max_open:
             send = False
         # Never a new one to an archived repo, but for an issue we opened: we never give one up.
         if send and new_pr and name in archived and (issue_id or "").lower() not in opened:
@@ -314,6 +266,9 @@ async def act_on_drafts() -> None:
             agents.decide(draft["id"], "approved")
             if new_pr:
                 open_prs[name] = open_prs.get(name, 0) + 1
+                total_open += 1
+            if opens_pr:
+                sent_today += 1
         except (SendError, KeyError, ValueError):
             failed_at[draft["id"]] = time.time()
 
@@ -346,6 +301,8 @@ async def add_issues() -> None:
     # Not an archived repo, nor one that doesn't take AI-made contributions (its AI policy, repo_signals.py), nor one that
     # isn't open to outside contributors (its newcomer verdict): none of their issues would be merge likely.
     skipped = [name.lower() for name in repos.archived()]
+    # Nor a stopped one (the button on its card, repo_list.py): no new work there.
+    skipped += [name.lower() for name, each in repos.priorities().items() if each == "stopped"]
     skipped += [name.lower() for name, each in repo_signals.all().items() if (each.get("ai_policy") or {}).get("tag") == "no_ai"]
     skipped += [name.lower() for name, each in repo_signals.all().items() if (each.get("newcomer_verdict") or {}).get("verdict") == "closed"]
     # Nor one at its Open PRs at once: its issues can't be taken now.
@@ -356,6 +313,12 @@ async def add_issues() -> None:
     for pr in pr_tracking.summary()["items"]:
         if pr["relation"] == "author" and pr["state"] == "merged":
             merged[pr["repo"].lower()] = merged.get(pr["repo"].lower(), 0) + 1
+    # Sets, as the lists run to tens of thousands of issues and every open issue of every repo is looked up in them.
+    listed = set(item["id"] for item in issues.items())
+    dismissed = set(issues.dismissed())
+    added_set = set(added)
+    # Tags of repos no longer in Repos go (issue_tags.py): only the Issues list's stay.
+    issue_tags.forget_repos([item["full_name"] for item in repos.items()], list(listed))
 
     for name in names:
         rules = by_name.get(name.lower())
@@ -367,8 +330,8 @@ async def add_issues() -> None:
             nodes = await asyncio.to_thread(get_open_issues, name.split("/")[0], name.split("/")[1])
         except (httpx.HTTPError, ValueError):
             continue
-        listed = [item["id"] for item in issues.items()]
-        dismissed = issues.dismissed()
+        # Tags of its issues that aren't open any more go (issue_tags.py): only the Issues list's stay.
+        issue_tags.forget_closed(name, [f"{name}#{node['number']}" for node in nodes], list(listed))
         tags = issue_tags.all()
 
         # Not added before, and tagged first when it has no tags yet or changed on GitHub since.
@@ -376,9 +339,10 @@ async def add_issues() -> None:
         todo = []
         for node in nodes:
             issue_id = f"{name}#{node['number']}"
-            if issue_id in listed and issue_id not in added:
+            if issue_id in listed and issue_id not in added_set:
                 added.append(issue_id)
-            if issue_id in added or issue_id in dismissed:
+                added_set.add(issue_id)
+            if issue_id in added_set or issue_id in dismissed:
                 continue
             waiting.append(node)
             tag = tags.get(issue_id)
@@ -410,7 +374,10 @@ async def add_issues() -> None:
                     "added_at": datetime.now(UTC).isoformat(),
                 }
             )
-        added += issues.add(items)
+        new = issues.add(items)
+        added += new
+        added_set.update(new)
+        listed.update(new)
         ADDED_FILE.write_text(json.dumps({"added": added}, indent=2))
 
 
@@ -434,8 +401,9 @@ async def pick_for_catalog() -> None:
     settings = {}
     if SETTINGS_FILE.is_file():
         settings = json.loads(SETTINGS_FILE.read_text())
-    # By repo name in lower case: an issue's repo may be spelled its own way. An archived repo takes nothing.
+    # By repo name in lower case: an issue's repo may be spelled its own way. An archived or stopped repo takes nothing.
     archived = [name.lower() for name in repos.archived()]
+    archived += [name.lower() for name, each in repos.priorities().items() if each == "stopped"]
     by_name = {repo.lower(): rules for repo, rules in settings.items() if repo.lower() not in archived}
     picked = {}
     if PICKED_FILE.is_file():

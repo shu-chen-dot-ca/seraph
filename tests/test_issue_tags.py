@@ -4,7 +4,8 @@ Claude, which answers stay from one read to the next, and what Claude is shown a
 The merge is the first rule that holds: Fixed, Out of scope, Claimed, Maintainers only, Waiting, No outside PRs, Large
 feature, Big change, Can't validate, else Likely. Most rules are there because of a real issue an agent was wrongly
 given; each of those is rebuilt here with small hand-made data and named after it. GitHub and Claude are fakes that
-send what the test says, and the tags are kept in pytest's temporary folder, never in DATA_DIR."""
+send what the test says, and the tags are kept in pytest's temporary folder, never in DATA_DIR. The tags file is written
+at most every SAVE_SECONDS, and the tags of closed issues and of repos no longer in Repos go."""
 
 import asyncio
 import copy
@@ -796,11 +797,44 @@ def test_tag_asks_by_repo_a_batch_at_a_time_and_skips_failed_ones(tags, monkeypa
 
 def test_tags_are_saved_and_come_back(tags, tmp_path, signals):
     asyncio.run(tags.tag_batch("owner/repo", [7]))
+    tags.flush(now=True)
 
     assert json.loads((tmp_path / "issue_tags.json").read_text()) == tags.all()
     assert tags.version > 0
     restarted = IssueTags(signals, tags.github_account)
     assert restarted.all() == tags.all()
+
+
+def test_tags_file_is_written_at_most_every_save_seconds(tags, tmp_path):
+    # The file is 49 MB at 90,000 issues: written on every change, it held the backend up.
+    with tags.lock:
+        tags.tags["owner/repo#1"] = {"status": "free"}
+        tags.save()
+    tags.flush()
+    assert json.loads((tmp_path / "issue_tags.json").read_text()) == {"owner/repo#1": {"status": "free"}}
+
+    with tags.lock:
+        tags.tags["owner/repo#2"] = {"status": "assigned"}
+        tags.save()
+    tags.flush()
+    assert json.loads((tmp_path / "issue_tags.json").read_text()) == {"owner/repo#1": {"status": "free"}}
+
+    tags.flush(now=True)
+    assert sorted(json.loads((tmp_path / "issue_tags.json").read_text())) == ["owner/repo#1", "owner/repo#2"]
+
+
+def test_closed_issues_and_gone_repos_lose_their_tags(tags):
+    with tags.lock:
+        for issue_id in ["owner/repo#1", "owner/repo#2", "Owner/Repo#3", "owner/repo-two#9", "other/gone#4", "other/gone#5"]:
+            tags.tags[issue_id] = {"status": "free"}
+
+    # owner/repo#2 is closed; #3 is in the Issues list (closed or not, its tags stay); owner/repo-two is another repo.
+    tags.forget_closed("owner/repo", ["owner/repo#1"], ["owner/repo#3"])
+    assert sorted(tags.all()) == ["Owner/Repo#3", "other/gone#4", "other/gone#5", "owner/repo#1", "owner/repo-two#9"]
+
+    # other/gone left Repos; other/gone#5 is in the Issues list.
+    tags.forget_repos(["owner/repo", "owner/repo-two"], ["other/gone#5"])
+    assert sorted(tags.all()) == ["Owner/Repo#3", "other/gone#5", "owner/repo#1", "owner/repo-two#9"]
 
 
 # What Claude is shown, so it can judge the cases above.

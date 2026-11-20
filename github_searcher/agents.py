@@ -6,10 +6,11 @@ DATA_DIR/agents/<id>.json:
     {"id": "agent_a1b2c3", "name": "agent-1", "target_vm": "vm1" | null, "claude_session_id",
      "history": [HistoryEntry, ...], "context_used", "context_max", "cost_usd", "compactions", "tokens_used", "created_at",
      "pending": [message, ...], "awake": bool, "archived_at": null | when it was archived,
-     "name_by": "auto" | "user" | "agent", "priority": bool}
+     "name_by": "auto" | "user" | "agent", "priority": bool,
+     "role": "reviewer" | null, "reviews": "owner/name" (a reviewer's repo, give_review)}
 
 name_by says who gave the name. Every agent is called "agent-N", the first free number (auto): agents don't name
-themselves, and the app gives its own agents (reviewers, workers, chat agents) no names either. Only the user renames
+themselves, and the app gives its own agents (reviewers, the ones it assigns issues to) no names either. Only the user renames
 one (user). Agents from before that were named for their work got the next free number once, by age (numbered).
 
 Any agent can be archived: it stops, its open jobs are cancelled and it leaves every VM queue, but its
@@ -36,9 +37,7 @@ one cut off in the middle of a turn gets one more saying so.
 
 After each turn the worker enforces the VM rule: an agent never holds a VM it has nothing to do in.
 - Holding a VM with no queued or working job for it: the VM is released for it, and what it left going on its desktop is
-  stopped first (VM.clean_up, as by its release_vm). Unless a job there waits only on a short
-  timed question (a timer of QUESTION_HOLD_SECONDS at most): then it keeps its desktop and sleeps, and the answer (the
-  user's, or the timer's pick) wakes it, so it doesn't wait in the VM's line again for minutes of asking.
+  stopped first (VM.clean_up, as by its release_vm).
 - Holding one while its run goes there (a test suite or build it left going, sandbox/agent/long_runs.py): it keeps
   its desktop and sleeps; watch_runs wakes it when the run ends. An agent never gives up its desktop while it has work
   there: nobody steps aside. Only the user (Take over, Give, Remove) or a full VM (watch_room, below) takes it.
@@ -79,19 +78,10 @@ RUN_CHECK_SECONDS (watch_runs). When one ends, its agent gets the result (bash: 
 WorkTools.finish_tests, which keeps it on the job). An agent waiting in that VM's line (its desktop was taken back)
 gets it together with the message that a desktop is its again; any other agent right away. Archiving or deleting an agent stops its runs.
 
-The user's side: assign() turns an issue into a job for an agent, set_up_repo() a repo from the
-Repos list (its Set up button) into a set_up_repo job: the agent reads the README and docs, sets an
-app with a clear frontend up and leaves it running on the VM's desktop (a server in the VM's demo
-service, so it outlives the agent's turn and VM restarts), or clones a library or other low-level
-repo and opens it in VS Code there, then writes a short introduction to the repo in its chat and
-the job's notes. reproduce_paper() turns a paper the user added on the Workspace tab's Papers page (a PDF, kept in the
-agent's artifacts under papers/) into a reproduce_paper job: the agent reads it, rebuilds it in the VM, compares the
-numbers, checks the claims and drafts a report (draft_report). decide() passes the user's decision on a draft back to its agent (with the link,
+The user's side: assign() turns an issue into a fix_issue job for an agent (the backend picks the issues and calls it,
+backend/issues_api.py). decide() passes the user's decision on a draft back to its agent (with the link,
 when Approve sent it to GitHub, or pushed a new version onto the user's PR). When the user edited the draft
 before deciding, the agent also gets the final text, so it learns how they want it written.
-A timed question (inbox.py: options, a recommended one and answer_by) that the user hasn't answered by its answer_by
-is answered with the agent's recommendation: answer_questions() looks every QUESTION_CHECK_SECONDS and decides it as a
-reply ("I pick: ..."), answered_by "timer", and the agent hears that the user didn't answer in time.
 
 The GitHub tab's side: follow_up() is called when someone else wrote on a PR or issue of the user's that an
 agent follows (agent mode Drafts), or the PR's checks failed (pr_tracking.needs_reply). The agent gets a
@@ -103,33 +93,15 @@ nothing (it marks the job done). It never posts anything itself. It answers only
 PR's reviewers (anyone else, a bot too, only when the merge needs it), in one comment of ours per round
 (agent/work_tools.py).
 
-A repository's agent (the Workspace tab's Live, frontend/src/RepoLive.tsx) belongs to one of the user's own
-repositories for good: its record's "repo" is that repo, and "live" how far its set-up is:
+Every PR draft is reviewed before it reaches the Inbox: give_review() hands each to its repo's own reviewer (record
+"role": "reviewer", "reviews": the repo, made the first time), which checks it the way the repo's maintainers will,
+every point asked and the edge cases of its kind, on the author's desktop, so they don't find what was missed one
+review round at a time. review_finished() takes its verdict (agent/review_tools.py review_done): passed, the draft
+shows in the Inbox; changes, it goes back to its author.
 
-    "repo": "owner/name" | None, "live": {"state": "preparing" | "ready" | "failed", "error": why it failed | None} | None
-
-set_up_live() makes it, aimed at the repo's own new VM (backend/repo_live_api.py makes the VM). prepare_live() then
-waits for the VM, clones the repo here with the user's sign-in (your_repositories.clone) and copies it into desktop 1's
-home, so the VM never gets a token, also for a private repo; then the agent gets a set_up_repo job for desktop 1, the
-desktop the Live tab shows. A failure stays in "live" with why, and the Live tab's Try again runs it again
-(retry_live). It reads its repo with its own tools (agent/repo_tools.py) and, when the user asks for a change, drafts
-an issue (issue_drafts.py) instead of making it; issue_decided() tells it whether the user created or discarded it.
-
-A project (github_searcher/projects.py: one of your repositories agents develop all the time, the Workspace tab repo
-page's Development) has agents of its own. start_project() makes them: its chat agent (the repository's agent, made
-with set_up_live when the repo has none: it sets the repo up on the project's VM), then project_agents() its workers
-and reviewer (record "project": the repo, "role": "worker" | "reviewer"), as many workers as the project asks for, all
-aimed at the project's VM. backend/projects_api.py runs the project: give_issue() hands a worker the next open issue as
-a fix_issue job (it checks the issue and reproduces it first, and may deny it), give_review() hands the reviewer each PR
-draft a worker makes (the draft reaches the Inbox only when review_finished() passes it; changes send it back),
-redo_pr() asks a worker to make a PR that conflicts with main again on the new main, give_crashes() hands the chat
-agent the app's errors (crashes.py) to turn into issues, and project_changed() tells it what the user changed (mode,
-goals).
-
-Every other repo's PR drafts are reviewed too, before they reach the Inbox: give_review() hands each to that repo's own
-reviewer (record "role": "reviewer", "reviews": the repo, made the first time), which checks it the way the repo's
-maintainers will, every point asked and the edge cases of its kind, on the author's desktop, so they don't find what
-was missed one review round at a time.
+Agents of features the app no longer has (a repository's Live agent: record "repo" and "live"; a project's chat agent,
+workers and reviewer: "project"; the Workflow tab's: "workflow" and "workflow_role") are archived by start() and lose
+those fields, and open jobs of kinds it no longer makes (set_up_repo, reproduce_paper) are cancelled.
 
 When an issue an agent has a job for goes from free to assigned (someone else is on it now: the
 tags say so, backend/issues_api.py), issue_taken() tells the agent who has it (the assignees' logins, or else the
@@ -138,9 +110,7 @@ tied to it (it says it closes it, or only mentions it: the tags' open_prs), the 
 each, also when the issue stays free or the user's claim went out, and reads it to decide. The user isn't asked: the agent finds out who that is
 (read_issue shows each person's role, search_issues their merged PRs there) and stops, cancelling its job with a note
 on who took it, for a maintainer, a member or someone who often gets PRs merged there; for a new, unknown or bot-like
-account it goes on. The Inbox's "taken" items from before that still decide as they did: Keep working tells the agent
-to go on; Stop the agent cancels the job, and when the agent is busy with it right now, stops its turn and what it runs
-in the VM.
+account it goes on.
 
 Some repos ask contributors to claim an issue before they start: be assigned to it, often with a "/claim" comment.
 There a fix_issue job's agent drafts that claim first (its one comment, WorkTools.draft_comment) and goes straight on
@@ -157,15 +127,18 @@ whenever that changes).
 Agents work on the Issues board in its order: Needs action, then Review, then In progress and Catalog. The agents on a
 pull request of the user's that needs action get priority like the user's (set_pr_priority); the agents reviewing a PR
 draft (a review job queued or working, set_review_priority) come next in a VM's waiting line (VMQueue.reviewing), and
-the rest after them. Both are worked out again by backend/github_api.py every few seconds.
+the rest after them. The button on a repo's card (repo_list.py priority) moves its work: an agent with a job queued or
+working on a prioritized repo gets priority like the user's too, and one whose open jobs are all on deprioritized repos
+goes last in the line and gives its desktop back first (set_low_priority, VMQueue.deprioritized). All are worked out
+again by backend/github_api.py every few seconds.
 
 Everything here runs in the backend's event loop. notify() and the queue callbacks may be called
 from request threads, so they hand their work to the loop. version goes up on every change the
 agent list shows (status, history, context, queue), for the live feed.
 
-    agents = Agents(repos, issues, jobs, inbox, vms, queue, tracked, tracked_issues, ..., artifacts, your_repositories, issue_drafts, projects, crashes)
+    agents = Agents(repos, issues, jobs, inbox, vms, queue, repo_signals, issue_tags, explore, artifacts, your_repositories, crashes)
     await agents.start()
-    agents.send(agent_id, "find good first issues in Python CLI tools")
+    agents.assign("pallets/click#812", None, "vm1")
 """
 
 import asyncio
@@ -174,8 +147,6 @@ import json
 import os
 import re
 import secrets
-import shlex
-import tempfile
 import threading
 import traceback
 from datetime import UTC, datetime, timedelta
@@ -185,10 +156,9 @@ from dotenv import load_dotenv
 
 from github_searcher import search
 from github_searcher.agent.agent import AGENT_HOME, Agent
-from github_searcher.agent.work_tools import QUESTION_HOLD_SECONDS, WorkTools
+from github_searcher.agent.work_tools import WorkTools
 from sandbox.agent import long_runs
 from sandbox.agent.tools import ComputerTools
-from sandbox.file_transfer import to_vm
 from sandbox.vms import VMsError
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -200,9 +170,6 @@ DATA_DIR = PROJECT_ROOT / os.environ["DATA_DIR"]
 MAX_NUDGES = 2
 # The user's messages that may wait for their turn at once.
 MAX_QUEUED = 10
-# Desktop 1's demo service (sandbox/image/base_layer.sh) runs DEMO_DIR/run.sh and keeps it running, also after a
-# restart. Desktop n has its own, demo-<n> with /opt/demo-<n>/run.sh (sandbox/vm.py).
-DEMO_DIR = os.environ["SANDBOX_VM_DEMO_DIR"]
 # While an agent works, its record is saved this often (and after every turn).
 SAVE_SECONDS = 5
 # How often the runs nobody waits for are checked.
@@ -221,12 +188,12 @@ ROOM_DISK_GB = 20
 OVERLOAD_TIMES = 2
 OVERLOAD_MEMORY_PERCENT = 10
 STEP_DOWN_SECONDS = 15 * 60
-# How often timed questions are checked for an answer_by that passed.
-QUESTION_CHECK_SECONDS = 10
 OPEN_STATUSES = ["queued", "working"]
-# A repository's new VM is waited for this long (it takes about a minute), and looked at this often meanwhile.
-LIVE_WAIT_SECONDS = 15 * 60
-LIVE_CHECK_SECONDS = 5
+# The record fields of agents of features the app no longer has (a repository's Live agent, a project's agents, the
+# Workflow tab's): start() archives an agent that has any of them, and takes them off.
+GONE_FIELDS = ["repo", "live", "project", "workflow", "workflow_role"]
+# Kinds of job the app no longer makes (setting a repo up, reproducing a paper): start() cancels the open ones.
+GONE_KINDS = ["set_up_repo", "reproduce_paper"]
 # What an agent does when its job's issue was assigned to someone else (issue_taken): it decides itself,
 # the user isn't asked.
 TAKEN_ADVICE = (
@@ -254,32 +221,23 @@ OURS_ADVICE = (
 
 
 class Agents:
-    def __init__(self, repos, issues, jobs, inbox, vms, queue, tracked, tracked_issues, repo_signals, issue_tags, explore, artifacts, your_repositories, issue_drafts, projects, crashes):
+    def __init__(self, repos, issues, jobs, inbox, vms, queue, repo_signals, issue_tags, explore, artifacts, your_repositories, crashes):
         self.repos = repos
-        # Your repositories agents develop all the time (projects.py), and the app's own errors (crashes.py): a turn
-        # that fails with an exception is one.
-        self.projects = projects
+        # The app's own errors (crashes.py): a turn that fails with an exception is one.
         self.crashes = crashes
-        # The Workflow tab's repositories (workflow.py): backend/shared.py puts it here once both are made.
-        self.workflow = None
         # What went wrong in how the app made agents work, as they report it (problems.py): backend/shared.py puts it here.
         self.problems = None
-        # The user's repositories, read with their sign-in: a repository's agent reads its repo and gets its code through it.
+        # The user's repositories and GitHub account, read with their sign-in: their login and noreply address.
         self.your_repositories = your_repositories
-        # The issues repository agents drafted for the user (issue_drafts.py).
-        self.issue_drafts = issue_drafts
         # Each agent's own folder (github_searcher/artifacts.py). A change in one shows in the agent list (artifacts_stamp).
         self.artifacts = artifacts
         artifacts.on_change = self.changed
         self.issues = issues
-        # The Tracked list (a RepoList) and what each tracked repo's last check found on GitHub.
-        self.tracked = tracked
-        self.tracked_issues = tracked_issues
-        # Each repo's signals (check_activity works them out the same way) and each issue's tags: free or assigned,
-        # merge, kind.
+        # Each repo's signals (check_activity works them out the same way): its AI policy decides where agents work.
         self.repo_signals = repo_signals
+        # Each issue's tags (free or assigned, merge, kind) and Explore: nothing here reads them any more, they are kept
+        # for whoever reads them through agents.
         self.issue_tags = issue_tags
-        # Explore, for its profile's types of repo: the tags agents give the repos they add.
         self.explore = explore
         self.jobs = jobs
         self.inbox = inbox
@@ -287,6 +245,8 @@ class Agents:
         self.queue = queue
         self.folder = DATA_DIR / "agents"
         self.version = 0
+        # Each agent's todo progress as summaries() last worked it out: (its history's length then, done, total).
+        self.todo_progress = {}
         self.agents: dict[str, Agent] = {}
         # Messages for each agent's next turn: {"from": "User" | "System", "text", "shown"}.
         # shown: already in the history (a kick), so it isn't added again when it is sent.
@@ -309,7 +269,6 @@ class Agents:
         self.loop_thread = None
         self.saver = None
         self.run_watcher = None
-        self.question_timer = None
         self.heartbeat = None
         self.room_watcher = None
         queue.on_grant = self.on_grant
@@ -361,15 +320,8 @@ class Agents:
             # Agents from before archiving, and from before name_by (an "agent-N" name was the automatic one).
             record.setdefault("archived_at", None)
             record.setdefault("name_by", "auto" if re.fullmatch(r"agent-\d+", record["name"]) else "user")
-            # And from before repository agents (Live).
-            record.setdefault("repo", None)
-            record.setdefault("live", None)
-            # And from before projects.
-            record.setdefault("project", None)
+            # And from before reviewers.
             record.setdefault("role", None)
-            # And from before the Workflow tab.
-            record.setdefault("workflow", None)
-            record.setdefault("workflow_role", None)
             # And from before priority.
             record.setdefault("priority", False)
             if record["priority"]:
@@ -406,6 +358,30 @@ class Agents:
                     continue
                 self.queue.leave_all(agent_id)
 
+        # Agents of features the app no longer has (GONE_FIELDS): archived, so they stop and leave every VM queue (their
+        # open jobs are cancelled), and the fields are taken off, so one the user brings back is a plain agent.
+        for agent in list(self.agents.values()):
+            gone = [field for field in GONE_FIELDS if agent.record.get(field) is not None]
+            for field in GONE_FIELDS:
+                agent.record.pop(field, None)
+            if not gone:
+                continue
+            # A project's worker or reviewer had a role too; a repo's own reviewer ("reviews") never has these fields.
+            agent.record["role"] = None
+            await self.archive(agent.id)
+            self.save(agent)
+
+        # Open jobs of kinds the app no longer makes (GONE_KINDS): cancelled. Their agents hear it with their next turn.
+        for job in self.jobs.list():
+            if job["kind"] not in GONE_KINDS or job["status"] in ["done", "cancelled"]:
+                continue
+            self.jobs.update(job["id"], status="cancelled")
+            self.jobs.add_timeline(job["id"], "status", "Cancelled: the app no longer does this kind of job")
+            if job["agent"] in self.agents:
+                text = f"{job['id']} ({job['title']}) is cancelled: the app no longer does this kind of job. Do nothing more for it."
+                self.pending[job["agent"]].append({"from": "System", "text": text, "shown": False})
+                self.save(self.agents[job["agent"]])
+
         # A VM an agent held when the backend stopped is still its own: it carries on.
         for agent_id in self.agents:
             vm_name, place = self.queue.place(agent_id)
@@ -413,16 +389,10 @@ class Agents:
                 continue
             self.notify(agent_id, f"The backend restarted; you still hold {vm_name}. Check where your jobs for it stand (my_jobs), finish them, then release_vm.")
 
-        # A repository's set-up the restart cut off goes on.
-        for agent in self.agents.values():
-            if agent.record["live"] is not None and agent.record["live"]["state"] == "preparing":
-                asyncio.create_task(self.prepare_live(agent.id))
-
         # No tool call waits for a run anymore after a restart: they are all collected by watch_runs now.
         self.queue.to_background()
         self.saver = asyncio.create_task(self.autosave())
         self.run_watcher = asyncio.create_task(self.watch_runs())
-        self.question_timer = asyncio.create_task(self.answer_questions())
         self.heartbeat = asyncio.create_task(self.keep_going())
         self.room_watcher = asyncio.create_task(self.watch_room())
 
@@ -431,8 +401,6 @@ class Agents:
             self.saver.cancel()
         if self.run_watcher is not None:
             self.run_watcher.cancel()
-        if self.question_timer is not None:
-            self.question_timer.cancel()
         if self.heartbeat is not None:
             self.heartbeat.cancel()
         if self.room_watcher is not None:
@@ -561,35 +529,17 @@ class Agents:
             open_jobs = [job for job in jobs if job["status"] in OPEN_STATUSES]
             jobs_here = [job for job in open_jobs if vm_name is not None and job["vm"] == vm_name]
             titles = ", ".join(f"{job['id']} ({job['title']})" for job in jobs_here)
-            # A job here that waits only on a short timed question (draft_question with options, its timer at most
-            # QUESTION_HOLD_SECONDS; the newest draft of the job): it keeps its desktop and sleeps, and the answer (the
-            # user's, or the timer's pick) wakes it. Released, a claimed fix waited two days in a full vm1's line for its
-            # last test run after a 10-minute question, and the owner merged their own fix meanwhile (opencodex#8319).
-            asking = []
-            for job in jobs:
-                if place != 0 or job["vm"] != vm_name or job["status"] != "waiting_on_user" or not job["drafts"]:
-                    continue
-                try:
-                    draft = self.inbox.get(job["drafts"][-1])
-                except KeyError:
-                    continue
-                if draft["kind"] != "question" or draft["status"] != "pending" or draft["answer_by"] is None:
-                    continue
-                timer = datetime.fromisoformat(draft["answer_by"]) - datetime.fromisoformat(draft["created_at"])
-                if timer <= timedelta(seconds=QUESTION_HOLD_SECONDS):
-                    asking.append(job)
 
-            if place == 0 and not jobs_here and not asking:
+            if place == 0 and not jobs_here:
                 # Before the desktop goes to the next one: stop what it left going there (VM.clean_up), unless a run of
-                # its still goes there or its last job here set up an app the user keeps (set_up_repo).
+                # its still goes there.
                 try:
                     vm_record = self.vms.get(vm_name)
                 except VMsError:
                     continue
                 desktop = vm_record.desktop_of(agent.id)
-                jobs_on_vm = [job for job in jobs if job["vm"] == vm_name]
                 runs_here = [run for run in vm_record.runs if run.get("desktop", 1) == desktop]
-                if not runs_here and not (jobs_on_vm and jobs_on_vm[-1]["kind"] == "set_up_repo"):
+                if not runs_here:
                     others = [number for number, line in vm_record.desktops.items() if number != desktop and line["holder"] is not None]
                     idle = not others and not vm_record.runs
                     await asyncio.to_thread(vm_record.desktop_vm(desktop).clean_up, idle)
@@ -601,9 +551,6 @@ class Agents:
                 agent.history.append({"type": "system", "text": f"Released {vm_name}: no jobs left", "time": datetime.now(UTC).isoformat()})
                 self.save(agent)
                 self.version += 1
-                continue
-            # Only a short timed question waits: it keeps its desktop and sleeps until the answer comes.
-            if place == 0 and not jobs_here:
                 continue
             # Interrupted by the user: it waits for them. More messages waiting: it goes on anyway.
             if agent.stopped or self.wake[agent.id].is_set():
@@ -641,6 +588,7 @@ class Agents:
     def summaries(self) -> list[dict]:
         summaries = []
         prs = self.inbox.pr_owners()
+        vm_records = self.vms.list()
         for agent in sorted(self.agents.values(), key=lambda agent: agent.record["created_at"]):
             vm_name, place = self.queue.place(agent.id)
             status = "idle"
@@ -649,7 +597,7 @@ class Agents:
             if place is not None and place > 0:
                 status = "in_queue"
             desktop = None
-            for vm_record in self.vms.list():
+            for vm_record in vm_records:
                 if vm_record.name == vm_name:
                     desktop = vm_record.desktop_of(agent.id)
             if place == 0:
@@ -660,17 +608,23 @@ class Agents:
             if recent:
                 activity = recent[-1].get("summary") or recent[-1].get("text") or ""
             # How far its todo list is, from the latest one it wrote (TodoWrite always sends the whole list).
-            # Only the recent history: this runs on every change, and an old list doesn't matter anymore.
-            todo_done = 0
-            todo_total = 0
-            for entry in reversed(agent.history[-3000:]):
-                if entry["type"] != "tool" or entry["name"] != "TodoWrite":
-                    continue
-                todos = entry["input"].get("todos")
-                if isinstance(todos, list):
-                    todo_total = len(todos)
-                    todo_done = len([todo for todo in todos if isinstance(todo, dict) and todo.get("status") == "completed"])
-                break
+            # Only the recent history: an old list doesn't matter anymore. This runs on every change, for every agent
+            # ever made, so it is worked out again only when the agent's history grew (todo_progress).
+            known = self.todo_progress.get(agent.id)
+            if known is None or known[0] != len(agent.history):
+                todo_done = 0
+                todo_total = 0
+                for entry in reversed(agent.history[-3000:]):
+                    if entry["type"] != "tool" or entry["name"] != "TodoWrite":
+                        continue
+                    todos = entry["input"].get("todos")
+                    if isinstance(todos, list):
+                        todo_total = len(todos)
+                        todo_done = len([todo for todo in todos if isinstance(todo, dict) and todo.get("status") == "completed"])
+                    break
+                self.todo_progress[agent.id] = (len(agent.history), todo_done, todo_total)
+            todo_done = self.todo_progress[agent.id][1]
+            todo_total = self.todo_progress[agent.id][2]
             summaries.append(
                 {
                     "id": agent.id,
@@ -703,15 +657,8 @@ class Agents:
                     "prs": prs.get(agent.id, 0),
                     # Goes up on every change to its artifacts, so an open Artifacts tab reads its folder again.
                     "artifacts_stamp": self.artifacts.stamps.get(agent.id, 0),
-                    # A repository's agent (Live): its repo, and how far its set-up is.
-                    "repo": agent.record["repo"],
-                    "live": agent.record["live"],
-                    # A project's worker or reviewer: its project, and which of the two it is.
-                    "project": agent.record["project"],
+                    # "reviewer" for a repo's reviewer (give_review), else None.
                     "role": agent.record["role"],
-                    # One of the Workflow tab's agents (workflow.py): its repository, and what it is there.
-                    "workflow": agent.record["workflow"],
-                    "workflow_role": agent.record["workflow_role"],
                     # The user gave it priority until its tasks are over (set_priority).
                     "priority": agent.record["priority"],
                 }
@@ -749,12 +696,7 @@ class Agents:
             "archived_at": None,
             "name_by": name_by,
             "numbered": True,
-            "repo": None,
-            "live": None,
-            "project": None,
             "role": None,
-            "workflow": None,
-            "workflow_role": None,
             "priority": False,
         }
         computer_tools = ComputerTools(self.vms, self.queue, agent_id, functools.partial(record.get, "target_vm"), record["history"])
@@ -879,6 +821,29 @@ class Agents:
             self.queue.reviewing.discard(agent_id)
             self.version += 1
 
+    def set_low_priority(self, agent_ids: set[str]) -> None:
+        """The agents whose open jobs are all on deprioritized repos (the button on a repo's card, repo_list.py;
+        backend/github_api.py, every few seconds): they go last in a VM's line (VMQueue.deprioritized), and an overloaded
+        VM takes their desktop back first (watch_room), until they have work elsewhere."""
+        for agent_id in agent_ids:
+            if agent_id not in self.agents or agent_id in self.queue.deprioritized:
+                continue
+            self.queue.deprioritized.add(agent_id)
+            # Waiting for a VM: to the back of the line now.
+            vm_name, place = self.queue.place(agent_id)
+            if place is not None and place > 0:
+                try:
+                    self.queue.move_down(vm_name, agent_id)
+                except (ValueError, VMsError):
+                    # It left the line meanwhile.
+                    pass
+            self.version += 1
+        for agent_id in list(self.queue.deprioritized):
+            if agent_id in agent_ids:
+                continue
+            self.queue.deprioritized.discard(agent_id)
+            self.version += 1
+
     async def delete(self, agent_id: str) -> None:
         """Stop the agent and delete it. Its open jobs become cancelled; its drafts stay in the Inbox.
         Not an agent that made PRs: it keeps its conversation for updates on them (archive it instead)."""
@@ -898,6 +863,7 @@ class Agents:
         self.queue.leave_all(agent_id)
         self.queue.prioritized.discard(agent_id)
         self.queue.reviewing.discard(agent_id)
+        self.queue.deprioritized.discard(agent_id)
         self.pr_priority.discard(agent_id)
         self.jobs.delete_for_agent(agent_id)
         self.version += 1
@@ -908,9 +874,8 @@ class Agents:
         if vm_name is not None:
             await asyncio.to_thread(agent.computer_tools.cancel, vm_name)
         (self.folder / f"{agent_id}.json").unlink(missing_ok=True)
-        # Its artifacts go with it (an archived agent keeps them), and so do its issue drafts, which only its chat shows.
+        # Its artifacts go with it (an archived agent keeps them).
         await asyncio.to_thread(self.artifacts.delete_all, agent_id)
-        await asyncio.to_thread(self.issue_drafts.delete_for_agent, agent_id)
 
     async def archive(self, agent_id: str) -> None:
         """Put the agent away: it stops, its open jobs become cancelled and it leaves every VM queue (what it still
@@ -1136,379 +1101,30 @@ class Agents:
         self.notify(agent_id, text)
         return job
 
-    def create_job(self, title: str, instructions: str, agent_id: str | None, vm_name: str | None, agent_name: str = "") -> dict:
-        """The user makes a job of their own (a "task", not tied to an issue) for an agent, or a new one when agent_id is None.
-
-        agent_name names that new agent; empty gives it the first free "agent-N".
-        """
-        title = title.strip()
-        if not title:
-            raise ValueError("A job needs a title")
-        if vm_name is not None and vm_name not in [vm_record.name for vm_record in self.vms.list()]:
-            raise ValueError(f"No VM named {vm_name}")
-        if agent_id is None:
-            agent_id = self.create(agent_name)["id"]
-        if agent_id not in self.agents:
-            raise KeyError(f"No agent {agent_id}")
-        agent = self.agents[agent_id]
-        # Raises ValueError while the agent waits for or holds another VM.
-        if vm_name is not None:
-            self.set_target_vm(agent_id, vm_name)
-        self.unarchive(agent_id)
-
-        vm_name = agent.record["target_vm"]
-        job = self.jobs.create("task", title, agent_id, "user", vm=vm_name, instructions=instructions, agent_name=agent.name)
-        text = f"New job {job['id']}: {title}"
-        if instructions:
-            text += f"\nInstructions from the user: {instructions}"
-        if vm_name is None:
-            text += "\nYou have no target VM. If the job needs one, pick the one that suits it with vms_list and choose_vm."
-        else:
-            text += f"\nYour VM is {vm_name}. If the job needs it, use queue_for_vm when ready; if it doesn't, just do it and mark it done."
-        self.notify(agent_id, text)
-        return job
-
-    def set_up_repo(self, repo: str, agent_id: str | None, vm_name: str | None, instructions: str = "") -> dict:
-        """The user gives a repo from the Repos list to an agent (a new one when agent_id is None) to set up in a VM: a
-        set_up_repo job (see "Setting up a repo" in agent/prompt.md)."""
-        if repo not in [item["full_name"] for item in self.repos.items()]:
-            raise KeyError(f"{repo} is not in the Repos list")
-        if vm_name is not None and vm_name not in [vm_record.name for vm_record in self.vms.list()]:
-            raise ValueError(f"No VM named {vm_name}")
-        if agent_id is None:
-            agent_id = self.create()["id"]
-        if agent_id not in self.agents:
-            raise KeyError(f"No agent {agent_id}")
-        agent = self.agents[agent_id]
-        # Raises ValueError while the agent waits for or holds another VM.
-        if vm_name is not None:
-            self.set_target_vm(agent_id, vm_name)
-        self.unarchive(agent_id)
-
-        title = f"Set up {repo}"
-        vm_name = agent.record["target_vm"]
-        job = self.jobs.create("set_up_repo", title, agent_id, "user", repo=repo, vm=vm_name, instructions=instructions, agent_name=agent.name)
-        text = f"New job {job['id']}: {title}"
-        text += (
-            "\nRead its README and docs first. If it has a clear frontend, set it up the way they say and leave it running on "
-            "the desktop; if it is a library or other low-level building block, clone it and open it in VS Code. Either way, "
-            "end with a short introduction to the repo (see Setting up a repo)."
-            f"\nA server you leave running goes in your desktop's demo service. On desktop 1: its start command in "
-            f"{DEMO_DIR}/run.sh, then `sudo systemctl enable demo` and `sudo systemctl restart demo` (logs: "
-            "`journalctl -u demo`). On desktop n: the same with /opt/demo-n/run.sh and the service demo-n."
-        )
-        if instructions:
-            text += f"\nInstructions from the user: {instructions}"
-        if vm_name is None:
-            text += "\nYou have no target VM: pick the VM that suits the job with vms_list and choose_vm, then queue_for_vm when ready."
-        else:
-            text += f"\nIt is for {vm_name}. Use queue_for_vm when ready."
-        self.notify(agent_id, text)
-        return job
-
-    def reproduce_paper(self, title: str, file_name: str, data: bytes, agent_id: str | None, vm_name: str | None,
-                        instructions: str = "", agent_name: str = "") -> dict:
-        """The user adds a paper (a PDF) on the Papers page for an agent (a new one when agent_id is None) to reproduce: a
-        reproduce_paper job (see "Reproducing a paper" in agent/prompt.md). The PDF goes in the agent's artifacts, under
-        papers/, where the agent reads it (paper_read). agent_name names that new agent; empty gives it "agent-N"."""
-        if not data.startswith(b"%PDF"):
-            raise ValueError("That file is not a PDF.")
-        if vm_name is not None and vm_name not in [vm_record.name for vm_record in self.vms.list()]:
-            raise ValueError(f"No VM named {vm_name}")
-        if agent_id is None:
-            agent_id = self.create(agent_name)["id"]
-        if agent_id not in self.agents:
-            raise KeyError(f"No agent {agent_id}")
-        agent = self.agents[agent_id]
-        # Raises ValueError while the agent waits for or holds another VM.
-        if vm_name is not None:
-            self.set_target_vm(agent_id, vm_name)
-        self.unarchive(agent_id)
-
-        # papers/<name>.pdf, with a number when the agent has a paper by that name already.
-        stem = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(file_name).stem).strip("-.")
-        if stem == "":
-            stem = "paper"
-        path = f"papers/{stem}.pdf"
-        number = 2
-        while self.artifacts.resolve(agent_id, path).exists():
-            path = f"papers/{stem}-{number}.pdf"
-            number += 1
-        self.artifacts.save(agent_id, path, data)
-
-        title = title.strip()
-        if title == "":
-            title = stem
-        title = f"Reproduce {title}"
-        vm_name = agent.record["target_vm"]
-        job = self.jobs.create("reproduce_paper", title, agent_id, "user", vm=vm_name, instructions=instructions, paper=path)
-        text = f"New job {job['id']}: {title}"
-        text += (
-            f"\nThe paper is {path} in your artifacts. Read all of it with paper_read first, a few pages at a time, then "
-            "reproduce it as in Reproducing a paper: rebuild it from the paper alone, compare the numbers, check the claims, "
-            "and end with draft_report."
-        )
-        if instructions:
-            text += f"\nInstructions from the user: {instructions}"
-        if vm_name is None:
-            text += "\nYou have no target VM: pick the VM that suits the job with vms_list and choose_vm, then queue_for_vm when you have read the paper."
-        else:
-            text += f"\nIt is for {vm_name}. Use queue_for_vm when you have read the paper."
-        self.notify(agent_id, text)
-        return job
-
-    def live_agent(self, repo: str) -> dict | None:
-        """The record of the repository's agent (Live), or None when it has none yet."""
-        for agent in self.agents.values():
-            if agent.record["repo"] == repo:
-                return agent.record
-        return None
-
-    def set_up_live(self, repo: str, vm_name: str) -> dict:
-        """The Live tab's Set up for one of the user's repositories: a new agent that belongs to it, aimed at its new VM
-        vm_name (made by backend/repo_live_api.py). It is named after the repo. prepare_live() goes on from there."""
-        if self.live_agent(repo) is not None:
-            raise ValueError(f"{repo} has its agent already")
-        created = self.create()
-        agent = self.agents[created["id"]]
-        agent.record["repo"] = repo
-        agent.record["live"] = {"state": "preparing", "error": None}
-        # Not told: its first message (prepare_live) says it all.
-        self.set_target_vm(agent.id, vm_name, by_agent=True)
-        self.save(agent)
-        self.version += 1
-        self.loop.create_task(self.prepare_live(agent.id))
-        return created
-
-    def retry_live(self, agent_id: str, vm_name: str) -> None:
-        """The Live tab's Try again, after prepare_live failed: once more, on vm_name (the same VM, or a new one when the
-        old one is gone)."""
-        agent = self.agents[agent_id]
-        if agent.record["live"] is None or agent.record["live"]["state"] != "failed":
-            raise ValueError(f"{agent.name} isn't waiting for a new try")
-        self.set_target_vm(agent_id, vm_name, by_agent=True)
-        agent.record["live"] = {"state": "preparing", "error": None}
-        self.save(agent)
-        self.version += 1
-        self.loop.create_task(self.prepare_live(agent_id))
-
-    async def prepare_live(self, agent_id: str) -> None:
-        """A repository's agent gets its repo's code in its VM: once the VM is up (started if it is off), the repo is
-        cloned here with the user's sign-in and copied into desktop 1's home (copy_repo). Then the agent gets its
-        set_up_repo job. A failure is kept in record["live"], with why, and shows in its chat."""
-        agent = self.agents.get(agent_id)
-        if agent is None:
-            return
-        repo = agent.record["repo"]
-        error = None
-        vm_record = None
-        started = False
-        waited = 0
-        while error is None:
-            # It may be deleted meanwhile, or its VM renamed (its target VM follows) or deleted.
-            if agent_id not in self.agents:
-                return
-            vm_name = agent.record["target_vm"]
-            vm_record = None
-            for each in self.vms.list():
-                if each.name == vm_name:
-                    vm_record = each
-            if vm_record is None:
-                error = "Its VM is gone. Try again to make a new one."
-            elif vm_record.status == "running" and vm_record.usage["responding"]:
-                break
-            elif vm_record.status in ["failed", "missing"]:
-                error = f"{vm_name} could not be made: {vm_record.error}. Delete it on the VMs page, then Try again."
-            elif vm_record.status == "stopped" and started:
-                error = f"{vm_name} didn't start: {vm_record.error}"
-            elif vm_record.status == "stopped":
-                started = True
-                try:
-                    self.vms.start_in_background(vm_name)
-                except VMsError:
-                    # Busy with something else: look again next round.
-                    pass
-            elif waited > LIVE_WAIT_SECONDS:
-                error = f"{vm_name} wasn't up after {LIVE_WAIT_SECONDS // 60} minutes."
-            if error is None:
-                await asyncio.sleep(LIVE_CHECK_SECONDS)
-                waited += LIVE_CHECK_SECONDS
-
-        if error is None:
-            try:
-                await asyncio.to_thread(self.copy_repo, repo, vm_record)
-            except Exception as failure:
-                # Not signed in, a clone or copy that failed, a VM that stopped answering: all said the same way.
-                error = f"Could not put the code in {vm_record.name}: {failure}"
-        if agent_id not in self.agents:
-            return
-        now = datetime.now(UTC).isoformat()
-        if error is not None:
-            agent.record["live"] = {"state": "failed", "error": error}
-            agent.history.append({"type": "system", "text": error, "time": now})
-            self.save(agent)
-            self.version += 1
-            return
-
-        vm_name = vm_record.name
-        folder = repo.split("/")[1]
-        agent.record["live"] = {"state": "ready", "error": None}
-        agent.history.append({"type": "system", "text": f"The code is in {vm_name}, in ~/{folder} on desktop 1", "time": now})
-        title = f"Set up {repo}"
-        job = self.jobs.create("set_up_repo", title, agent_id, "user", repo=repo, vm=vm_name, agent_name=agent.name)
-        text = (
-            f"You are the agent of {repo}, one of the user's own repositories (see Your repository). Its VM is {vm_name}: "
-            "the user tries the repo out on its desktop 1, next to this chat, on the Workspace tab's Live.\n"
-            f"New job {job['id']}: {title}\n"
-            f"The app copied the code into desktop 1's home folder: ~/{folder}, the default branch with its history. The VM has "
-            "no GitHub access, so you can't fetch or push there for a private repo, and that is fine. Read its README and docs "
-            "first, with your repo_* tools. If it has a clear frontend, set it up the way they say and leave it running on the "
-            "desktop; if it is a library or other low-level building block, open it in VS Code. Either way, end with a short "
-            "introduction to the repo (see Setting up a repo).\n"
-            f"A server you leave running goes in desktop 1's demo service: its start command in {DEMO_DIR}/run.sh, then "
-            "`sudo systemctl enable demo` and `sudo systemctl restart demo` (logs: `journalctl -u demo`).\n"
-            f"It is for {vm_name}, on desktop 1, where the code is and where the user looks: queue_for_vm with desktop 1 when ready."
-        )
-        self.save(agent)
-        self.notify(agent_id, text)
-
-    def copy_repo(self, repo: str, vm_record) -> None:
-        """Clone repo here with the user's sign-in and copy it into desktop 1's home in the VM (prepare_live, in a thread).
-        A folder of that name already there (an earlier try) is kept as it is."""
-        folder = repo.split("/")[1]
-        vm = vm_record.desktop_vm(1)
-        result = vm.exec("cd && pwd", 30)
-        home = result.stdout.strip()
-        if result.returncode != 0 or not home.startswith("/"):
-            raise ValueError(f"the VM didn't say where desktop 1's home is: {result.stderr.strip()}")
-        if vm.exec(f"test -e {shlex.quote(folder)}", 30).returncode == 0:
-            return
-        # On this computer's disk, not in /tmp (memory): a big repo can take gigabytes.
-        with tempfile.TemporaryDirectory(dir=DATA_DIR) as temporary:
-            target = Path(temporary) / folder
-            self.your_repositories.clone(repo, str(target))
-            to_vm(vm, str(target), home)
-
-    def start_project(self, repo: str, vm_name: str) -> None:
-        """Development's Start (backend/projects_api.py made the project and its VM, vm_name): its chat agent is the
-        repository's agent (a new one when the repo has none: set_up_live, which sets the repo up on the VM's desktop
-        1), then its workers and reviewer come (project_agents). The chat agent hears what it is now."""
-        chat = self.live_agent(repo)
-        if chat is None:
-            chat = self.set_up_live(repo, vm_name)
-        self.projects.update(repo, chat=chat["id"])
-        self.project_agents(repo)
-        text = (
-            f"The user started development of {repo}: agents develop it all the time now (see Developing a project), and "
-            "you are its chat agent. It is in Drafts mode: what the user asks for, you write as issue drafts for them to "
-            "create. project_status shows where it stands."
-        )
-        self.pending[chat["id"]].append({"from": "System", "text": text, "shown": False})
-        self.save(self.agents[chat["id"]])
-        self.version += 1
-
-    def project_agents(self, repo: str) -> None:
-        """A project's workers, as many as it asks for, and its reviewer, aimed at its VM: missing ones are made, archived
-        ones come back, extra workers are archived (their issues go back, for the others to take). Every round of
-        backend/projects_api.py, while the project is on."""
-        project = self.projects.get(repo)
-        if project is None:
-            return
-        vm_names = [vm_record.name for vm_record in self.vms.list()]
-        workers = [agent_id for agent_id in project["workers"] if agent_id in self.agents]
-        for agent_id in workers:
-            self.unarchive(agent_id)
-        while len(workers) < project["agents"]:
-            created = self.create()
-            agent = self.agents[created["id"]]
-            agent.record["project"] = project["repo"]
-            agent.record["role"] = "worker"
-            if project["vm"] in vm_names:
-                self.set_target_vm(agent.id, project["vm"], by_agent=True)
-            self.save(agent)
-            workers.append(agent.id)
-        while len(workers) > project["agents"]:
-            agent_id = workers.pop()
-            for issue in project["issues"].values():
-                if issue["agent"] == agent_id and issue["state"] == "working":
-                    self.projects.drop_issue(repo, issue["number"])
-            self.loop.create_task(self.archive(agent_id))
-
-        reviewer = project["reviewer"]
-        if reviewer in self.agents:
-            self.unarchive(reviewer)
-        else:
-            created = self.create()
-            agent = self.agents[created["id"]]
-            agent.record["project"] = project["repo"]
-            agent.record["role"] = "reviewer"
-            if project["vm"] in vm_names:
-                self.set_target_vm(agent.id, project["vm"], by_agent=True)
-            self.save(agent)
-            reviewer = agent.id
-        self.projects.update(repo, workers=workers, reviewer=reviewer)
-
-    def give_issue(self, repo: str, issue: dict, agent_id: str, again: bool) -> dict:
-        """A project's next open issue ({"number", "title"}) for one of its workers (backend/projects_api.py): a fix_issue
-        job. again: it was denied, closed or done before and is open again (reopened, or Try again)."""
-        agent = self.agents[agent_id]
-        self.unarchive(agent_id)
-        project = self.projects.get(repo)
-        issue_id = f"{repo}#{issue['number']}"
-        title = f"Fix {issue_id}: {issue['title']}"
-        vm_name = agent.record["target_vm"]
-        job = self.jobs.create("fix_issue", title, agent_id, "user", issue=issue_id, vm=vm_name, agent_name=agent.name)
-        text = (
-            f"New job {job['id']}: {title}\n"
-            f"{repo} is a project the user has agents develop all the time, and this is its next open issue: work on it as in "
-            f"Developing a project. Check it first (repo_thread {issue['number']}, the code it is about, the other issues and pull "
-            f"requests), then reproduce it on the newest code in the VM (sync_code puts it in ~/{agent.name}). When it isn't worth "
-            "doing or can't be reproduced, deny it with deny_issue. Otherwise fix it, test it, show it, and draft_pr: the "
-            "project's reviewer reviews it before the user sees it."
-        )
-        if again:
-            text += "\nIt was denied, closed or done before and is open again: the user wants it. Don't deny it again for the same reason."
-        if project is not None and project["goals"]:
-            text += f"\nThe user's goals for {repo}:\n{project['goals']}"
-        if vm_name is None:
-            text += "\nYou have no target VM: pick the VM that suits the job with vms_list and choose_vm, then queue_for_vm when ready."
-        else:
-            text += f"\nIt is for {vm_name}. Use queue_for_vm when you are ready to reproduce it."
-        self.notify(agent_id, text)
-        return job
-
     def give_review(self, draft: dict, desktop: int) -> None:
         """A PR draft (work_tools.py draft_pr, made on desktop of draft["vm"]) for a reviewer: a review job. The draft waits
-        out of the Inbox until review_finished(). A project's draft goes to the project's reviewer; a project with no
-        reviewer lets it through at once. Any other repo's draft goes to that repo's own reviewer (record "role":
-        "reviewer", "reviews": the repo), made the first time, aimed at the draft's VM: it checks the draft the way the
-        repo's maintainers will, in the author's folder on the author's desktop, where the project is set up and built."""
+        out of the Inbox until review_finished(). It goes to its repo's own reviewer (record "role": "reviewer", "reviews":
+        the repo), made the first time, aimed at the draft's VM: it checks the draft the way the repo's maintainers will,
+        in the author's folder on the author's desktop, where the project is set up and built."""
         now = datetime.now(UTC).isoformat()
         if draft["repo"] is None:
             self.inbox.set_review(draft["id"], {"state": "passed", "agent": None, "job": None, "notes": "It names no repo, so nobody reviewed it.", "at": now})
             return
-        project = self.projects.get(draft["repo"])
         reviewer = None
-        if project is not None:
-            reviewer = project["reviewer"]
-            if reviewer not in self.agents:
-                self.inbox.set_review(draft["id"], {"state": "passed", "agent": None, "job": None, "notes": "The project has no reviewer, so nobody reviewed it.", "at": now})
-                return
-        else:
-            for agent in self.agents.values():
-                if agent.record.get("role") == "reviewer" and agent.record.get("reviews") == draft["repo"].lower():
-                    reviewer = agent.id
-            if reviewer is None:
-                created = self.create()
-                agent = self.agents[created["id"]]
-                agent.record["role"] = "reviewer"
-                agent.record["reviews"] = draft["repo"].lower()
-                self.save(agent)
+        for agent in self.agents.values():
+            if agent.record.get("role") == "reviewer" and agent.record.get("reviews") == draft["repo"].lower():
                 reviewer = agent.id
+        if reviewer is None:
+            created = self.create()
+            agent = self.agents[created["id"]]
+            agent.record["role"] = "reviewer"
+            agent.record["reviews"] = draft["repo"].lower()
+            self.save(agent)
+            reviewer = agent.id
         self.unarchive(reviewer)
         # It checks the draft where it was made. While it holds or waits for another VM it keeps that one, and its
         # message says where to go next.
-        if project is None and draft["vm"] is not None:
+        if draft["vm"] is not None:
             try:
                 self.set_target_vm(reviewer, draft["vm"], by_agent=True)
             except ValueError:
@@ -1520,16 +1136,6 @@ class Agents:
         title = f"Review {draft['id']}: {draft['title']}"
         job = self.jobs.create("review", title, reviewer, "user", issue=draft["target"], repo=draft["repo"], vm=vm_name, agent_name=self.agents[reviewer].name)
         self.inbox.set_review(draft["id"], {"state": "waiting", "agent": reviewer, "job": job["id"], "notes": "", "at": now})
-        if project is not None:
-            text = (
-                f"New job {job['id']}: {title}\n{author} drafted this PR for {draft['target']}. Review it as in Reviewing a pull "
-                f"request: review_read {draft['id']}, then check it in the VM on its own code (sync_code, then apply its diff on its "
-                "base_sha), run its tests, look at its pictures, and end with review_done."
-            )
-            if vm_name is not None:
-                text += f"\nIt is for {vm_name}: queue_for_vm once you have read it."
-            self.notify(reviewer, text)
-            return
         what = "a new PR"
         if draft["update_of"] is not None:
             what = f"the next version of the user's PR {draft['update_of']}"
@@ -1554,7 +1160,7 @@ class Agents:
         self.notify(reviewer, text)
 
     def review_finished(self, draft_id: str, passed: bool, notes: str) -> None:
-        """The reviewer's verdict on a project PR draft (project_tools.py review_done). Passed: it shows in the Inbox, and
+        """The reviewer's verdict on a PR draft (agent/review_tools.py review_done). Passed: it shows in the Inbox, and
         its author hears so with its next message. Changes: it is rejected with the notes, so it never shows, and its
         author's job is open again, to fix and draft again."""
         draft = self.inbox.get(draft_id)
@@ -1588,38 +1194,6 @@ class Agents:
             "draft is reviewed again."
         )
         self.notify(author.id, text)
-
-    def redo_pr(self, repo: str, pr: dict) -> None:
-        """A project's open PR conflicts with main now (backend/projects_api.py): its agent makes it again on the new main,
-        as a fix_issue job whose thread is that PR. Its draft replaces the PR, which is closed once the new one is on
-        GitHub."""
-        agent = self.agents.get(pr["agent"])
-        if agent is None:
-            return
-        self.unarchive(agent.id)
-        thread = f"{repo}#{pr['number']}"
-        issue_id = None
-        if pr["issue"] is not None:
-            issue_id = f"{repo}#{pr['issue']}"
-        branch = "your old branch"
-        try:
-            branch = f"your old branch {self.inbox.get(pr['draft'])['branch']}"
-        except KeyError:
-            pass
-        title = f"Redo #{pr['number']} on the new main: {pr['title']}"
-        vm_name = agent.record["target_vm"]
-        job = self.jobs.create("fix_issue", title, agent.id, "user", issue=issue_id, repo=repo, vm=vm_name, thread=thread, agent_name=agent.name)
-        text = (
-            f"New job {job['id']}: {title}\n"
-            f"Your PR {thread} ({pr['url']}) conflicts with {repo}'s main now: other work was merged first. Make it again on the "
-            f"newest main: sync_code, a new branch from origin/HEAD, and your change on top again ({branch} in your folder has "
-            "it: cherry-pick your own commits, or redo it by hand), with the conflicts resolved the way the new code wants. Then "
-            "as for any fix: the tests on the new main (when: before) and with your change (when: after), the before and after "
-            f"pictures again, and draft_pr. Its draft replaces {thread}: once the user opens the new PR, the old one is closed."
-        )
-        if vm_name is not None:
-            text += f"\nIt is for {vm_name}: queue_for_vm when ready."
-        self.notify(agent.id, text)
 
     def remake_pr(self, pr: dict, days: int) -> dict | None:
         """One of the user's PRs that an agent owns had no update on GitHub for days (backend/issues_api.py
@@ -1657,47 +1231,6 @@ class Agents:
         self.notify(agent.id, text)
         return job
 
-    def give_crashes(self, repo: str, items: list[dict]) -> None:
-        """The app's new errors (crashes.py) for the chat agent of the app's own repo (backend/projects_api.py), to turn
-        into issues with crash_report."""
-        project = self.projects.get(repo)
-        if project is None or project["chat"] not in self.agents:
-            return
-        lines = []
-        for item in items:
-            line = f"- {item['id']} ({item['source']}, {item['count']} times, last {item['last_at'][:16]}, version {item['version']}): {item['message']}"
-            if item["issue"] is not None:
-                line += f" [it made #{item['issue']} before, and came back]"
-            if item["detail"]:
-                line += "\n  " + item["detail"][-1500:].replace("\n", "\n  ")
-            lines.append(line)
-        text = f"New errors in the app, {len(items)} of them. Deal with each with crash_report, as in The app's errors:\n" + "\n".join(lines)
-        self.notify(project["chat"], text)
-
-    def project_changed(self, repo: str, text: str) -> None:
-        """What the user changed on a project's Development page (its mode, goals), for its chat agent; it hears with its
-        next message, no turn of its own just for this."""
-        project = self.projects.get(repo)
-        if project is None or project["chat"] not in self.agents:
-            return
-        agent = self.agents[project["chat"]]
-        self.pending[agent.id].append({"from": "System", "text": text, "shown": False})
-        self.save(agent)
-        self.version += 1
-
-    def issue_decided(self, draft: dict) -> None:
-        """The user created one of the agent's issue drafts on GitHub, or discarded it, from its chat. It hears with its
-        next message: no turn of its own just for this."""
-        agent = self.agents.get(draft["agent"])
-        if agent is None:
-            return
-        text = f"The user discarded your issue draft {draft['id']} ({draft['title']})."
-        if draft["status"] == "created":
-            text = f"The user created your issue draft {draft['id']} on GitHub: {draft['repo']}#{draft['number']} ({draft['title']}), {draft['url']}."
-        self.pending[agent.id].append({"from": "System", "text": text, "shown": False})
-        self.save(agent)
-        self.version += 1
-
     def issue_taken(self, issue_id: str, reason: str, assignees: list[str], prs: list[str] | None = None) -> None:
         """The issue went from free to assigned: someone else is on it now. The agent of every open job on it is told
         who, and decides itself whether to stop (TAKEN_ADVICE): the user isn't asked. On an issue our agents opened as the
@@ -1709,8 +1242,6 @@ class Agents:
         those (PR_ADVICE), once each, whatever it heard before, whoever is assigned and whether its claim went out:
         DeskcommCRM#4511 only said "Refs #4495", the issue stayed free, and our agent ran five more hours of checks before
         it found the PR at its draft."""
-        # Inbox items from before agents decided this themselves: a job with one still pending isn't told as well.
-        asked = [draft["job"] for draft in self.inbox.list() if draft["kind"] == "taken" and draft["status"] == "pending"]
         # Assigned to the user is never someone else taking it (often their claim going through). Without the user's
         # sign-in the app can't tell who they are: for a job whose claim the user approved, any assignee counts as them.
         claimed = [draft["job"] for draft in self.inbox.list() if draft["kind"] == "comment" and draft["status"] == "approved"]
@@ -1724,7 +1255,7 @@ class Agents:
         who = ", ".join(f"@{login}" for login in assignees)
         ours = [f"{action['sent']['repo']}#{action['sent']['number']}".lower() for action in self.inbox.actions() if action["kind"] == "issue"]
         for job in self.jobs.list():
-            if job["issue"] != issue_id or job["status"] in ["done", "cancelled"] or job["id"] in asked:
+            if job["issue"] != issue_id or job["status"] in ["done", "cancelled"]:
                 continue
             if you and not prs:
                 continue
@@ -1760,6 +1291,35 @@ class Agents:
             self.jobs.add_timeline(job["id"], "notice", notice)
             self.notify(job["agent"], text)
 
+    async def stop_repo(self, repo: str) -> None:
+        """The user deleted the repo on the Dashboard's Repository page (backend/repos_api.py): every open job on it is
+        cancelled now, and an agent working on one stops at once, as for Pause (its turn, its runs, what it runs in the
+        VM). The drafts of those jobs that wait in the Inbox are rejected, so nothing more goes out there. The agents
+        hear it with their next turn; this doesn't wake them."""
+        drafts = self.inbox.list()
+        for job in self.jobs.list():
+            if job["status"] in ["done", "cancelled"] or (job["repo"] or "").lower() != repo.lower():
+                continue
+            self.jobs.update(job["id"], status="cancelled")
+            self.jobs.add_timeline(job["id"], "status", f"Stopped by you: {repo} was deleted")
+            for draft in drafts:
+                if draft["job"] == job["id"] and draft["status"] == "pending":
+                    self.inbox.decide(draft["id"], "rejected", f"{repo} was deleted")
+            agent_id = job["agent"]
+            if agent_id not in self.agents:
+                continue
+            text = f"The user deleted {repo}: {job['id']} ({job['title']}) is cancelled. Do nothing more for it."
+            self.pending[agent_id].append({"from": "System", "text": text, "shown": False})
+            if job["status"] == "working":
+                agent = self.agents[agent_id]
+                await agent.interrupt()
+                agent.computer_tools.end_turn()
+                await self.stop_runs(agent_id)
+                vm_name, place = self.queue.place(agent_id)
+                if vm_name is not None:
+                    await asyncio.to_thread(agent.computer_tools.cancel, vm_name)
+        self.version += 1
+
     def stop_job(self, job_id: str, why: str) -> None:
         """The app no longer wants this job done (backend/issues_api.py: its issue was deleted on GitHub, its repo left
         Repos, or its repo doesn't take AI-made contributions). Its agent is told to stop and cancel it itself, once:
@@ -1782,9 +1342,9 @@ class Agents:
         entry of pr_tracking.needs_reply ({"id", "kind", "relation", "state", "title", "url", "agent", "reason", "at",
         "failed_sha", "head", "base", "signals"}; only the user's own open PR, relation author, gets offered a new version
         or a rebase, and only the user's own PR or issue a new title or description). The agent's open follow_up job for
-        that thread hears about it; else a new one is made. When an open job of any agent has the PR's next version waiting
-        (draft_pr with pr), that job hears it instead: one agent per PR at a time. Returns the job, or None when the agent
-        is gone. Any thread."""
+        that thread hears about it; else a new one is made, but not on a stopped repo (the button on its card, repo_list.py).
+        When an open job of any agent has the PR's next version waiting (draft_pr with pr), that job hears it instead: one
+        agent per PR at a time. Returns the job, or None when the agent is gone or the repo is stopped. Any thread."""
         # One agent per PR at a time: when an open job's next version of this PR waits (in review, in the Inbox, or
         # approved and not sent yet), the news goes to that job and its agent, which hold the work, instead of a second
         # agent starting on it (openmed#5511: a follow-up on the PR went to its owner while another agent's version, drafted
@@ -1815,6 +1375,14 @@ class Agents:
         own = entry.get("relation", "author") == "author"
         ended = entry.get("state", "open") != "open"
         own_pr = entry["kind"] == "pr" and head is not None and own and not ended
+        # A stopped repo gets no new work: only a job already open on it hears it.
+        if self.repos.priority_of(repo) == "stopped" and holder_job is None:
+            open_ones = []
+            for job in self.jobs.for_agent(agent.id):
+                if job["status"] not in ["done", "cancelled"] and job["kind"] == "follow_up" and job["thread"] == thread:
+                    open_ones.append(job)
+            if not open_ones:
+                return None
         # It comes back from the archive for it, as for a job the user gives it. unarchive() wakes it: on the loop.
         if threading.get_ident() == self.loop_thread:
             self.unarchive(agent.id)
@@ -1968,51 +1536,17 @@ class Agents:
 
     def decide(self, draft_id: str, decision: str, reply: str = "", answered_by: str = "user") -> dict:
         """The user's decision on a draft (approved, rejected or replied) goes to its agent, and its job is open again,
-        unless another draft of it still waits (a PR draft with its reviewer or in the Inbox, a question). answered_by is
-        "timer" when the app answers a timed question with the agent's recommendation (answer_questions), "automation"
-        when the repo's or issue's Level of automation does, at once (backend/repo_automation_api.py)."""
-        if decision == "replied" and self.inbox.get(draft_id)["kind"] == "taken":
-            raise ValueError("Keep working or stop the agent; this one takes no reply")
+        unless another draft of it still waits (a PR draft with its reviewer or in the Inbox). answered_by is "automation"
+        when the repo's or issue's Level of automation answers an old question at once (backend/repo_automation_api.py)."""
         draft = self.inbox.decide(draft_id, decision, reply, answered_by)
         job = None
         if draft["job"] is not None:
             job = self.jobs.get(draft["job"])
 
-        # An Inbox item from before agents decided this themselves (issue_taken): whether the agent keeps working on an
-        # issue someone else took. approved: keep working, rejected: stop. A job that ended in the meantime has nothing
-        # left to decide.
-        if draft["kind"] == "taken":
-            if job is None or job["status"] in ["done", "cancelled"]:
-                return draft
-            note = ""
-            if reply:
-                note = f" Their note: {reply}"
-            # Waiting on the maintainers, from when an approved claim held its job up: it goes on without the assignment.
-            waited = job["status"] == "waiting_on_maintainers"
-            if decision == "approved" and waited:
-                self.jobs.update(job["id"], status="queued")
-                self.notify(draft["agent"], f"{draft['target']} was assigned to someone else, but the user wants you to go on with {job['id']} without being assigned. It is queued again.{note}")
-                return draft
-            if decision == "approved":
-                self.notify(draft["agent"], f"{draft['target']} isn't free anymore on GitHub, but the user wants you to keep working on {job['id']}.{note}")
-                return draft
-            was_working = job["status"] == "working"
-            self.jobs.add_timeline(job["id"], "status", "Stopped by you")
-            self.jobs.update(job["id"], status="cancelled")
-            self.notify(draft["agent"], f"{draft['target']} isn't free anymore on GitHub, so the user cancelled {job['id']}. Stop working on it and go on with your other jobs.{note}")
-            # Busy with that job right now: its turn stops, and so does what it still runs in the VM.
-            agent = self.agents.get(draft["agent"])
-            if agent is not None and agent.busy and was_working:
-                self.loop.create_task(agent.interrupt())
-                vm_name, place = self.queue.place(agent.id)
-                if place == 0:
-                    self.loop.create_task(asyncio.to_thread(agent.computer_tools.cancel, vm_name))
-            return draft
-
         # A fix_issue job's one comment is its claim (WorkTools.draft_comment). It never held the job up, so deciding it
         # leaves the job as it is (it may wait on the user for its PR by now).
         claim = draft["kind"] == "comment" and job is not None and job["kind"] == "fix_issue"
-        # Another draft of the job still waits (a PR draft with its reviewer or in the Inbox, a question): the job keeps
+        # Another draft of the job still waits (a PR draft with its reviewer or in the Inbox): the job keeps
         # waiting on the user until that one is decided too (openmed#5511: an approved new description put the job back
         # in the queue while its PR draft was still with the reviewer, so the heartbeat and the VM's reminders woke it
         # over and over, and job_progress made it working). A claim waits for nothing.
@@ -2029,7 +1563,7 @@ class Agents:
         if job is not None and job["status"] == "waiting_on_user" and not claim and not others:
             job = self.jobs.update(job["id"], status="queued")
 
-        kinds = {"pr": "PR", "comment": "comment", "question": "question", "report": "report", "edit": "title and description", "approval": "approval request"}
+        kinds = {"pr": "PR", "comment": "comment", "question": "question", "edit": "title and description", "approval": "approval request"}
         about = f"your {kinds.get(draft['kind'], draft['kind'])} draft {draft_id} ({draft['title']})"
         job_name = job["id"] if job is not None else "your work"
         # Approve sends a PR or comment first when the user's GitHub account is connected (inbox_api.py): then it is on GitHub.
@@ -2084,8 +1618,6 @@ class Agents:
             text += f" Carry on with {job_name}."
         elif decision == "approved" and draft["kind"] == "comment":
             text = f"The user approved {about}. They post it themselves. Carry on with {job_name}."
-        elif decision == "approved" and draft["kind"] == "report":
-            text = f"The user approved {about}. It finishes {job_name}: mark the job done with job_update."
         elif decision == "approved" and draft["kind"] == "approval":
             # A blocker only the user could lift (work_tools.py ask_approval): the agent goes on and does what it asked for.
             text = f"The user approved {about}."
@@ -2103,8 +1635,7 @@ class Agents:
                 text += f" Their note: {reply}"
             text += (
                 f" Give {job_name} up (prompt: Approvals): no PR yet, cancel it with job_update and take back a claim you "
-                "posted (delete_comment); a PR of ours open, close_pr with a short polite comment, then mark the job done. A "
-                "blocker the whole repo has (its CLA) also repos_remove's the repo."
+                "posted (delete_comment); a PR of ours open, close_pr with a short polite comment, then mark the job done."
             )
         elif decision == "approved":
             text = f"The user approved {about}. Carry on with {job_name}."
@@ -2124,14 +1655,6 @@ class Agents:
                 f"The user lets the app answer questions there for them, so it picked your recommendation for {about}: "
                 f"{draft['recommended']}. Go on with that on {job_name}, and say in its progress that you did."
             )
-        elif answered_by == "timer":
-            # A timed question nobody answered: its deadline was set when it was asked (inbox.py answer_by).
-            timer = datetime.fromisoformat(draft["answer_by"]) - datetime.fromisoformat(draft["created_at"])
-            minutes = round(timer.total_seconds() / 60)
-            text = (
-                f"The user didn't answer {about} within {minutes} minutes, so the app picked your recommendation: "
-                f"{draft['recommended']}. Go on with that on {job_name}, and say in its progress that you did."
-            )
         else:
             text = f"The user replied to {about}:\n{reply}\nDo what they say and keep working on {job_name}; draft again when it's ready."
             # The user wants work done: an archived agent comes back for it.
@@ -2146,7 +1669,7 @@ class Agents:
             if draft["kind"] in ["pr", "edit"]:
                 final = f"{draft['title']}\n\n{draft['body']}"
             text += f"\nThe user edited your draft before deciding. The final text:\n{final}\nSee what they changed, and write it their way next time."
-        # An agent that kept its desktop through a short timed question (the VM rule in work) goes on there at once.
+        # An agent that still holds its desktop of the job's VM (for other work there) goes on there at once.
         held_vm, place = self.queue.place(draft["agent"])
         if job is not None and job["status"] == "queued" and job["vm"] is not None and held_vm == job["vm"] and place == 0:
             text += f"\n{job['id']} is queued again, and you still hold your desktop of {job['vm']}: go on with it there now."
@@ -2242,7 +1765,7 @@ class Agents:
         """The heartbeat (module docstring), every HEARTBEAT_CHECK_SECONDS: an agent with a job queued or working, out of
         its turn for HEARTBEAT_SECONDS, is woken to carry on, unless it waits in a VM's line, a run of its goes, the user
         stopped it, or it is archived. A job waiting on the user isn't open work here: the user's answer wakes it. Nor is
-        one with a draft that still waits (a PR draft with its reviewer or in the Inbox, a question), whatever its status
+        one with a draft that still waits (a PR draft with its reviewer or in the Inbox), whatever its status
         says: the reviewer's verdict or the user's decision wakes it. A fix_issue job's claim holds nothing up."""
         while True:
             await asyncio.sleep(HEARTBEAT_CHECK_SECONDS)
@@ -2338,8 +1861,7 @@ class Agents:
                         "cancelled, or a repo vms_list marks with no open job: the clone, its builds and environments), with "
                         "their notes (vm_note_remove), and caches that fill again by themselves (~/.cache/pip, ~/.cache/uv, "
                         "~/.npm/_cacache, ~/.local/share/pnpm/store, ~/.cache/go-build, ~/.cargo/registry/cache). Never "
-                        "another desktop's home, a folder a run works in, ~/.cache/sandbox-runs (the app's), Docker's images, "
-                        "or an app a set_up_repo job left running for the user."
+                        "another desktop's home, a folder a run works in, ~/.cache/sandbox-runs (the app's), or Docker's images."
                     )
                     for holder in holders:
                         self.notify(holder, text)
@@ -2387,9 +1909,17 @@ class Agents:
                     continue
                 if len(vm_record.desktops) < 2:
                     continue
-                # Overloaded: a desktop is taken back. Never from an agent the user gave priority; from one on a pull
-                # request that needs action only when nobody else is left, from one reviewing a PR draft only when
-                # nobody but those is. From one out of its turn first (nothing is cut off), then from the highest desktop.
+                # Overloaded: a desktop is taken back. From an agent whose work goes last (deprioritized) before anyone
+                # else. Never from an agent the user gave priority; from one on a pull request that needs action only
+                # when nobody else is left, from one reviewing a PR draft only when nobody but those is. From one out of
+                # its turn first (nothing is cut off), then from the highest desktop.
+                low = None
+                for line in vm_record.desktops.values():
+                    agent = self.agents.get(line["holder"])
+                    if agent is None or agent.id not in self.queue.deprioritized:
+                        continue
+                    if low is None or low.busy or not agent.busy:
+                        low = agent
                 chosen = None
                 for line in vm_record.desktops.values():
                     agent = self.agents.get(line["holder"])
@@ -2411,6 +1941,8 @@ class Agents:
                         continue
                     if fallback is None or fallback.busy or not agent.busy:
                         fallback = agent
+                if low is not None:
+                    chosen = low
                 if chosen is None:
                     chosen = reviewer
                 if chosen is None:
@@ -2439,24 +1971,6 @@ class Agents:
                 except VMsError:
                     # The VM is busy: the desktop stays, free, until its agent gets it back.
                     pass
-
-    async def answer_questions(self) -> None:
-        """Every QUESTION_CHECK_SECONDS: a timed question (inbox.py) still pending after its answer_by is answered with
-        the agent's recommendation, as the reply "I pick: ..." with answered_by "timer". The deadline is in the draft,
-        so a backend restart doesn't move it."""
-        while True:
-            await asyncio.sleep(QUESTION_CHECK_SECONDS)
-            now = datetime.now(UTC)
-            for draft in self.inbox.list():
-                if draft["kind"] != "question" or draft["status"] != "pending" or draft["answer_by"] is None:
-                    continue
-                if datetime.fromisoformat(draft["answer_by"]) > now:
-                    continue
-                try:
-                    self.decide(draft["id"], "replied", f"I pick: {draft['recommended']}", answered_by="timer")
-                except (KeyError, ValueError):
-                    # The user decided it, or deleted it, in the meantime.
-                    continue
 
     async def watch_runs(self) -> None:
         """Every RUN_CHECK_SECONDS: the runs no tool call waits for. One that ended goes to its agent (run_ended).

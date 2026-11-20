@@ -1,20 +1,15 @@
-"""The agent's work tools: the Repos and Issues lists, its jobs, drafts for the Inbox and the VM queue.
+"""The agent's work tools: its jobs, drafts for the Inbox and the VM queue.
 
 The GitHub tools (github_tools.py) only read GitHub; these change what the user sees and decides on:
-- Lists: the Repos and Issues lists are the user's view of what the agents found. Each change is
-  one undo step for the user. Repos and issues are read from GitHub here, on this machine, so the
-  agent only names them. The Tracked list is the repos the user wants to keep an eye on; the
-  backend checks their open issues now and then (github_searcher/tracked_issues.py), and
-  tracked_issues shows what it found, so the agent can pick good ones for the Issues list.
 - Jobs: the smallest unit of work (github_searcher/jobs.py). The user makes them by assigning an
-  issue; the agent can make its own and keeps their status and notes up to date, and their
+  issue; the agent keeps their status and notes up to date, and their
   progress (job_progress: the step it is on and a headline in everyday words) for the user to follow. A new status
   (with its note), each new headline and each test run that counts also go on the job's timeline (jobs.py).
   The app makes follow_up jobs (agents.py, follow_up): someone else wrote on a PR or issue of the user's that
   the agent follows, or the PR's checks failed. my_jobs shows that PR or issue as the job's thread; the agent
   answers with draft_comment (target: the thread), draft_pr with pr (a new version of the user's own PR), or by
-  marking the job done when nothing needs an answer. A question it drafts for the job is about the thread.
-- Drafts: nothing goes to GitHub from here. A PR, an issue comment or a question becomes a draft
+  marking the job done when nothing needs an answer.
+- Drafts: nothing goes to GitHub from here. A PR or an issue comment becomes a draft
   in the user's Inbox and its job waits on the user. A comment with reply_to answers inside one of a PR's
   conversations on lines of code instead of below it, and with resolve Approve marks that conversation resolved
   after it (some projects only merge once every conversation is; refused for an organization that restricts OAuth Apps,
@@ -74,7 +69,7 @@ The GitHub tools (github_tools.py) only read GitHub; these change what the user 
   new version, done or not and how it was shown) and also_tested (the cases of the same kind beyond the asked example
   that the agent ran), so the user sees the gaps before approving, and maintainers don't find them one round at a time.
   Every PR draft goes to a reviewer agent first (Agents.give_review) and reaches the Inbox only once the review passes:
-  a project's reviewer, or else the repo's own reviewer, which checks it on the author's desktop.
+  the repo's own reviewer, which checks it on the author's desktop (review_tools.py).
 - The repo's Level of automation (set by the user on the Dashboard, inbox.py AUTOMATION_FILE) lets some drafts go
   without the user: the app sends them or answers them (backend/repo_automation_api.py). Two tools act on GitHub
   themselves, as the user, and only where it allows them; elsewhere they refuse: open_issue (Open issues: a new issue
@@ -104,18 +99,10 @@ The GitHub tools (github_tools.py) only read GitHub; these change what the user 
   something a maintainer or the user had to correct) on the Dashboard's Problems list (problems.py), for the user to
   fix all at one time. Nobody answers it.
 - Questions: agents ask the user nothing (there is no tool for it); every choice is theirs. A blocker only the user can
-  lift (a CLA to sign, something to do by hand, an account, a payment, a secret) goes to the Dashboard's Approvals page
+  lift (a CLA to sign, something to do by hand, an account, a payment, a secret) goes to the Dashboard's Blockers page
   with ask_approval (inbox.py "approval"), and its job waits there until the user decides: approved, the agent goes on;
   rejected, it gives the job up (prompt.md, Approvals). A repo's CLA is asked once: a decision on it answers the next
   job's request at once.
-- Projects: on one of the user's own repositories that agents develop all the time (github_searcher/projects.py), the
-  rules are the repo's own files, so draft_pr and run_tests don't wait for contributing_guide or pr_examples; a PR's
-  title must be a Conventional Commit. A fix_issue job with a thread there makes that PR again on the new main: its
-  draft replaces it.
-- The Workflow tab (github_searcher/workflow.py): its own worker's draft_pr is a pull request of that repository, not an
-  Inbox draft. The same checks hold (the rules are the repo's own files, its title a Conventional Commit); then
-  Workflow.add_pr keeps it (and opens it on GitHub when the repository's pull requests are there), and its review agent
-  gets it (backend/workflow_api.py).
 - Evidence: what the user looks at to decide on a draft. Real screenshots of the project running on
   the VM's desktop (its window, or a terminal running it), screen recordings (GIF) and command runs
   (a test failing, then passing), each "before" or "after" the agent's change, under a topic that
@@ -134,13 +121,6 @@ The GitHub tools (github_tools.py) only read GitHub; these change what the user 
   result on the job (agents.py calls it for a run in the background); an after run counts only if the code is still
   the code it started on.
   A passing after is needed for a PR draft, on exactly the code being drafted.
-- Papers: a reproduce_paper job (the Workspace tab's Papers page) has the user's PDF in the agent's artifacts. paper_read
-  shows it page by page, as pictures (formulas, tables and figures as printed) with their text; it only reads a job's
-  paper, which only the user puts there, so a file from a VM is never opened by a PDF reader on this computer.
-  draft_report puts the agent's report in the Inbox: in plain words what the paper is, claims and how it came out, the
-  paper's numbers next to the agent's (and the authors' code's), the problems it found, each with the command run
-  (evidence) that shows it, what it couldn't check and why, the full technical report, and its code from the VM (shown
-  like a diff, every file new). Approving it ends the job; nothing goes anywhere.
 - Artifacts: the agent's own folder on this computer (github_searcher/artifacts.py), the Artifacts tab of its page.
   It lists it, looks at its pictures and text (artifact_view: a picture comes back as a picture), keeps
   screenshots of its VM there, and copies files between it and the VM it holds; never anywhere else on this
@@ -157,10 +137,10 @@ The GitHub tools (github_tools.py) only read GitHub; these change what the user 
 
 Each tool returns its result as text; a bad call returns is_error, so Claude sees it failed.
 A job that is done or cancelled (often by the user, while the agent was busy) can't change
-anymore: no status, notes or drafts, so the user's cancel is never undone. The list stores
+anymore: no status, notes or drafts, so the user's cancel is never undone. The stores
 write a file on every change, so they are called in a thread, off the backend's event loop.
-describe() gives the one line the chat shows for each call, of these tools, the GitHub tools and a repository's agent's
-tools (repo_tools.py).
+describe() gives the one line the chat shows for each call, of these tools and the GitHub tools; the reviewer's tools
+(review_tools.py) have their own.
 
     tools = WorkTools(agents, record).list()
 """
@@ -176,10 +156,8 @@ import re
 import secrets
 import shlex
 import subprocess
-import tempfile
 import time
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import httpx
 from claude_agent_sdk import tool
@@ -190,9 +168,8 @@ from github_searcher.github_account import SendError
 from github_searcher.inbox import AUTOMATION_FILE
 from github_searcher.issue_tags import CHECKS, TAKEN_PR_DAYS
 from github_searcher.jobs import EVIDENCE_DIR
-from github_searcher.projects import TITLE, TITLE_CHARS
 from github_searcher.repo_signals import MAINTAINERS
-from github_searcher.search import get_contents, get_issue_in_full, get_issue_status, get_merged_prs, get_pr_status, get_readme, get_repository, get_thread, get_tree, search_issues
+from github_searcher.search import get_contents, get_issue_in_full, get_issue_status, get_merged_prs, get_pr_status, get_readme, get_repository, get_tree, search_issues
 from sandbox.agent import long_runs
 from sandbox.agent.computer_use import Computer, ComputerError
 from sandbox.agent.tools import HIDE_MIN_LENGTH
@@ -254,9 +231,7 @@ CHECKLIST_ITEM_CHARS = 200
 CHECKLIST_HOW_CHARS = 300
 ALSO_TESTED_MAX = 15
 ALSO_TESTED_CHARS = 250
-# A job that waits only on a timed question with a timer at most this long keeps its agent's desktop meanwhile (the VM
-# rule in agents.py): its answer comes within minutes. One with a longer timer gives the desktop back, like any other draft.
-QUESTION_HOLD_SECONDS = 30 * 60
+# An evidence item's context (evidence_add) is at most this long.
 CONTEXT_CHARS = 500
 # Agents never use emoji, in drafts or anywhere (the user's rule): pictographs, dingbats and symbols drawn as emoji,
 # flags, and the joiners and selectors that make emoji. Plain arrows and math signs are fine. The one exception is a
@@ -308,20 +283,6 @@ GUIDE_PATH_FILES = 60
 GUIDE_PATH_CHARS = 10_000
 # A picture made with matplotlib says so in its file ("Software: Matplotlib version ..."): the agent drew it.
 MATPLOTLIB_MARK = b"matplotlib"
-# repos_list: the Repos list in all its fields was 226,000 characters for 302 repos, more than a tool result may be. So
-# one short line per repo, REPOS_PAGE a page, and the fields in full only for a search, the first REPOS_FULL it matches.
-REPOS_PAGE = 100
-REPOS_FULL = 15
-# paper_read shows at most this many pages at once, each as a JPEG this many pixels on its long side (still sharp
-# enough for formulas and small print in tables).
-PAPER_PAGES = 10
-PAPER_PIXELS = 1400
-# A report: how many rows of numbers and how many problems at most, and how long each plain-words part may be.
-REPORT_RESULTS_MAX = 40
-REPORT_PROBLEMS_MAX = 10
-REPORT_CELL_CHARS = 200
-# A report's code: files in the folder up to this size (KiB) are shown; bigger ones are data or output, not code.
-REPORT_FILE_KIB = 1000
 # The overview's wording, said once for every tool that takes one.
 PLAIN = (
     "Plain words for someone who has never seen this project or its code: no function or file names, "
@@ -361,119 +322,11 @@ class WorkTools:
         names = {"type": "array", "items": {"type": "string"}}
         return [
             tool(
-                "repos_list",
-                "See the Repos list the user sees, and the user's types of repo (the tags that classify repos, each with what it is). "
-                f"Without search: one short line a repo (its type, AI policy and how many of its issues are in the Issues list), "
-                f"{REPOS_PAGE} a page (page: which one). search: a name or word, matched in each repo's name, description, note "
-                f"and type; the first {REPOS_FULL} matches come in full, the rest by name. In full, each repo has its stars, "
-                "description, your note, its type, who added it (an agent id, user, or explore), how many of its issues are in "
-                "the Issues list, and its signals: AI policy "
-                "(welcome, disclose, no_ai, unclear, none), outside contributors' merge rate and median days to a first reply "
-                "from a maintainer, stale outside PRs, how many people merged PRs in the last 30 days, how newcomers fare "
-                "(welcomes, ok, turned_away, left_waiting, few), PRs, issues and commits a month, and the review tone (warm, neutral, strict, curt) with what reviewers "
-                "often ask for.",
-                {"type": "object", "properties": {"search": {"type": "string"}, "page": {"type": "integer"}}, "required": []},
-            )(self.repos_list),
-            tool(
-                "repos_add",
-                "Add repos to the Repos list, by full name (owner/name). note is one short line on why they fit (shown under each repo). "
-                "type is the name of the user's type of repo they are (repos_list lists the types); leave it out when none fits. "
-                "Repos already in the list are skipped. Add only repos you "
-                "checked and would recommend.",
-                {
-                    "type": "object",
-                    "properties": {"names": names, "note": {"type": "string"}, "type": {"type": "string"}},
-                    "required": ["names", "note"],
-                },
-            )(self.repos_add),
-            tool(
-                "repos_remove",
-                "Remove repos from the Repos list, by full name. Their issues stay in the Issues list.",
-                {"type": "object", "properties": {"names": names}, "required": ["names"]},
-            )(self.repos_remove),
-            tool(
-                "repos_note",
-                "Replace the note of one repo in the Repos list: one short line on why it fits or what to watch out for.",
-                {"name": str, "note": str},
-            )(self.repos_note),
-            tool(
-                "issues_list",
-                "See the Issues list the user sees: each issue with its title, labels, state, your note, its job status "
-                "(new when nobody was assigned yet) and the app's tags: free / assigned / waiting (whether someone new can take it), "
-                "merge (likely, or what stands in the way of a merge: out of scope, claimed, maintainers only, waiting, no outside prs, "
-                "large feature, big change, can't validate), kind and the reason, made shortly after an issue is added. repo limits it to one "
-                "repo (owner/name).",
-                {"type": "object", "properties": {"repo": {"type": "string"}}},
-            )(self.issues_list),
-            tool(
-                "issues_add",
-                "Add issues to the Issues list, each as owner/name#number. Only issues, not pull requests. note is one short line on "
-                "why it is a good pick (shown under each issue). Their repos are added to the Repos list too if missing. "
-                "Issues already in the list are skipped, and so are ones the app already rates anything but merge likely.",
-                {"type": "object", "properties": {"issues": names, "note": {"type": "string"}}, "required": ["issues", "note"]},
-            )(self.issues_add),
-            tool(
-                "issues_remove",
-                "Remove issues from the Issues list, each as owner/name#number, e.g. when someone else took one or it got fixed. "
-                "An issue an agent is working on (a job on it queued, working or waiting on the user) stays: kept_working lists them.",
-                {"type": "object", "properties": {"ids": names}, "required": ["ids"]},
-            )(self.issues_remove),
-            tool(
-                "issues_note",
-                "Replace the note of one issue in the Issues list (owner/name#number): one short line.",
-                {"id": str, "note": str},
-            )(self.issues_note),
-            tool(
-                "tracked_list",
-                "See the Tracked list: the repos the user wants to keep an eye on for new issues. Each with its stars, note, who "
-                "added it, when its issues were last checked, and how many open issues it has: all, free (the app's tags say a "
-                "newcomer can take it now), assigned (someone is on it) and new (opened in the last 3 days).",
-                {},
-            )(self.tracked_list),
-            tool(
-                "tracked_add",
-                "Add repos to the Tracked list, by full name (owner/name), so their new issues get checked every few minutes. "
-                "note is one short line on why (may be empty). Repos already tracked are skipped.",
-                {"type": "object", "properties": {"names": names, "note": {"type": "string"}}, "required": ["names"]},
-            )(self.tracked_add),
-            tool(
-                "tracked_remove",
-                "Remove repos from the Tracked list, by full name. Only when the user asks, or a repo is archived or gone.",
-                {"type": "object", "properties": {"names": names}, "required": ["names"]},
-            )(self.tracked_remove),
-            tool(
-                "tracked_issues",
-                "See the open issues the last check found in tracked repos, newest first, each with its labels, comments, "
-                "assignees, the app's tags (free / assigned / waiting, merge: likely or what stands in the way, kind, and the reason; None "
-                "while not made yet), whether it is new (opened in the last 3 days) and whether it is in the Issues list "
-                "already. name limits it to one repo (owner/name). which: free (a newcomer can take it now; the default), "
-                "assigned (someone is on it), or all (the 100 newest open issues plus every good first or help wanted one).",
-                {
-                    "type": "object",
-                    "properties": {"name": {"type": "string"}, "which": {"type": "string", "enum": ["free", "assigned", "all"]}},
-                },
-            )(self.tracked_issues),
-            tool(
                 "my_jobs",
                 "See your jobs: open ones in full (kind, title, issue, thread (a follow_up's PR or issue), repo, VM, status, "
                 "the user's instructions, your notes, drafts and their decisions), finished ones (done, cancelled) by id and title only.",
                 {},
             )(self.my_jobs),
-            tool(
-                "job_create",
-                "Make a job for yourself, e.g. a follow-up task the user asked for in chat. kind: fix_issue (issue is required) or task. "
-                "title says what the job is in a few words; instructions say what exactly to do. It is for your target VM.",
-                {
-                    "type": "object",
-                    "properties": {
-                        "kind": {"type": "string"},
-                        "title": {"type": "string"},
-                        "instructions": {"type": "string"},
-                        "issue": {"type": "string", "description": "owner/name#number, if the job is about one issue"},
-                    },
-                    "required": ["kind", "title", "instructions"],
-                },
-            )(self.job_create),
             tool(
                 "job_update",
                 "Update one of your jobs. status: working when you start on it, done when it is finished, cancelled when it can't or "
@@ -494,8 +347,8 @@ class WorkTools:
                 "job_progress",
                 "Show the user where one of your jobs stands. They watch this to follow your work, and they don't know the project's "
                 "code. step: the step you are on now, one of the job's steps (my_jobs lists them; for fix_issue: understand, set_up, "
-                "reproduce, fix, test, draft; for set_up_repo: understand, set_up, show, introduce; for follow_up: understand, reproduce, "
-                "work, test, draft; for reproduce_paper: read, set_up, rebuild, compare, check, report). Going back is fine, e.g. from test to fix when tests fail. headline: one sentence in "
+                "reproduce, fix, test, draft; for follow_up: understand, reproduce, work, test, draft). Going back is fine, e.g. "
+                "from test to fix when tests fail. headline: one sentence in "
                 "everyday words on what you are doing and how it is going, for someone who doesn't know the code (no file, function or "
                 "test names, no jargon). detail: the same in technical terms (files, tests, errors), shown when they look closer. "
                 "about: what the job is about, in everyday words; set it once, when you understand the issue. Call this at every new "
@@ -734,7 +587,7 @@ class WorkTools:
             )(self.report_problem),
             tool(
                 "ask_approval",
-                "Ask the user to approve a blocker only they can lift, on the Dashboard's Approvals page: a CLA or another "
+                "Ask the user to approve a blocker only they can lift, on the Dashboard's Blockers page: a CLA or another "
                 "agreement the project needs signed (kind cla), or something else only the user can give or allow (kind "
                 "other): something done by hand on GitHub or elsewhere, logging in to or paying for a service, a secret or an "
                 "account nobody gave you, special hardware. Never for a choice you can make yourself, and never for what a rule "
@@ -760,71 +613,6 @@ class WorkTools:
                     "required": ["job_id", "kind", "title", "body"],
                 },
             )(self.ask_approval),
-            tool(
-                "paper_read",
-                "Read the paper of one of your reproduce_paper jobs: its pages as pictures (formulas, tables and figures as "
-                f"printed), then their text. pages: one page ('3') or a range ('1-5'), at most {PAPER_PAGES} at a time. The "
-                "result says how many pages it has. Read every page, the appendix too, before you build anything.",
-                {
-                    "type": "object",
-                    "properties": {"job_id": {"type": "string"}, "pages": {"type": "string"}},
-                    "required": ["job_id", "pages"],
-                },
-            )(self.paper_read),
-            tool(
-                "draft_report",
-                "Put your report on a reproduce_paper job in the user's Inbox (only while you hold the VM): the last step. The "
-                "job waits on the user; approving it ends the job. Nothing is sent anywhere. paper, claims and verdict are for "
-                "the user, who doesn't know the field: " + PLAIN + " results: the paper's numbers next to yours, one row each "
-                "(what: e.g. 'age coefficient, MIMIC-IV'; paper and ours: the numbers as printed; authors: what the authors' own "
-                "code gives, when you ran it; note: a few words, e.g. 'same to 3 decimals'). problems: what you found wrong, "
-                "each proven by a command run on the job (evidence_add kind command, stage other, topic the problem's title) "
-                "that shows it: give that evidence id. No proof, no problem. unchecked: what you couldn't check and why (e.g. "
-                "'the hospital data is private'). body: the full report, technical, in markdown. code: the folder in the VM "
-                "with your code (e.g. ~/valoris): every file in it under 1 MB is shown to the user, so keep only your scripts "
-                "and small inputs there, no data downloads or results. No emoji.",
-                {
-                    "type": "object",
-                    "properties": {
-                        "job_id": {"type": "string"},
-                        "title": {"type": "string", "description": "One line: the paper and how it came out, e.g. 'VALORIS: the numbers reproduce, two claims don't hold'."},
-                        "paper": {"type": "string", "description": "One line: what the paper is, e.g. 'VALORIS: a way for hospitals to fit one model together without sharing patient records'."},
-                        "claims": {"type": "string", "description": "What the paper says it achieves, in 1 to 3 sentences."},
-                        "verdict": {"type": "string", "description": "How it came out, in 1 to 3 sentences: what reproduced, what didn't, what is wrong."},
-                        "results": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "what": {"type": "string"},
-                                    "paper": {"type": "string"},
-                                    "ours": {"type": "string"},
-                                    "authors": {"type": "string"},
-                                    "note": {"type": "string"},
-                                },
-                                "required": ["what", "paper", "ours"],
-                            },
-                        },
-                        "problems": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "title": {"type": "string", "description": "A few words, e.g. 'Privacy holds only on paper'."},
-                                    "what": {"type": "string", "description": "What is wrong, in plain words, 1 to 3 sentences."},
-                                    "why": {"type": "string", "description": "Why it matters: who or what it affects, 1 to 2 sentences."},
-                                    "evidence": {"type": "string", "description": "The id of the command run on the job that shows it (ev_...)."},
-                                },
-                                "required": ["title", "what", "why", "evidence"],
-                            },
-                        },
-                        "unchecked": {"type": "array", "items": {"type": "string"}},
-                        "body": {"type": "string"},
-                        "code": {"type": "string"},
-                    },
-                    "required": ["job_id", "title", "paper", "claims", "verdict", "results", "problems", "body", "code"],
-                },
-            )(self.draft_report),
             tool(
                 "artifacts_list",
                 "See what is in your artifacts: your own folder on the user's computer, the Artifacts tab of your page. The user "
@@ -1129,44 +917,13 @@ class WorkTools:
         ]
 
     def describe(self, name: str, args: dict) -> str:
-        """The line the chat shows for a call, e.g. "Adding to Issues: pallets/click#812".
+        """The line the chat shows for a call, e.g. "Reading pallets/click#812 in full".
 
-        Also for the GitHub tools, a repository's agent's tools (repo_tools.py) and TodoWrite; the VM tools have their own
-        (ComputerTools.describe).
+        Also for the GitHub tools and TodoWrite; the VM tools (ComputerTools.describe) and the reviewer's tools
+        (review_tools.py) have their own.
         """
-        if name == "repos_list" and args.get("search"):
-            return f"Searched the Repos list for `{args['search']}`"
-        if name == "repos_list":
-            return "Looked at the Repos list"
-        if name == "repos_add":
-            return "Adding to Repos: " + ", ".join(args.get("names") or [])
-        if name == "repos_remove":
-            return "Removing from Repos: " + ", ".join(args.get("names") or [])
-        if name == "repos_note":
-            return f"Note on {args.get('name')}: {args.get('note')}"
-        if name == "issues_list" and args.get("repo"):
-            return f"Looked at the Issues list of {args['repo']}"
-        if name == "issues_list":
-            return "Looked at the Issues list"
-        if name == "issues_add":
-            return "Adding to Issues: " + ", ".join(args.get("issues") or [])
-        if name == "issues_remove":
-            return "Removing from Issues: " + ", ".join(args.get("ids") or [])
-        if name == "issues_note":
-            return f"Note on {args.get('id')}: {args.get('note')}"
-        if name == "tracked_list":
-            return "Looked at the Tracked list"
-        if name == "tracked_add":
-            return "Tracking: " + ", ".join(args.get("names") or [])
-        if name == "tracked_remove":
-            return "No longer tracking: " + ", ".join(args.get("names") or [])
-        if name == "tracked_issues":
-            which = args.get("which") or "free"
-            return f"Looked at the {which} issues of " + (args.get("name") or "the tracked repos")
         if name == "my_jobs":
             return "Looked at its jobs"
-        if name == "job_create":
-            return f"New job: {args.get('title')}"
         if name == "job_update" and args.get("status"):
             return f"Job {args.get('job_id')}: {args['status']}"
         if name == "job_update":
@@ -1203,10 +960,6 @@ class WorkTools:
             return "Reporting a problem: " + (args.get("text") or "").split("\n")[0][:120]
         if name == "ask_approval":
             return "Asking for approval: " + (args.get("title") or "")[:120]
-        if name == "paper_read":
-            return f"Reading the paper, pages {args.get('pages')}"
-        if name == "draft_report":
-            return f"Drafting the report: {args.get('title')}"
         if name == "draft_pr" and args.get("pr") and args.get("rebase") is True:
             return f"Drafting a rebase of {args['pr']}: {args.get('title')}"
         if name == "draft_pr" and args.get("pr"):
@@ -1255,25 +1008,6 @@ class WorkTools:
             return f"Note on its VM: {args.get('text')}"
         if name == "vm_note_remove":
             return "Removing notes from its VM: " + ", ".join(args.get("ids") or [])
-        # A repository's agent's tools (repo_tools.py): always on its own repo.
-        if name == "repo_files" and args.get("path"):
-            return f"Listed the files in {args['path']}"
-        if name == "repo_files":
-            return "Listed the files"
-        if name == "repo_read":
-            return "Read " + ", ".join(args.get("paths") or [])
-        if name == "repo_search_code":
-            return f"Searched the code for `{args.get('q')}`"
-        if name == "repo_issues" and args.get("search"):
-            return f"Searched the issues for `{args['search']}`"
-        if name == "repo_issues":
-            return f"Looked at the {args.get('state') or 'open'} issues"
-        if name == "repo_pulls":
-            return f"Looked at the {args.get('state') or 'open'} pull requests"
-        if name == "repo_thread":
-            return f"Read #{args.get('number')}"
-        if name == "draft_issue":
-            return f"Drafting an issue: {args.get('title')}"
         # Claude Code's todo list and the GitHub tools, which have no describe() of their own.
         if name == "TodoWrite":
             return "Updated its todo list"
@@ -1294,389 +1028,6 @@ class WorkTools:
         if name == "search_issues":
             return f"Searched issues `{args.get('q')}`"
         return name
-
-    async def repos_list(self, args: dict) -> dict:
-        issues = await asyncio.to_thread(self.agents.issues.items)
-        signals = await asyncio.to_thread(self.agents.repo_signals.all)
-        type_names = {}
-        for lane in self.agents.explore.profile["lanes"]:
-            type_names[lane["id"]] = lane["label"]
-        types = [{"name": lane["label"], "what_it_is": lane["about"]} for lane in self.agents.explore.profile["lanes"]]
-        # Short by default, every field only for a search (REPOS_PAGE, REPOS_FULL): all of it no longer fits one answer.
-        # search is matched in a repo's name, description, note and type.
-        search = (args.get("search") or "").strip().lower()
-        page = max(int(args.get("page") or 1), 1)
-        matched = []
-        for item in await asyncio.to_thread(self.agents.repos.items):
-            type_name = type_names.get(item.get("lane"), item.get("lane") or "")
-            words = " ".join([item["full_name"], item["description"] or "", item["note"] or "", type_name]).lower()
-            if search in words:
-                matched.append(item)
-
-        # Without a search: one short line a repo, a page at a time.
-        if not search:
-            pages = max((len(matched) + REPOS_PAGE - 1) // REPOS_PAGE, 1)
-            lines = []
-            for item in matched[(page - 1) * REPOS_PAGE:page * REPOS_PAGE]:
-                count = len([issue for issue in issues if issue["repo"] == item["full_name"]])
-                repo_signals = signals.get(item["full_name"])
-                policy = repo_signals["ai_policy"]["tag"] if repo_signals is not None else "not checked"
-                type_name = type_names.get(item.get("lane"), item.get("lane") or "no type")
-                lines.append(f"{item['full_name']}: {type_name}, AI policy {policy}, {count} issues in the list")
-            result = {
-                "types": types,
-                "page": f"{page} of {pages}",
-                "repos": lines,
-                "more": "page for the next ones; search (a name or a word) for a repo's every field and signal",
-            }
-            return {"content": [{"type": "text", "text": json.dumps(result)}]}
-
-        # A search: the first REPOS_FULL it matches with every field, the rest by name.
-        repos = []
-        for item in matched[:REPOS_FULL]:
-            count = len([issue for issue in issues if issue["repo"] == item["full_name"]])
-            repo_signals = signals.get(item["full_name"])
-            summary = {
-                "name": item["full_name"],
-                "stars": item["stars"],
-                "description": item["description"],
-                "note": item["note"],
-                "added_by": item["added_by"],
-                "issues_in_list": count,
-            }
-            if item.get("lane"):
-                summary["type"] = type_names.get(item["lane"], item["lane"])
-            if repo_signals is not None:
-                summary["ai_policy"] = repo_signals["ai_policy"]["tag"]
-                summary["outside_merge_rate"] = repo_signals["outside_merge_rate"]
-                summary["median_days_to_first_reply"] = repo_signals["median_days_to_first_reply"]
-                summary["stale_outside_prs"] = repo_signals["stale_outside_prs"]
-                summary["active_mergers_30d"] = repo_signals["active_mergers_30d"]
-                if "newcomers" in repo_signals:
-                    summary["newcomers"] = repo_signals["newcomers"]["tag"]
-                    summary["prs_a_month"] = repo_signals["activity"]["prs_opened_month"]
-                    summary["issues_a_month"] = repo_signals["activity"]["issues_opened_month"]
-                    summary["commits_a_month"] = repo_signals["activity"]["commits_month"]
-                if "reviewers" in repo_signals:
-                    summary["reviewed_by"] = repo_signals["reviewers"]["tag"]
-                if repo_signals.get("atmosphere"):
-                    summary["review_tone"] = repo_signals["atmosphere"]["tone"]
-                    summary["reviewers_ask_for"] = repo_signals["atmosphere"]["asks_for"]
-            repos.append(summary)
-        result = {"types": types, "found": len(matched), "repos": repos}
-        if len(matched) > REPOS_FULL:
-            result["more_by_name"] = [item["full_name"] for item in matched[REPOS_FULL:]]
-        return {"content": [{"type": "text", "text": json.dumps(result)}]}
-
-    async def repos_add(self, args: dict) -> dict:
-        # The type, by its name, as the tag the repos get.
-        lane_id = None
-        if args.get("type"):
-            lanes = self.agents.explore.profile["lanes"]
-            for lane in lanes:
-                if lane["label"].lower() == args["type"].strip().lower():
-                    lane_id = lane["id"]
-            if lane_id is None:
-                names_text = ", ".join(lane["label"] for lane in lanes)
-                return {"content": [{"type": "text", "text": f"There is no type {args['type']!r}. The types are: {names_text}. Nothing was added."}]}
-        in_list = [item["full_name"].lower() for item in await asyncio.to_thread(self.agents.repos.items)]
-        report = {}
-        items = []
-        for name in args["names"]:
-            if name.count("/") != 1:
-                report[name] = "not a full name (owner/name)"
-                continue
-            if name.lower() in in_list:
-                report[name] = "already in Repos"
-                continue
-            try:
-                info = await asyncio.to_thread(get_repository, name.split("/")[0], name.split("/")[1])
-            except httpx.HTTPStatusError as error:
-                report[name] = f"GitHub error {error.response.status_code}: {error.response.text[:200]}"
-                continue
-            except httpx.HTTPError as error:
-                report[name] = f"could not reach GitHub: {error}"
-                continue
-            item = {
-                "full_name": info["full_name"],
-                "description": info["description"] or "",
-                "stars": info["stargazers_count"],
-                "default_branch": info["default_branch"],
-                "html_url": info["html_url"],
-                "note": args["note"],
-                "added_by": self.agent_id,
-                "added_at": datetime.now(UTC).isoformat(),
-            }
-            if lane_id is not None:
-                item["lane"] = lane_id
-            items.append(item)
-
-        added = await asyncio.to_thread(self.agents.repos.add, items)
-        for item in items:
-            report[item["full_name"]] = "added" if item["full_name"] in added else "already in Repos"
-        return {"content": [{"type": "text", "text": json.dumps(report)}]}
-
-    async def repos_remove(self, args: dict) -> dict:
-        removed = await asyncio.to_thread(self.agents.repos.remove, args["names"])
-        missing = [name for name in args["names"] if name not in removed]
-        text = json.dumps({"removed": removed, "not_in_list": missing})
-        return {"content": [{"type": "text", "text": text}]}
-
-    async def repos_note(self, args: dict) -> dict:
-        try:
-            await asyncio.to_thread(self.agents.repos.set_note, args["name"], args["note"])
-        except KeyError:
-            return {"content": [{"type": "text", "text": f"{args['name']} is not in the Repos list."}], "is_error": True}
-        return {"content": [{"type": "text", "text": f"Note set on {args['name']}."}]}
-
-    async def issues_list(self, args: dict) -> dict:
-        repo = args.get("repo") or ""
-        # The newest job of each issue gives its status. jobs.list() is newest first.
-        latest = {}
-        for job in reversed(self.agents.jobs.list()):
-            latest[job["issue"]] = job
-
-        tags = await asyncio.to_thread(self.agents.issue_tags.all)
-        issues = []
-        for item in await asyncio.to_thread(self.agents.issues.items):
-            if repo and item["repo"].lower() != repo.lower():
-                continue
-            job = latest.get(item["id"])
-            issues.append(
-                {
-                    "id": item["id"],
-                    "title": item["title"],
-                    "labels": item["labels"],
-                    "state": item["state"],
-                    "comments": item["comments"],
-                    "note": item["note"],
-                    "added_by": item["added_by"],
-                    "status": job["status"] if job else "new",
-                    "agent": job["agent"] if job else None,
-                    # Made in the background after an issue is added; None until then.
-                    "tags": tags.get(item["id"]),
-                }
-            )
-        return {"content": [{"type": "text", "text": json.dumps({"issues": issues})}]}
-
-    async def issues_add(self, args: dict) -> dict:
-        in_list = [item["id"].lower() for item in await asyncio.to_thread(self.agents.issues.items)]
-        dismissed = [issue_id.lower() for issue_id in await asyncio.to_thread(self.agents.issues.dismissed)]
-        tags = await asyncio.to_thread(self.agents.issue_tags.all)
-        report = {}
-        items = []
-        # Repo info by the issue's repo, for the Repos list.
-        repos = {}
-        for issue_id in args["issues"]:
-            name = issue_id.split("#")[0]
-            number = issue_id.split("#")[-1]
-            if "#" not in issue_id or name.count("/") != 1 or not number.isdigit():
-                report[issue_id] = "not owner/name#number"
-                continue
-            if issue_id.lower() in in_list:
-                report[issue_id] = "already in Issues"
-                continue
-            if issue_id.lower() in dismissed:
-                report[issue_id] = "skipped: the user removed it from the board; never add it again"
-                continue
-            # Agents only pick issues a pull request from us would likely get merged for; the user may add any.
-            tag = tags.get(issue_id)
-            if tag is not None and tag.get("merge") is not None and tag["merge"] != "likely":
-                report[issue_id] = f"skipped: the app rates its merge {tag['merge']} ({tag['reason']})"
-                continue
-            try:
-                info = await asyncio.to_thread(get_repository, name.split("/")[0], name.split("/")[1])
-                # The repo's own spelling, so the issue matches its repo in the lists.
-                name = info["full_name"]
-                data = await asyncio.to_thread(get_thread, name.split("/")[0], name.split("/")[1], int(number))
-            except httpx.HTTPStatusError as error:
-                report[issue_id] = f"GitHub error {error.response.status_code}: {error.response.text[:200]}"
-                continue
-            except (httpx.HTTPError, ValueError) as error:
-                report[issue_id] = f"could not read it from GitHub: {error}"
-                continue
-            if data is None:
-                report[issue_id] = "no issue with that number"
-                continue
-            if data["__typename"] != "Issue":
-                report[issue_id] = "a pull request, not an issue"
-                continue
-            repos[name] = info
-            items.append(
-                {
-                    "id": f"{name}#{number}",
-                    "repo": name,
-                    "number": int(number),
-                    "title": data["title"],
-                    "labels": [label["name"] for label in data["labels"]["nodes"]],
-                    "state": data["state"],
-                    "comments": data["comments"]["totalCount"],
-                    "html_url": f"https://github.com/{name}/issues/{number}",
-                    "note": args["note"],
-                    "added_by": self.agent_id,
-                    "added_at": datetime.now(UTC).isoformat(),
-                }
-            )
-
-        added = await asyncio.to_thread(self.agents.issues.add, items)
-        for item in items:
-            report[item["id"]] = "added" if item["id"] in added else "already in Issues"
-
-        # The repo of each new issue goes into Repos too, so the user can look at its code.
-        repos_in_list = [item["full_name"] for item in await asyncio.to_thread(self.agents.repos.items)]
-        repo_items = []
-        for name, info in repos.items():
-            if name in repos_in_list:
-                continue
-            if not any(issue_id.startswith(name + "#") for issue_id in added):
-                continue
-            repo_items.append(
-                {
-                    "full_name": name,
-                    "description": info["description"] or "",
-                    "stars": info["stargazers_count"],
-                    "default_branch": info["default_branch"],
-                    "html_url": info["html_url"],
-                    "note": "",
-                    "added_by": self.agent_id,
-                    "added_at": datetime.now(UTC).isoformat(),
-                }
-            )
-        added_repos = await asyncio.to_thread(self.agents.repos.add, repo_items)
-        result = {"issues": report}
-        if added_repos:
-            result["also_added_to_repos"] = added_repos
-            result["hint"] = "These repos have no note yet; give each one with repos_note."
-        return {"content": [{"type": "text", "text": json.dumps(result)}]}
-
-    async def issues_remove(self, args: dict) -> dict:
-        result = await asyncio.to_thread(self.agents.issues.remove, args["ids"])
-        missing = [issue_id for issue_id in args["ids"] if issue_id not in result["removed"] and issue_id not in result["working"]]
-        text = json.dumps({"removed": result["removed"], "kept_working": result["working"], "not_in_list": missing})
-        return {"content": [{"type": "text", "text": text}]}
-
-    async def issues_note(self, args: dict) -> dict:
-        try:
-            await asyncio.to_thread(self.agents.issues.set_note, args["id"], args["note"])
-        except KeyError:
-            return {"content": [{"type": "text", "text": f"{args['id']} is not in the Issues list."}], "is_error": True}
-        return {"content": [{"type": "text", "text": f"Note set on {args['id']}."}]}
-
-    async def tracked_list(self, args: dict) -> dict:
-        checks = await asyncio.to_thread(self.agents.tracked_issues.all)
-        tags = await asyncio.to_thread(self.agents.issue_tags.all)
-        repos = []
-        for item in await asyncio.to_thread(self.agents.tracked.items):
-            check = checks.get(item["full_name"])
-            summary = {
-                "name": item["full_name"],
-                "stars": item["stars"],
-                "description": item["description"],
-                "note": item["note"],
-                "added_by": item["added_by"],
-            }
-            if check is None:
-                summary["checked"] = "not yet (it will be within a minute)"
-                repos.append(summary)
-                continue
-            summary["checked_at"] = check["checked_at"]
-            summary["check_error"] = check["error"]
-            summary["open_issues"] = len(check["issues"])
-            # New for three days after it was opened. GitHub's time format, so it compares as text.
-            new_since = (datetime.now(UTC) - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            free = 0
-            assigned = 0
-            for issue in check["issues"]:
-                status = tags.get(f"{item['full_name']}#{issue['number']}", {}).get("status")
-                if issue["assignees"] > 0 or status == "assigned":
-                    assigned += 1
-                elif status == "free":
-                    free += 1
-            summary["free"] = free
-            summary["assigned"] = assigned
-            summary["new"] = len([issue for issue in check["issues"] if issue["created_at"] > new_since])
-            repos.append(summary)
-        return {"content": [{"type": "text", "text": json.dumps({"tracked": repos})}]}
-
-    async def tracked_add(self, args: dict) -> dict:
-        in_list = [item["full_name"].lower() for item in await asyncio.to_thread(self.agents.tracked.items)]
-        report = {}
-        items = []
-        for name in args["names"]:
-            if name.count("/") != 1:
-                report[name] = "not a full name (owner/name)"
-                continue
-            if name.lower() in in_list:
-                report[name] = "already tracked"
-                continue
-            try:
-                info = await asyncio.to_thread(get_repository, name.split("/")[0], name.split("/")[1])
-            except httpx.HTTPStatusError as error:
-                report[name] = f"GitHub error {error.response.status_code}: {error.response.text[:200]}"
-                continue
-            except httpx.HTTPError as error:
-                report[name] = f"could not reach GitHub: {error}"
-                continue
-            items.append(
-                {
-                    "full_name": info["full_name"],
-                    "description": info["description"] or "",
-                    "stars": info["stargazers_count"],
-                    "default_branch": info["default_branch"],
-                    "html_url": info["html_url"],
-                    "note": args.get("note") or "",
-                    "added_by": self.agent_id,
-                    "added_at": datetime.now(UTC).isoformat(),
-                }
-            )
-
-        added = await asyncio.to_thread(self.agents.tracked.add, items)
-        for item in items:
-            report[item["full_name"]] = "now tracked; its issues are checked within a minute" if item["full_name"] in added else "already tracked"
-        return {"content": [{"type": "text", "text": json.dumps(report)}]}
-
-    async def tracked_remove(self, args: dict) -> dict:
-        removed = await asyncio.to_thread(self.agents.tracked.remove, args["names"])
-        missing = [name for name in args["names"] if name not in removed]
-        text = json.dumps({"removed": removed, "not_tracked": missing})
-        return {"content": [{"type": "text", "text": text}]}
-
-    async def tracked_issues(self, args: dict) -> dict:
-        name = args.get("name") or ""
-        which = args.get("which") or "free"
-        if which not in ("free", "assigned", "all"):
-            return {"content": [{"type": "text", "text": "which must be free, assigned or all."}], "is_error": True}
-        names = [item["full_name"] for item in await asyncio.to_thread(self.agents.tracked.items)]
-        if name and name.lower() not in [tracked.lower() for tracked in names]:
-            return {"content": [{"type": "text", "text": f"{name} is not tracked; tracked_list shows what is."}], "is_error": True}
-        checks = await asyncio.to_thread(self.agents.tracked_issues.all)
-        tags = await asyncio.to_thread(self.agents.issue_tags.all)
-        in_issues = [item["id"] for item in await asyncio.to_thread(self.agents.issues.items)]
-        # New for three days after it was opened. GitHub's time format, so it compares as text.
-        new_since = (datetime.now(UTC) - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        result = {}
-        for full_name in names:
-            if name and full_name.lower() != name.lower():
-                continue
-            check = checks.get(full_name)
-            if check is None:
-                result[full_name] = "not checked yet; try again in a minute"
-                continue
-            issues = []
-            for issue in check["issues"]:
-                issue_id = f"{full_name}#{issue['number']}"
-                new = issue["created_at"] > new_since
-                tag = tags.get(issue_id)
-                status = tag["status"] if tag else None
-                assigned = issue["assignees"] > 0 or status == "assigned"
-                if which == "free" and (assigned or status != "free"):
-                    continue
-                if which == "assigned" and not assigned:
-                    continue
-                issues.append({**issue, "id": issue_id, "tags": tag, "new": new, "in_issues_list": issue_id in in_issues})
-            result[full_name] = {"checked_at": check["checked_at"], "check_error": check["error"], "issues": issues}
-        return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
     async def my_jobs(self, args: dict) -> dict:
         jobs = []
@@ -1702,7 +1053,6 @@ class WorkTools:
                     "title": job["title"],
                     "issue": job["issue"],
                     "thread": job["thread"],
-                    "paper": job["paper"],
                     "repo": job["repo"],
                     "vm": job["vm"],
                     "status": job["status"],
@@ -1717,24 +1067,6 @@ class WorkTools:
                 }
             )
         text = json.dumps({"target_vm": self.record["target_vm"], "jobs": jobs})
-        return {"content": [{"type": "text", "text": text}]}
-
-    async def job_create(self, args: dict) -> dict:
-        kind = (args.get("kind") or "task").strip()
-        title = (args.get("title") or "").strip()
-        issue = (args.get("issue") or "").strip() or None
-        if not title:
-            return {"content": [{"type": "text", "text": "A job needs a title."}], "is_error": True}
-        if issue is not None and ("#" not in issue or issue.split("#")[0].count("/") != 1 or not issue.split("#")[-1].isdigit()):
-            return {"content": [{"type": "text", "text": "issue must be owner/name#number."}], "is_error": True}
-        if kind == "fix_issue" and issue is None:
-            return {"content": [{"type": "text", "text": "A fix_issue job needs its issue (owner/name#number)."}], "is_error": True}
-
-        vm_name = self.record["target_vm"]
-        job = self.agents.jobs.create(kind, title, self.agent_id, self.agent_id, issue=issue, vm=vm_name, instructions=args.get("instructions") or "", agent_name=self.record["name"])
-        text = f"Made {job['id']}: {title}. It is for {vm_name}."
-        if vm_name is None:
-            text = f"Made {job['id']}: {title}. You have no target VM; if it needs one, pick it with vms_list and choose_vm."
         return {"content": [{"type": "text", "text": text}]}
 
     async def job_update(self, args: dict) -> dict:
@@ -2786,208 +2118,9 @@ class WorkTools:
         )
         self.agents.jobs.update(job["id"], status="waiting_on_user", drafts=job["drafts"] + [draft["id"]])
         text = (
-            f"{draft['id']} is on the user's Approvals page. Nothing was done or sent. {job['id']} waits on the user until they "
+            f"{draft['id']} is on the user's Blockers page. Nothing was done or sent. {job['id']} waits on the user until they "
             "decide, and you'll get a message with their decision. Don't go on with it meanwhile: release_vm if you hold a "
             "desktop for nothing else, and move on to your next job."
-        )
-        return {"content": [{"type": "text", "text": text}]}
-
-    async def paper_read(self, args: dict) -> dict:
-        try:
-            job = self.agents.jobs.get(args["job_id"])
-        except KeyError:
-            return {"content": [{"type": "text", "text": f"No job {args['job_id']}."}], "is_error": True}
-        if job["agent"] != self.agent_id:
-            return {"content": [{"type": "text", "text": f"{job['id']} is not your job."}], "is_error": True}
-        if job["paper"] is None:
-            return {"content": [{"type": "text", "text": f"{job['id']} has no paper."}], "is_error": True}
-        try:
-            target = self.agents.artifacts.resolve(self.agent_id, job["paper"])
-        except ArtifactsError as error:
-            return {"content": [{"type": "text", "text": str(error)}], "is_error": True}
-        if not target.is_file():
-            text = f"{job['paper']} is not in your artifacts anymore (the user may have moved it); ask the user where it is."
-            return {"content": [{"type": "text", "text": text}], "is_error": True}
-
-        info = await asyncio.to_thread(subprocess.run, ["pdfinfo", str(target)], capture_output=True, text=True, timeout=60)
-        match = re.search(r"^Pages:\s+(\d+)", info.stdout, re.MULTILINE)
-        if info.returncode != 0 or match is None:
-            return {"content": [{"type": "text", "text": f"Could not read {job['paper']} as a PDF: {info.stderr.strip()}"}], "is_error": True}
-        total = int(match.group(1))
-        parts = (args.get("pages") or "").replace(" ", "").split("-")
-        if len(parts) > 2 or not all(part.isdigit() for part in parts):
-            return {"content": [{"type": "text", "text": "pages is one page ('3') or a range ('1-5')."}], "is_error": True}
-        first = int(parts[0])
-        last = int(parts[-1])
-        if first < 1 or last < first or first > total:
-            return {"content": [{"type": "text", "text": f"The paper has pages 1 to {total}."}], "is_error": True}
-        last = min(last, total, first + PAPER_PAGES - 1)
-
-        content = [{"type": "text", "text": f"{job['paper']}: pages {first} to {last} of {total}, as pictures, then their text."}]
-        with tempfile.TemporaryDirectory() as folder:
-            command = ["pdftoppm", "-f", str(first), "-l", str(last), "-scale-to", str(PAPER_PIXELS), "-jpeg", "-jpegopt", "quality=80", str(target), f"{folder}/page"]
-            render = await asyncio.to_thread(subprocess.run, command, capture_output=True, text=True, timeout=300)
-            if render.returncode != 0:
-                return {"content": [{"type": "text", "text": f"Could not show the pages: {render.stderr.strip()}"}], "is_error": True}
-            # page-01.jpg, page-02.jpg, ...: the same width of number, so they sort in page order.
-            for picture in sorted(Path(folder).glob("page*.jpg")):
-                data = await asyncio.to_thread(picture.read_bytes)
-                content.append({"type": "image", "data": base64.b64encode(data).decode(), "mimeType": "image/jpeg"})
-        words = await asyncio.to_thread(subprocess.run, ["pdftotext", "-layout", "-f", str(first), "-l", str(last), str(target), "-"], capture_output=True, text=True, timeout=120)
-        text = words.stdout.strip()[:50_000]
-        if text == "":
-            text = "(These pages have no text layer: read the pictures.)"
-        if last < total:
-            text += f"\n\n[Pages {last + 1} to {total} are next.]"
-        content.append({"type": "text", "text": text})
-        return {"content": content}
-
-    async def draft_report(self, args: dict) -> dict:
-        try:
-            job = self.agents.jobs.get(args["job_id"])
-        except KeyError:
-            return {"content": [{"type": "text", "text": f"No job {args['job_id']}."}], "is_error": True}
-        if job["agent"] != self.agent_id:
-            return {"content": [{"type": "text", "text": f"{job['id']} is not your job."}], "is_error": True}
-        if job["kind"] != "reproduce_paper":
-            return {"content": [{"type": "text", "text": "draft_report is for reproduce_paper jobs."}], "is_error": True}
-        if job["status"] in CLOSED_STATUSES:
-            text = f"{job['id']} is {job['status']} (the user may have cancelled it): no drafts for it anymore. Move on."
-            return {"content": [{"type": "text", "text": text}], "is_error": True}
-        title = (args.get("title") or "").strip()
-        body = (args.get("body") or "").strip()
-        if title == "" or body == "":
-            return {"content": [{"type": "text", "text": "Give the report a title and a body."}], "is_error": True}
-
-        # The user reads these first: they must be there, and short.
-        overview = {
-            "paper": (args.get("paper") or "").strip(),
-            "claims": (args.get("claims") or "").strip(),
-            "verdict": (args.get("verdict") or "").strip(),
-        }
-        for part, text in overview.items():
-            limit = OVERVIEW_PROJECT_CHARS if part == "paper" else OVERVIEW_PART_CHARS
-            if not text:
-                return {"content": [{"type": "text", "text": f"Give {part}: the user reads it to understand the report."}], "is_error": True}
-            if len(text) > limit:
-                text = f"{part} is {len(text)} characters; keep it under {limit}. Short and plain: the user reads it at a glance."
-                return {"content": [{"type": "text", "text": text}], "is_error": True}
-
-        results = []
-        for row in args.get("results") or []:
-            result = {
-                "what": str(row.get("what") or "").strip(),
-                "paper": str(row.get("paper") or "").strip(),
-                "ours": str(row.get("ours") or "").strip(),
-                "authors": str(row.get("authors") or "").strip(),
-                "note": str(row.get("note") or "").strip(),
-            }
-            if result["what"] == "" or result["paper"] == "" or result["ours"] == "":
-                return {"content": [{"type": "text", "text": "Every row of results needs what, paper and ours."}], "is_error": True}
-            for value in result.values():
-                if len(value) > REPORT_CELL_CHARS:
-                    text = f"A row of results has a part of {len(value)} characters; keep each under {REPORT_CELL_CHARS}."
-                    return {"content": [{"type": "text", "text": text}], "is_error": True}
-            results.append(result)
-        if len(results) > REPORT_RESULTS_MAX:
-            text = f"{len(results)} rows of results; keep it to the {REPORT_RESULTS_MAX} that matter most, the rest goes in the body."
-            return {"content": [{"type": "text", "text": text}], "is_error": True}
-
-        # Each problem is proven by a command run on the job: its output shows the problem.
-        commands = [item["id"] for item in job["evidence"] if item["kind"] == "command"]
-        problems = []
-        for row in args.get("problems") or []:
-            problem = {
-                "title": str(row.get("title") or "").strip(),
-                "what": str(row.get("what") or "").strip(),
-                "why": str(row.get("why") or "").strip(),
-                "evidence": str(row.get("evidence") or "").strip(),
-            }
-            if problem["title"] == "" or problem["what"] == "" or problem["why"] == "":
-                return {"content": [{"type": "text", "text": "Every problem needs a title, what and why."}], "is_error": True}
-            if len(problem["title"]) > REPORT_CELL_CHARS or len(problem["what"]) > OVERVIEW_PART_CHARS or len(problem["why"]) > OVERVIEW_PART_CHARS:
-                text = f"Keep a problem's title under {REPORT_CELL_CHARS} characters, and what and why under {OVERVIEW_PART_CHARS} each."
-                return {"content": [{"type": "text", "text": text}], "is_error": True}
-            if problem["evidence"] not in commands:
-                text = (
-                    f"\"{problem['title']}\" has no proof: evidence must be the id of a command run on {job['id']} that shows it "
-                    "(evidence_add kind command, stage other, topic the problem's title; my_jobs lists them). A problem you "
-                    "can't show with a run is not a problem yet: check it, or leave it out."
-                )
-                return {"content": [{"type": "text", "text": text}], "is_error": True}
-            problems.append(problem)
-        if len(problems) > REPORT_PROBLEMS_MAX:
-            text = f"{len(problems)} problems; keep the {REPORT_PROBLEMS_MAX} that matter most, the rest goes in the body."
-            return {"content": [{"type": "text", "text": text}], "is_error": True}
-        unchecked = [str(item).strip() for item in (args.get("unchecked") or []) if str(item).strip()]
-        overview["results"] = results
-        overview["problems"] = problems
-        overview["unchecked"] = unchecked
-
-        everything = [title, body] + [overview["paper"], overview["claims"], overview["verdict"]] + unchecked
-        for row in results + problems:
-            everything += list(row.values())
-        found = EMOJI.findall(" ".join(everything))
-        if found:
-            return {"content": [{"type": "text", "text": NO_EMOJI + " ".join(sorted(set(found)))}], "is_error": True}
-
-        vm_name = self.record["target_vm"]
-        if vm_name is None:
-            return {"content": [{"type": "text", "text": "You have no target VM."}], "is_error": True}
-        try:
-            vm_record = self.agents.vms.get(vm_name)
-        except VMsError as error:
-            return {"content": [{"type": "text", "text": str(error)}], "is_error": True}
-        desktop = vm_record.holding(self.agent_id)
-        if desktop is None:
-            text = "You don't hold a VM. Call queue_for_vm and wait for the message that it is yours."
-            return {"content": [{"type": "text", "text": text}], "is_error": True}
-        # The desktop it holds: commands run as its user, in its home folder.
-        vm = vm_record.desktop_vm(desktop)
-
-        # The code, as a diff where every file is new, so the Inbox shows it like a PR's. Files over REPORT_FILE_KIB are
-        # left out: data and results, not code. git diff --no-index exits 1 when the files differ, which they always do.
-        code = (args.get("code") or "").strip()
-        folder = shlex.quote(code.removeprefix("~/") or ".")
-        command = (
-            f"cd -- {folder} && find . -type f -not -path './.git/*' -size -{REPORT_FILE_KIB}k -printf '%P\\n' | sort | "
-            f"while read -r file; do git diff --no-index --no-color -- /dev/null \"$file\"; done | head -c {DIFF_LIMIT + 1}"
-        )
-        try:
-            result = await asyncio.to_thread(vm.exec, command, 120)
-        except Exception as error:
-            return {"content": [{"type": "text", "text": f"Could not reach the VM: {error}"}], "is_error": True}
-        diff = result.stdout
-        if diff.strip() == "":
-            text = f"Found no code in {code} ({result.stderr.strip() or 'no files under 1 MB'}). code is the folder in the VM with your scripts; git must be installed."
-            # Hidden as in the bash tool: error text can hold the user's secrets too.
-            for value in sorted(list(vm_record.global_env.values()) + list(vm_record.env.values()), key=len, reverse=True):
-                if len(value) >= HIDE_MIN_LENGTH:
-                    text = text.replace(value, "[hidden]")
-            return {"content": [{"type": "text", "text": text}], "is_error": True}
-        if len(diff.encode()) > DIFF_LIMIT:
-            text = f"The code in {code} is over {DIFF_LIMIT // 1000} KB. Keep only your scripts and small inputs there: move data and results out."
-            return {"content": [{"type": "text", "text": text}], "is_error": True}
-        # The code is shown in the Inbox and sent to the browser: a secret must never be in it. Named by its variable.
-        for env_name, value in list(vm_record.global_env.items()) + list(vm_record.env.items()):
-            if len(value) >= HIDE_MIN_LENGTH and value in diff:
-                text = f"The code contains the value of the environment variable {env_name}. Take it out (read it as ${env_name}), then try again."
-                return {"content": [{"type": "text", "text": text}], "is_error": True}
-
-        # The user may have cancelled the job while the command ran.
-        job = self.agents.jobs.get(job["id"])
-        if job["status"] in CLOSED_STATUSES:
-            text = f"{job['id']} is {job['status']} now (the user may have cancelled it): no draft was made. Move on."
-            return {"content": [{"type": "text", "text": text}], "is_error": True}
-        draft = self.agents.inbox.create(
-            "report", self.agent_id, title, body, job=job["id"], diff=diff, vm=vm_name, path=code, evidence=job["evidence"], overview=overview
-        )
-        self.agents.jobs.update(job["id"], status="waiting_on_user", step="report", drafts=job["drafts"] + [draft["id"]])
-        files = len([line for line in diff.split("\n") if line.startswith("diff --git ")])
-        text = (
-            f"{draft['id']} is in the user's Inbox: {len(results)} results, {len(problems)} problems, {files} files of code. "
-            f"Nothing was sent anywhere. {job['id']} waits on the user now; release_vm if nothing else needs {vm_name}, and "
-            "you'll get a message with their decision."
         )
         return {"content": [{"type": "text", "text": text}]}
 
@@ -3610,14 +2743,6 @@ class WorkTools:
             if replaces.lower() not in owned and not (job["kind"] == "fix_issue" and job["thread"] == replaces):
                 text = f"{replaces} isn't a PR of yours (one the app opened from your draft): only your own is made again fresh."
                 return {"content": [{"type": "text", "text": text}], "is_error": True}
-        # One of the Workflow tab's repositories (github_searcher/workflow.py), from its own worker: the pull request goes
-        # there, to its review agent, not to the Inbox. Every change there is a new pull request.
-        workflow = None
-        if self.record.get("workflow") is not None and repo is not None and self.record["workflow"].lower() == repo.lower():
-            workflow = self.agents.workflow.get(repo)
-        if workflow is not None and pr is not None:
-            text = "On the Workflow tab every change is a new pull request: leave pr and rebase out."
-            return {"content": [{"type": "text", "text": text}], "is_error": True}
         # The user reads the overview first: it must be there, and short.
         overview = {
             "project": (args.get("project") or "").strip(),
@@ -3701,28 +2826,18 @@ class WorkTools:
                 "with the help of Claude Code'), then draft again."
             )
             return {"content": [{"type": "text", "text": text}], "is_error": True}
-        # One of the user's projects (github_searcher/projects.py): its rules are its own files (CLAUDE.md, README, docs),
-        # read in the VM, and its PR titles are Conventional Commits (its release notes and next version come from them).
-        project = self.agents.projects.get(repo)
-        if (project is not None or workflow is not None) and (TITLE.fullmatch(args["title"].strip()) is None or len(args["title"].strip()) > TITLE_CHARS):
-            text = (
-                f"{repo}'s PR titles are Conventional Commits: type(scope): summary, e.g. 'fix(search): keep the filter after a "
-                f"reload'. type is feat, fix, refactor, docs, style, test, chore or perf; one scope, the area changed; the summary "
-                f"lower case, imperative, no period, the whole title under {TITLE_CHARS} characters."
-            )
-            return {"content": [{"type": "text", "text": text}], "is_error": True}
         # Written from the project's rules and the way its own people write their PRs: the agent has to have read both.
         # A new version of an open PR keeps that PR's description, so only the rules (its commits follow them too).
-        if project is None and workflow is None and repo is not None and repo.lower() not in self.guides_read:
+        if repo.lower() not in self.guides_read:
             text = f"First read {repo}'s rules for contributors (contributing_guide), then write the PR the way they say."
             return {"content": [{"type": "text", "text": text}], "is_error": True}
-        if project is None and workflow is None and pr is None and repo is not None and repo.lower() not in self.pr_examples_read:
+        if pr is None and repo.lower() not in self.pr_examples_read:
             text = f"First read how {repo}'s own people write their PRs (pr_examples), then write yours the same way."
             return {"content": [{"type": "text", "text": text}], "is_error": True}
         # Someone may have taken the issue while the agent worked on it (repowise#5369: someone else's PR that closes it
         # was opened hours before the draft): a new PR's issue is read again first, and no PR goes while someone else's
-        # open PR closes it. Not on the user's own repos.
-        if project is None and workflow is None and pr is None and job["kind"] == "fix_issue" and job["issue"] is not None:
+        # open PR closes it.
+        if pr is None and job["kind"] == "fix_issue" and job["issue"] is not None:
             read_at = self.threads_read.get(job["issue"].lower())
             # Told since that someone else seems to be on it (Agents.issue_taken): only a read after that counts. LMCache#6430
             # went out on a read from before LiRunGuo's PR #6429, the notice lost among restart messages, and was closed.
@@ -4105,66 +3220,6 @@ class WorkTools:
             text = f"{job['id']} is {job['status']} now (the user may have cancelled it): no draft was made. Move on."
             return {"content": [{"type": "text", "text": text}], "is_error": True}
 
-        # The Workflow tab: a pull request of the repository, for its review agent (backend/workflow_api.py hands it over).
-        # Opened on GitHub at once when the repository's pull requests are there.
-        if workflow is not None:
-            issue_number = None
-            for issue in workflow["issues"].values():
-                if issue["job"] == job["id"]:
-                    issue_number = issue["number"]
-            files = []
-            for chunk in ("\n" + diff).split("\ndiff --git ")[1:]:
-                lines = chunk.split("\n")
-                added = len([line for line in lines[1:] if line.startswith("+") and not line.startswith("+++")])
-                removed = len([line for line in lines[1:] if line.startswith("-") and not line.startswith("---")])
-                files.append({"path": lines[0].split(" b/")[-1], "added": added, "removed": removed})
-            area = ""
-            match = re.match(r"[a-z]+\(([^)]+)\)", args["title"].strip())
-            if match is not None:
-                area = match.group(1)
-            fields = {
-                "title": args["title"].strip(),
-                "by": self.agent_id,
-                "issue": issue_number,
-                "job": job["id"],
-                "agent": self.agent_id,
-                "area": area,
-                "files": files,
-                "added": sum(item["added"] for item in files),
-                "removed": sum(item["removed"] for item in files),
-            }
-            parts = {
-                "body": args["body"],
-                "overview": overview,
-                "diff": diff,
-                "commits": commits,
-                "base": args["base"].strip(),
-                "base_sha": base_sha,
-                "branch": branch,
-                "path": path,
-                "vm": vm_name,
-                "evidence": job["evidence"],
-                "tests": job["tests"],
-            }
-            try:
-                made = await asyncio.to_thread(self.agents.workflow.add_pr, repo, fields, parts)
-            except (ValueError, KeyError, httpx.HTTPError) as error:
-                return {"content": [{"type": "text", "text": f"Could not make the pull request: {error}"}], "is_error": True}
-            fields = {"status": "waiting_on_user"}
-            if "draft" in job["steps"]:
-                fields["step"] = "draft"
-            self.agents.jobs.update(job["id"], **fields)
-            self.agents.workflow.wake()
-            where = f"#{made['number']}"
-            if made["url"] is not None:
-                where = f"#{made['number']} on GitHub ({made['url']})"
-            text = (
-                f"Pull request {where} is made: {len(files)} files, +{made['added']} -{made['removed']}. The review agent reviews "
-                "it next; then it waits for the decision, and you hear it: merged (your job is done) or rejected, with why (make it "
-                f"again). {job['id']} waits meanwhile; move on to your next job (release_vm if none is left for {vm_name})."
-            )
-            return {"content": [{"type": "text", "text": text}]}
-
         target = job["issue"]
         if pr is not None:
             target = pr
@@ -4183,11 +3238,8 @@ class WorkTools:
                 level["open_issues"] = False
                 settings[other] = level
                 AUTOMATION_FILE.write_text(json.dumps(settings, indent=2))
-        # Every PR draft goes to a reviewer first, and reaches the Inbox only when the review passes (Agents.give_review). A
-        # project's one made again on the new main replaces the PR its job is about (Agents.redo_pr).
+        # Every PR draft goes to a reviewer first, and reaches the Inbox only when the review passes (Agents.give_review).
         review = {"state": "waiting", "agent": None, "job": None, "notes": "", "at": datetime.now(UTC).isoformat()}
-        if project is not None:
-            replaces = job["thread"]
         draft = self.agents.inbox.create(
             "pr",
             self.agent_id,
@@ -4239,18 +3291,11 @@ class WorkTools:
         self.agents.give_review(draft, desktop)
         text = (
             f"{draft['id']} goes to {repo}'s reviewer first: {files} files, +{added} -{removed}, {what}, with "
-            f"{len(job['evidence'])} pieces of evidence. When the review passes it reaches the user's Inbox; when the reviewer "
-            f"asks for changes you get a message with them. Nothing was pushed or sent. {job['id']} waits meanwhile; move on "
-            f"to your next job (release_vm if none is left for {vm_name})."
+            f"{len(job['evidence'])} pieces of evidence. It checks the draft in {path} on desktop {desktop} of {vm_name}, so "
+            "leave that folder as it is until you hear back. When the review passes it reaches the user's Inbox; when the "
+            f"reviewer asks for changes you get a message with them. Nothing was pushed or sent. {job['id']} waits meanwhile; "
+            f"release_vm now unless you have other jobs for {vm_name}: the reviewer needs this desktop."
         )
-        if project is None:
-            text = (
-                f"{draft['id']} goes to {repo}'s reviewer first: {files} files, +{added} -{removed}, {what}, with "
-                f"{len(job['evidence'])} pieces of evidence. It checks the draft in {path} on desktop {desktop} of {vm_name}, so "
-                "leave that folder as it is until you hear back. When the review passes it reaches the user's Inbox; when the "
-                f"reviewer asks for changes you get a message with them. Nothing was pushed or sent. {job['id']} waits meanwhile; "
-                f"release_vm now unless you have other jobs for {vm_name}: the reviewer needs this desktop."
-            )
         not_done = [point["item"] for point in checklist if not point["done"]]
         if not_done:
             text += f" Not done, as your checklist says (the user sees these first): {'; '.join(not_done)}."
@@ -4456,7 +3501,7 @@ class WorkTools:
             text = f"{job['id']} is {job['status']} (the user may have cancelled it); no more test runs for it. Move on."
             return {"content": [{"type": "text", "text": text}], "is_error": True}
         # What to run comes from the project's rules: the agent has to have read them.
-        if job["repo"] is not None and job["repo"].lower() not in self.guides_read and self.agents.projects.get(job["repo"]) is None and self.agents.workflow.get(job["repo"]) is None:
+        if job["repo"] is not None and job["repo"].lower() not in self.guides_read:
             text = f"First read {job['repo']}'s rules for contributors (contributing_guide): they say which checks to run before a PR, and how."
             return {"content": [{"type": "text", "text": text}], "is_error": True}
         vm_name = self.record["target_vm"]
@@ -4511,9 +3556,8 @@ class WorkTools:
         # The rules and CI checks that cover the changed files may be anywhere in the repo (contributing_guide with paths):
         # read before the run that counts, so what they ask for is in it (runanywhere-sdks#1316 went out twice without the
         # mirror scripts/AGENTS.md asks for). draft_pr needs this run on exactly the code it drafts, so the PR waits too.
-        # Not on the user's own repos, whose rules are their own files.
         unchecked = []
-        if when == "after" and job["repo"] is not None and self.agents.projects.get(job["repo"]) is None and self.agents.workflow.get(job["repo"]) is None:
+        if when == "after" and job["repo"] is not None:
             checked = self.paths_checked.get(job["repo"].lower(), set())
             for chunk in diff.split("\ndiff --git "):
                 file = chunk.split("\n")[0].split(" b/")[-1]
@@ -4983,15 +4027,14 @@ class WorkTools:
             self.agents.queue.leave_all(self.agent_id)
             return {"content": [{"type": "text", "text": f"You left {vm_name}'s queue."}]}
         # Before the desktop goes to the next one: stop what this agent left going there (VM.clean_up), unless a run of
-        # its still goes there or its last job here set up an app the user keeps (set_up_repo).
+        # its still goes there.
         try:
             record = self.agents.vms.get(vm_name)
         except VMsError as error:
             return {"content": [{"type": "text", "text": str(error)}], "is_error": True}
         desktop = record.desktop_of(self.agent_id)
-        jobs_here = [job for job in self.agents.jobs.for_agent(self.agent_id) if job["vm"] == vm_name]
         runs_here = [run for run in record.runs if run.get("desktop", 1) == desktop]
-        if not runs_here and not (jobs_here and jobs_here[-1]["kind"] == "set_up_repo"):
+        if not runs_here:
             others = [number for number, line in record.desktops.items() if number != desktop and line["holder"] is not None]
             idle = not others and not record.runs
             await asyncio.to_thread(record.desktop_vm(desktop).clean_up, idle)

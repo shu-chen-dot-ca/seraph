@@ -1,27 +1,24 @@
 """Jobs: the smallest unit of work. One agent has many jobs; a job has exactly one agent.
 
-The user makes a job by assigning an issue to an agent, or a repo to set up (Set up on the Repos page);
-an agent can make jobs for itself. The app makes follow_up jobs (Agents.follow_up): on a PR or issue of the user's
-that an agent follows (the GitHub tab, agent mode Drafts), someone else wrote or the PR's checks failed. "thread" is
-that PR or issue; the agent suggests a reply or a new version of the PR as a draft, or marks the job done when
-nothing needs an answer. The user makes a reproduce_paper job by adding a paper on the Workspace tab's Papers page
-(Agents.reproduce_paper): the agent reads the paper, rebuilds what it describes in the VM, compares its numbers with
-the paper's, checks the claims, and drafts a report for the Inbox. "paper" is the PDF's path in the agent's artifacts.
-For a project (github_searcher/projects.py) the app makes a fix_issue job for each open issue a worker takes, and a
-review job for the reviewer for each PR draft; "thread" on a project's fix_issue job is its PR it makes again on the
-new main (Agents.redo_pr).
+The user makes a fix_issue job by assigning an issue to an agent (Agents.assign). The app makes follow_up jobs
+(Agents.follow_up): on a PR or issue of the user's that an agent follows, someone else wrote or the PR's checks failed.
+"thread" is that PR or issue; the agent suggests a reply or a new version of the PR as a draft, or marks the job done
+when nothing needs an answer. It makes a review job for a repo's reviewer for each PR draft (Agents.give_review), and a
+fix_issue job whose "thread" is a stalled PR of the user's, to make it again fresh (Agents.remake_pr).
 Each job is one JSON file, DATA_DIR/jobs/<id>.json:
 
-    {"id": "job_a1b2c3", "kind": "fix_issue" | "set_up_repo" | "task" | "follow_up" | "reproduce_paper" | ..., "title",
+    {"id": "job_a1b2c3", "kind": "fix_issue" | "follow_up" | "review" | "task" (old) | ..., "title",
      "agent": "<agent id>", "issue": "owner/name#n" | null, "thread": "owner/name#n" (follow_up) | null,
-     "paper": "papers/name.pdf" (reproduce_paper) | null, "repo": "owner/name" | null, "vm": "vm1" | null,
+     "repo": "owner/name" | null, "vm": "vm1" | null,
      "status": "queued" | "working" | "waiting_on_user" | "waiting_on_maintainers" | "paused" | "done" | "cancelled",
      "paused_from": the status it had before it was paused | null,
      "instructions": "extra text from the user", "notes": "the agent's progress notes",
      "drafts": ["draft_..."], "evidence": [Evidence, ...], "created_by": "user" | "<agent id>", "skip_checks": bool,
      "timeline": [Entry, ...], "created_at", "updated_at"}
 
-"kind" is open-ended: a kind not in STEPS gets the "task" steps, so new kinds need no change.
+"kind" is open-ended: a kind not in STEPS gets the "task" steps, so new kinds need no change. Old jobs of kinds the app
+no longer makes (set_up_repo, reproduce_paper, and "task", a job the user or an agent made by hand) keep the steps they
+were made with; Agents.start() cancels the open set_up_repo and reproduce_paper ones.
 waiting_on_maintainers: not set anymore. It was a fix_issue job held up after its claim comment until GitHub showed the
 user assigned; now a claim holds nothing up (agents.py), as nobody's answer is waited for.
 paused: the user paused the issue it is for (Pause on the Dashboard's Issues board, Agents.pause_job). It is not open:
@@ -107,18 +104,12 @@ UPDATABLE = ["status", "notes", "vm", "drafts", "title", "instructions", "step",
 # The steps each kind of job goes through, in order. Kinds not listed use "task".
 STEPS = {
     "fix_issue": ["understand", "set_up", "reproduce", "fix", "test", "draft"],
-    # Set up a repo in the VM: an app left running on the desktop, or a library cloned and opened in VS Code
-    # (show), then a short introduction to it (introduce).
-    "set_up_repo": ["understand", "set_up", "show", "introduce"],
+    # An old task (a job the user made by hand), and any kind not listed here.
     "task": ["understand", "work", "check", "report"],
     # Answer what happened on a PR or issue the agent follows: read it (understand), see what was reported or asked for
     # for itself in the VM (reproduce), make the change or write the reply (work), the tests when the PR's code changed
     # (test), then the draft.
     "follow_up": ["understand", "reproduce", "work", "test", "draft"],
-    # Reproduce a paper: read it (read), get its language and data in the VM (set_up), write the method from the paper
-    # alone (rebuild), run it and the authors' own code and line the numbers up (compare), test the claims (check),
-    # then the report.
-    "reproduce_paper": ["read", "set_up", "rebuild", "compare", "check", "report"],
     # Review a PR draft before it reaches the user (Agents.give_review): read it, its pictures and what was asked (read),
     # check it on its code in the VM (test), then pass it or send it back (verdict).
     "review": ["read", "test", "verdict"],
@@ -148,8 +139,6 @@ class Jobs:
             job.setdefault("tests", {"before": None, "after": None})
             # And from before follow-ups.
             job.setdefault("thread", None)
-            # And from before papers.
-            job.setdefault("paper", None)
             # And from before the timeline.
             job.setdefault("timeline", [])
             # And from before Skip checks.
@@ -186,7 +175,7 @@ class Jobs:
 
     def create(self, kind: str, title: str, agent: str, created_by: str, issue: str | None = None,
                repo: str | None = None, vm: str | None = None, instructions: str = "", thread: str | None = None,
-               paper: str | None = None, agent_name: str = "") -> dict:
+               agent_name: str = "") -> dict:
         """A new job, queued. agent_name is the agent's name, for the first entry of its timeline."""
         # An issue id is "owner/name#n", so it already says the repo. So does a thread's.
         if issue and not repo:
@@ -195,7 +184,8 @@ class Jobs:
             repo = thread.split("#")[0]
 
         now = datetime.now(UTC).isoformat()
-        # The user's (or the app's) job is assigned to its agent; an agent's own job_create makes one for itself.
+        # The user's (or the app's) job is assigned to its agent. created_by was an agent's id for one it made itself
+        # (old jobs only).
         if agent_name == "":
             agent_name = "an agent"
         created = f"Assigned to {agent_name}"
@@ -212,7 +202,6 @@ class Jobs:
                 "agent": agent,
                 "issue": issue,
                 "thread": thread,
-                "paper": paper,
                 "repo": repo,
                 "vm": vm,
                 "status": "queued",

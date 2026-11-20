@@ -1,6 +1,6 @@
-"""The Dashboard's Automation tab (frontend/src/Automation.tsx): Seraph finds repos, works on them and lets go of them by
-itself, as you, so the repos it works on keep changing: the ones that merge our PRs stay, new ones come in, the ones that
-don't merge leave.
+"""The Automation page (frontend/src/Automation.tsx): Seraph finds repos, works on them and lets go of them by itself,
+as you, so the repos it works on keep changing: the ones that merge our PRs stay, new ones come in, the ones that don't
+merge leave. The page's settings say how much of that goes on.
 
 Its settings and what it did, in AUTOMATION_FILE (DATA_DIR/automation.json):
 
@@ -12,7 +12,11 @@ Its settings and what it did, in AUTOMATION_FILE (DATA_DIR/automation.json):
      "closed": ["owner/name#n", ...],                the PRs of ours it closed
      "run": started_at of the Explore run it started | None,
      "log": [{"at", "repo", "what", "why"}, ...],   newest last, the last LOG_KEPT
-     "labels": {"owner/name": Label, ...}}           every repo in Repos, worked out every round, also while off
+     "labels": {"owner/name": Label, ...},           every repo in Repos, worked out every round, also while off
+     "send_prs", "send_comments": bool,             Create pull requests, Reply to reviews and comments
+     "max_prs_per_day", "max_open_prs", "max_open_per_repo": int | None,    the limits (None: no limit)
+     "min_stars": int | None,                       Minimum stars of a repo it adds (None: Explore's own minimum)
+     "ai_policies": ["welcome", ...]}               the AI policies whose repos may be worked on (never no_ai)
 
     Label = {"label", "rank", "why", "merged", "closed", "open", "days", "idle", "per_day"}
 
@@ -46,7 +50,7 @@ on:
   (backend/github_api.py) deletes their branches, as it does for every PR of ours that isn't open.
 - unarchives a repo it archived when one of ours there gets merged after that, unless it is still Not merging.
 - archives a repo that had No issues for leave_days days too. Archived repos stay in Repos, so Explore never adds one
-  again; Unarchive on the Dashboard's Repository page brings one back.
+  again.
 - keeps active_repos repos active (in Repos, not archived; MAX_ACTIVE at most). What Explore found goes into Repos at
   once, the best first: the most PRs merged a day (Explore skips a repo under MIN_MERGED_PER_DAY, explore.py), then AI
   policy (welcome, disclose, none, unclear; never no_ai), then newcomers (welcomes, ok, few). Each comes with
@@ -58,15 +62,25 @@ on:
 Only repos it archived are unarchived or get their PRs closed: one you archived stays yours. Turning it off stops the
 Explore run it started.
 
-Pause new issues (take_new False, on or off): agents take no new issues from the Issues board's Catalog (backend/issues_api.py
-take_from_catalog), not even ours; the cards wait there until Resume new issues. Everything else goes on: the jobs
-already started, follow-ups on our PRs, Assign by hand, tagging, Explore, the labels and the archiving.
+Take new issues off (take_new False, on or off): agents take no new issues from the Issues board's Catalog
+(backend/issues_api.py take_from_catalog), not even ours; the cards wait there until it is on again. Everything else goes
+on: the jobs already started, follow-ups on our PRs, tagging, Explore, the labels and the archiving.
 
-GET /api/automation gives it all (the live "automation" topic too: summary()), with every level of automation besides,
-for the page's Settings tab: each repo's and each issue's (repo_automation_api.py), the defaults, and the Issues board's
-(issues_api.py). PUT /api/automation sets on, active_repos and take_new, PUT /api/automation/rules the rules, PUT
-/api/automation/new_repos the level new repos get. A change to any of them, here or in the robot dialogs, goes up
-AUTOMATION_VERSION (issues_api.py), so every page shows it at once.
+The page's settings, and where each is obeyed:
+- Manage repositories (on): everything above that adds, archives and closes.
+- Take new issues (take_new): above.
+- Create pull requests, Reply to reviews and comments, Pull requests per day, Open pull requests and Open pull requests
+  per repository: what keep_drafts sends (backend/repo_automation_api.py); the last two also hold back taking issues
+  (backend/issues_api.py take_from_catalog).
+- Concurrent agents: the Issues board's max_agents (AUTO_REMOVE_FILE, backend/issues_api.py).
+- Minimum stars: only repos with at least that many are added from Explore's found list (Explore's own minimum, explore.py
+  MIN_STARS, still holds for everything; repos already in Repos stay).
+- AI policy: only repos with an allowed policy are added, Explore's runs skip the others, and agents take no new issue of
+  one (take_from_catalog). no_ai never.
+
+GET /api/automation gives it all (the live "automation" topic too: summary()), with max_agents besides. PUT
+/api/automation sets every setting of the page at once. A change goes up AUTOMATION_VERSION (issues_api.py), so the page
+shows it at once.
 """
 
 import asyncio
@@ -80,7 +94,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.issues_api import AUTO_REMOVE_FILE, AUTO_REMOVE_OFF, AUTOMATION_VERSION, auto_remove_issues
-from backend.repo_automation_api import DEFAULTS, ISSUE_SETTINGS_FILE, LEVELS, SETTINGS_FILE
+from backend.repo_automation_api import DEFAULTS, SETTINGS_FILE
 from backend.shared import agents, explore, github_account, inbox, issues, jobs, pr_tracking, repo_signals, repos
 from github_searcher.explore import MIN_CLOSED_PRS, MIN_CONTRIBUTORS, MIN_OPEN_ISSUES, MIN_STARS
 from github_searcher.github_account import SendError
@@ -104,7 +118,17 @@ EXPLORE_FILTERS = {"policy:no_ai": "exclude"}
 AUTO_SETTINGS = dict(DEFAULTS)
 AUTO_SETTINGS.update({"add_issues": True, "queue_issues": True, "take_issues": True, "questions": True, "comments": True, "pull_requests": True})
 OPEN_JOB = ["queued", "working", "waiting_on_user", "paused"]
-EMPTY = {"on": False, "active_repos": MAX_ACTIVE, "take_new": True, "rules": RULES, "new_repos": AUTO_SETTINGS, "archived": {}, "closed": [], "run": None, "log": [], "labels": {}}
+# The Automation page's settings (PUT /api/automation), as they are until it saves: what went on before they existed.
+SETTINGS = {
+    "send_prs": True,
+    "send_comments": True,
+    "max_prs_per_day": None,
+    "max_open_prs": None,
+    "max_open_per_repo": None,
+    "min_stars": None,
+    "ai_policies": list(POLICY_ORDER),
+}
+EMPTY = {"on": False, "active_repos": MAX_ACTIVE, "take_new": True, "rules": RULES, "new_repos": AUTO_SETTINGS, "archived": {}, "closed": [], "run": None, "log": [], "labels": {}, **SETTINGS}
 
 # Kept in memory and saved on every change. Everything that changes it runs on the event loop, so it needs no lock.
 automation = copy.deepcopy(EMPTY)
@@ -116,60 +140,25 @@ STATE = {"tried": []}
 
 class AutomationRequest(BaseModel):
     on: bool
-    active_repos: int
     take_new: bool
-
-
-class RulesRequest(BaseModel):
-    fast_days: int
-    normal_days: int
-    max_open_days: int
-    close_days: int
-    idle_days: int
-    leave_days: int
-
-
-class NewReposRequest(BaseModel):
-    add_issues: bool
-    queue_issues: bool
-    take_issues: bool
-    questions: bool
-    comments: bool
-    pull_requests: bool
-    open_issues: bool
-    max_prs_first: int
-    max_prs: int
-    levels_first: list[str]
-    levels: list[str]
-    instructions: str
+    send_prs: bool
+    send_comments: bool
+    max_prs_per_day: int | None
+    max_open_prs: int | None
+    max_open_per_repo: int | None
+    max_agents: int
+    min_stars: int | None
+    ai_policies: list[str]
 
 
 def summary() -> dict:
-    """It all, with every level of automation besides (see the top of this file). On the event loop."""
+    """It all (see the top of this file), with Concurrent agents (the Issues board's max_agents) besides. On the event
+    loop."""
     data = copy.deepcopy(automation)
-    data["repo_levels"] = {}
-    if SETTINGS_FILE.is_file():
-        data["repo_levels"] = json.loads(SETTINGS_FILE.read_text())
-    data["issue_levels"] = {}
-    if ISSUE_SETTINGS_FILE.is_file():
-        data["issue_levels"] = json.loads(ISSUE_SETTINGS_FILE.read_text())
-    data["defaults"] = DEFAULTS
-    # Each label's rule in words, for the pages to show on hover.
-    rules = automation["rules"]
-    data["label_rules"] = {
-        "Fast": f"Merges ours within {rules['fast_days']} business days (the median)",
-        "Normal": f"Merges ours within {rules['normal_days']} business days (the median)",
-        "New": "None of ours merged yet",
-        "Slow": f"Merges ours in more than {rules['normal_days']} business days (the median)",
-        "No issues": f"Nothing to work on for {rules['idle_days']} days; archived after {rules['leave_days']}",
-        "Not merging": (
-            f"One of ours open over {rules['max_open_days']} business days without a merge, or half of ours closed without one. "
-            f"Archived; our PRs still open there are closed {rules['close_days']} business days later"
-        ),
-    }
-    data["board"] = dict(AUTO_REMOVE_OFF)
+    board = dict(AUTO_REMOVE_OFF)
     if AUTO_REMOVE_FILE.is_file():
-        data["board"].update(json.loads(AUTO_REMOVE_FILE.read_text()))
+        board.update(json.loads(AUTO_REMOVE_FILE.read_text()))
+    data["max_agents"] = board["max_agents"]
     return data
 
 
@@ -180,43 +169,32 @@ async def get_automation() -> dict:
 
 @router.put("/automation")
 async def put_automation(body: AutomationRequest) -> dict:
-    """Turn it on or off, set how many repos to keep active, and Pause or Resume new issues."""
-    if body.active_repos < 1 or body.active_repos > MAX_ACTIVE:
-        raise HTTPException(status_code=400, detail=f"Active repositories is 1 to {MAX_ACTIVE}.")
+    """The Automation page's Save: every setting at once."""
+    for value in [body.max_prs_per_day, body.max_open_prs, body.max_open_per_repo]:
+        if value is not None and (value < 1 or value > 1000):
+            raise HTTPException(status_code=400, detail="A limit is 1 to 1000.")
+    if body.max_agents < 1 or body.max_agents > 50:
+        raise HTTPException(status_code=400, detail="Concurrent agents is 1 to 50.")
+    if body.min_stars is not None and (body.min_stars < 0 or body.min_stars > 1_000_000):
+        raise HTTPException(status_code=400, detail="Minimum stars is 0 to 1,000,000.")
+    if any(policy not in POLICY_ORDER for policy in body.ai_policies):
+        raise HTTPException(status_code=400, detail=f"The AI policies are some of {', '.join(POLICY_ORDER)}.")
     automation["on"] = body.on
-    automation["active_repos"] = body.active_repos
     automation["take_new"] = body.take_new
+    automation["send_prs"] = body.send_prs
+    automation["send_comments"] = body.send_comments
+    automation["max_prs_per_day"] = body.max_prs_per_day
+    automation["max_open_prs"] = body.max_open_prs
+    automation["max_open_per_repo"] = body.max_open_per_repo
+    automation["min_stars"] = body.min_stars
+    # In POLICY_ORDER's order, each once.
+    automation["ai_policies"] = [policy for policy in POLICY_ORDER if policy in body.ai_policies]
     AUTOMATION_FILE.write_text(json.dumps(automation, indent=2))
-    AUTOMATION_VERSION["version"] += 1
-    return summary()
-
-
-@router.put("/automation/rules")
-async def put_rules(body: RulesRequest) -> dict:
-    """The numbers behind the labels and what it does with them."""
-    rules = body.model_dump()
-    if any(value < 1 or value > 365 for value in rules.values()):
-        raise HTTPException(status_code=400, detail="The days are 1 to 365.")
-    if body.fast_days > body.normal_days:
-        raise HTTPException(status_code=400, detail="Fast can't take longer than Normal.")
-    if body.idle_days > body.leave_days:
-        raise HTTPException(status_code=400, detail="A repo is No issues before it is archived for it.")
-    automation["rules"] = rules
-    AUTOMATION_FILE.write_text(json.dumps(automation, indent=2))
-    AUTOMATION_VERSION["version"] += 1
-    return summary()
-
-
-@router.put("/automation/new_repos")
-async def put_new_repos(body: NewReposRequest) -> dict:
-    """The level of automation the repos it adds get, like a repo's (PUT /api/repos/automation)."""
-    if any(level not in LEVELS for level in body.levels + body.levels_first):
-        raise HTTPException(status_code=400, detail="The levels are easy, medium and hard.")
-    if body.max_prs_first < 1 or body.max_prs_first > 50 or body.max_prs < 1 or body.max_prs > 50:
-        raise HTTPException(status_code=400, detail="Open PRs at once is 1 to 50.")
-    automation["new_repos"] = body.model_dump()
-    automation["new_repos"]["instructions"] = body.instructions.strip()
-    AUTOMATION_FILE.write_text(json.dumps(automation, indent=2))
+    board = dict(AUTO_REMOVE_OFF)
+    if AUTO_REMOVE_FILE.is_file():
+        board.update(json.loads(AUTO_REMOVE_FILE.read_text()))
+    board["max_agents"] = body.max_agents
+    AUTO_REMOVE_FILE.write_text(json.dumps(board, indent=2))
     AUTOMATION_VERSION["version"] += 1
     return summary()
 
@@ -467,7 +445,10 @@ async def automate() -> None:
     room = automation["active_repos"] - len([item for item in repos.items() if item["full_name"] not in archived])
     ranked = []
     for entry in explore.found:
-        if entry["ai_policy"] not in POLICY_ORDER:
+        # Only the AI policies the Automation page allows (never no_ai), and at least its Minimum stars.
+        if entry["ai_policy"] not in automation["ai_policies"]:
+            continue
+        if automation["min_stars"] is not None and entry["stars"] < automation["min_stars"]:
             continue
         newcomers = len(NEWCOMERS_ORDER)
         if entry["newcomers"] in NEWCOMERS_ORDER:
@@ -499,8 +480,12 @@ async def automate() -> None:
             await explore.add_type()
         except Exception:
             traceback.print_exc()
-        # Workers: as many as GitHub's quota allows (None).
-        explore.start(room, None, None, EXPLORE_FILTERS)
+        # Workers: as many as GitHub's quota allows (None). It skips the AI policies the page turned off too.
+        filters = dict(EXPLORE_FILTERS)
+        for policy in POLICY_ORDER:
+            if policy not in automation["ai_policies"]:
+                filters[f"policy:{policy}"] = "exclude"
+        explore.start(room, None, None, filters)
         automation["run"] = explore.run["started_at"]
 
     automation["log"] = (automation["log"] + log)[-LOG_KEPT:]

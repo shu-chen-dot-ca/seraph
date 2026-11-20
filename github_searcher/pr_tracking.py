@@ -72,7 +72,7 @@ says action is needed: Draft only from there (a GitHub draft the project waits f
 a maintainer holds), and never Merge conflicts unless GitHub says so. "judgments" keeps it by PR id: {"key", "needs",
 "reasons", "detail", "judged_at", "head", "failed_checks", "version"}, where key (judgment_key) is what it was made on,
 so it is made again once that changes. Every need is the agents' to settle (a CLA too: its agent finds out whether it
-really blocks the merge, and asks you on the Dashboard's Approvals page before it signs one). status is how it waits otherwise, as GitHub says it: Ready to merge (approved,
+really blocks the merge, and asks you on the Dashboard's Blockers page before it signs one). status is how it waits otherwise, as GitHub says it: Ready to merge (approved,
 checks passed, no conflicts), Awaiting CI (checks running or waiting for a maintainer's OK), else Awaiting approval.
 state is the PR as others left it: its newest commit, checks, failed checks, a conflict (GitHub's word), the draft
 state, labels, the newest comment or review by someone else (a bot's too) and the newest comment on an issue it fixes.

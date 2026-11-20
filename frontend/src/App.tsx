@@ -1,57 +1,30 @@
 /*
-The whole app: a 36px header, a left list and one page on the right.
-The header's left has two tabs, the open one in full color with the accent under it:
-- Dashboard, the first page you see, with its own left list (DashboardNav.tsx): Repository (the Repos page's repos as
-  cards, RepositoryCards.tsx) and Virtual Machine (the VMs page and each VM's page, the same pages as Home's).
-- Home, the backup with every page, with one left list (Sidebar.tsx) in four parts: with one left list (Sidebar.tsx) in four parts:
-  - the work: Explore, Repos, Tracked, Issues, Jobs, Agents, VMs and Resource;
-  - GitHub (GitHubNav.tsx): Overview, Inbox, Notifications, Pull requests, Issues, Tasks, Account, Your repositories
-    and Starred;
-  - Workspace (WorkspaceNav.tsx): Home (Home.tsx: your repositories as cards, the open one like on GitHub), Pull
-    requests (PullRequests.tsx: your pull requests anywhere on GitHub, like github.com/pulls) and Papers (Papers.tsx:
-    papers you gave agents to reproduce). In phone mode also VM (PhoneVM.tsx: one VM desktop to use yourself, with
-    keys under it);
-  - Workflow (WorkflowNav.tsx): your own repositories that agents develop one confined issue at a time, each as a pull
-    request the review agent checks before it is merged or rejected (Workflow.tsx), and Add repository. Apart from
-    Development on a Workspace repository's page.
-  The tab shows how many drafts wait in the Inbox and pull requests wait on Workflow for your decision.
-The VM pages (#/vms...) and the agents' chats (#/agents/<id>) are on both tabs: they stay on the tab they were opened
-from (a reload puts them on the Dashboard), so an agent opened anywhere on the Dashboard opens there.
-Every other page is on the tab its address says. Each tab goes back to the last page you had open under it (Dashboard
-starts at Repository, Home at Issues); a reload forgets that. On its right: Sign
-in while you aren't signed in to GitHub (straight to GitHub's sign-in page once sign in is
-set up, else the Account page, which walks you through setting it up), or, signed in, your GitHub picture
-and @login, a link to Account (GitHub.tsx), where Sign out is. Before those, in the live copy: Update once a newer
-release is ready (UpdateDialog.tsx), and Restarting… while the app restarts on it. Then this repo on GitHub (a new tab, so the app stays open),
-found from git's origin remote (vite.config.ts), so no account name is written here; none when it isn't on GitHub. Reset view is in Settings
-(SettingsDialog), opened from the bottom of Home's left list.
+The whole app: a 36px header, a left list (Sidebar.tsx) and one page on the right.
+The header's left has one tab, Dashboard (#/), in full color with the accent under it. On its right: Restarting… while
+the app restarts on a new release, Update once a newer release is ready (UpdateDialog.tsx), Offline while the live feed
+is down, then Sign in while you aren't signed in to GitHub (straight to GitHub's sign-in page once sign in is set up,
+else Settings on its Account section, which walks you through setting it up), or, signed in, your GitHub picture and
+@login, which open Settings on the Account section (Account.tsx), where Sign out is. Last, this repo on GitHub (a new
+tab, so the app stays open), found from git's origin remote (vite.config.ts), so no account name is written here; none
+when it isn't on GitHub. Settings (SettingsDialog) opens from the bottom of the left list.
 
-Phone mode, on a narrow screen (under 768px, a phone): no tabs and no left list. The header's left has Menu instead
-(with the Home and Dashboard tabs' counts together) and the open page's name. Menu slides in both tabs' left lists, the Dashboard's
-on top of Home's. Picking a page closes it, and so does a tap beside it. The pages are the same as on a computer.
+Back from GitHub's sign-in page, the backend sends the browser to #/?signed_in=<login> or #/?error=<text>: App says
+which in a toast, reloads the account (the "github-account" window event) and takes the query out of the address.
+
+Phone mode, on a narrow screen (under 768px, a phone): no tab and no left list. The header's left has Menu instead and
+the open page's name. Menu slides in the left list. Picking a page closes it, and so does a tap beside it. The pages are
+the same as on a computer.
 
 The page lives in the URL hash, so refresh and back/forward work and switching pages never reloads:
-  Work:  #/issues  #/issues?repo=owner/name  #/issues?open=<issue id>  #/jobs  #/jobs/<job id>  #/explore  #/repos  #/tracked
-         #/agents  #/agents/<agent id>  #/vms  #/vms?tab=images  #/vms?tab=defaults  #/vms/<vm name>  #/vms/<vm name>?tab=notes  #/resource
-  GitHub: #/github/overview (GitHubOverview.tsx)  #/inbox  #/inbox/<draft id>  #/github/notifications (Notifications.tsx)
-         #/github (= #/github/pulls)  #/github/issues  #/github/tasks (Tasks.tsx)  #/github/account
-         #/github/repo?repo=owner/name (Repository.tsx)
-         Pull requests and Issues take ?repo=owner/name (only that repo), state=closed (the Closed tab) and
-         open=owner/name%23n (that PR or issue in its pop-up), e.g. #/github/issues?repo=owner/name&open=owner/name%2312
-         One of your repositories takes tab=issues|pulls|commits|actions (none: its Code), state=closed and open=... the same
-         way; Notifications takes open=... too; Tasks takes state=done (its Done tab), view=recent (its Recent
-         tab), task=owner/name%23n (that task in its pop-up) and open=....
-  Workspace: #/home  #/home?repo=owner/name (Home.tsx; the open repo, which takes tab=code|issues|pulls|commits|actions
-         (none: Agents), state=closed and open=owner/name%23n like a repository's page under GitHub)
-         #/pulls (PullRequests.tsx; takes state=closed, view=assigned|mentioned|review-requested,
-         visibility=public|private, repo=owner/name, sort=created-asc|comments-desc|comments-asc|updated-desc|updated-asc
-         and open=owner/name%23n)
-         #/papers (Papers.tsx)
-         #/vm (PhoneVM.tsx)
-  Workflow: #/workflow  #/workflow?repo=owner/name (Workflow.tsx; takes tab=pulls|issues|chat|settings (none: Overview),
-         state=closed and open=<number>, that pull request or issue)
-  Dashboard: #/dashboard (= #/dashboard/repos)
-Anything else (also no hash at all) opens the Dashboard. Links are plain <a href="#/..."> everywhere; App only reads the hash.
+  #/ (Overview.tsx)
+  #/pulls (PullRequests.tsx; takes state=progress|open|merged|closed)
+  #/repos (RepositoryCards.tsx)
+  #/blockers (Blockers.tsx)
+  #/automation (Automation.tsx)
+  #/vms  #/vms?tab=images  #/vms?tab=defaults (VMs.tsx)  #/vms/<vm name>  #/vms/<vm name>?tab=notes (VMPage.tsx)
+  #/agents/<agent id> (AgentChat.tsx, opened from the VM pages and their notes)
+Anything else (also no hash at all) opens the Overview. Links are plain <a href="#/..."> everywhere; App only reads the
+hash.
 
 A VM page, once visited, stays mounted (hidden) while you are elsewhere, so its desktop iframe keeps its
 connection and coming back is instant. It is dropped when that VM no longer exists.
@@ -62,31 +35,16 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import AgentChat from "@/AgentChat";
-import Agents from "@/Agents";
-import DashboardNav from "@/DashboardNav";
-import Explore from "@/Explore";
-import GitHub from "@/GitHub";
-import GitHubOverview from "@/GitHubOverview";
-import Home from "@/Home";
-import Inbox from "@/Inbox";
-import Issues from "@/Issues";
-import Jobs from "@/Jobs";
-import Notifications from "@/Notifications";
-import Papers from "@/Papers";
-import PhoneVM from "@/PhoneVM";
+import Automation from "@/Automation";
+import Blockers from "@/Blockers";
+import Overview from "@/Overview";
 import PullRequests from "@/PullRequests";
-import Repos from "@/Repos";
-import Resource from "@/Resource";
+import RepositoryCards from "@/RepositoryCards";
 import SettingsDialog, { type ThemeMode } from "@/SettingsDialog";
 import Sidebar from "@/Sidebar";
-import Tasks from "@/Tasks";
-import Tracked from "@/Tracked";
 import UpdateDialog from "@/UpdateDialog";
 import VMPage from "@/VMPage";
 import VMs from "@/VMs";
-import Repository from "@/Repository";
-import RepositoryCards from "@/RepositoryCards";
-import Workflow from "@/Workflow";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import TitleTooltips from "@/components/ui/title-tooltips";
@@ -94,35 +52,15 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { api, useConnected, useLive, useLiveValue, useLoaded, type GithubAccountStatus } from "@/live";
 import { cn } from "@/lib/utils";
 
-const PAGES = ["inbox", "github", "issues", "jobs", "explore", "repos", "tracked", "agents", "vms", "resource", "home", "pulls", "papers", "vm", "workflow", "dashboard"];
-// The GitHub tab's pages under #/github/; anything else there is Pull requests.
-const GITHUB_SECTIONS = ["overview", "notifications", "issues", "tasks", "account", "repo"];
-// The open page's name in phone mode's header, where there are no tabs and no left list to show it.
+const PAGES = ["pulls", "repos", "blockers", "automation", "vms", "agents"];
+// The open page's name in phone mode's header, where there is no left list to show it.
 const PAGE_NAMES: Record<string, string> = {
-  inbox: "Inbox",
-  issues: "Issues",
-  jobs: "Jobs",
-  explore: "Explore",
-  repos: "Repos",
-  tracked: "Tracked",
-  agents: "Agents",
-  vms: "VMs",
-  resource: "Resource",
-  home: "Home",
-  pulls: "Pull requests",
-  papers: "Papers",
-  vm: "VM",
-  workflow: "Workflow",
-  dashboard: "Dashboard",
-};
-const GITHUB_NAMES: Record<string, string> = {
   overview: "Overview",
-  notifications: "Notifications",
   pulls: "Pull requests",
-  issues: "Issues",
-  tasks: "Tasks",
-  account: "Account",
-  repo: "Repository",
+  repos: "Repositories",
+  blockers: "Blockers",
+  vms: "Virtual machines",
+  automation: "Automation",
 };
 // This repo on GitHub, or "": vite.config.ts puts it in from git's origin remote.
 declare const __REPO_URL__: string;
@@ -144,35 +82,18 @@ export default function App() {
   });
   const [accent, setAccent] = useState(document.documentElement.dataset.accent ?? "blue");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The section Settings opens on: "account" from the header, null from the left list.
+  const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [updateOpen, setUpdateOpen] = useState(false);
-  // Phone mode's Menu: the list of every page, slid in from the left.
+  // Phone mode's Menu: the left list, slid in from the left.
   const [menuOpen, setMenuOpen] = useState(false);
-  // The last address open under each header tab, where its tab goes back to.
-  const [lastHome, setLastHome] = useState("#/issues");
-  const [lastDashboard, setLastDashboard] = useState("#/dashboard/repos");
-  // Whether the Dashboard tab is the open one. The VM pages are on both tabs, so the address alone can't say. The app
-  // opens on the Dashboard; only Home's own pages open Home.
-  const [onDashboard, setOnDashboard] = useState(() => {
-    const path = window.location.hash.replace(/^#\/?/, "").split("?")[0];
-    const first = path.split("/")[0];
-    if (first === "dashboard" || first === "vms" || path.startsWith("agents/")) {
-      return true;
-    }
-    return !PAGES.includes(first);
-  });
   // Only the names: App re-renders every page under it, and the VM list changes every second.
   const vmNamesText = useLiveValue((topics) => topics.vms.map((vm) => vm.name).join(" "));
-  // Only the count, for the Home tab: drafts waiting in the Inbox for your decision.
-  const pending = useLiveValue((topics) => topics.inbox.filter((draft) => draft.status === "pending" && draft.kind !== "approval").length);
-  // Only the count, for the Home tab too: Workflow's reviewed pull requests waiting for your decision.
-  const waiting = useLiveValue((topics) =>
-    topics.workflow.reduce((count, each) => count + (each.decides === "you" ? Object.values(each.prs).filter((pr) => pr.state === "waiting").length : 0), 0),
-  );
   const vmsLoaded = useLoaded("vms");
   const connected = useConnected();
   // Changes only on a check or an update, so App re-renders seldom for it.
   const updates = useLive("updates");
-  // Who you are signed in to GitHub as, for the header's right. The Account page (GitHub.tsx) signs you in and out.
+  // Who you are signed in to GitHub as, for the header's right. Settings → Account signs you in and out.
   const [account, setAccount] = useState<GithubAccountStatus | null>(null);
 
   useEffect(() => {
@@ -186,10 +107,28 @@ export default function App() {
     return () => window.removeEventListener("github-account", load);
   }, []);
 
-  // The header's Sign in: straight to GitHub's sign-in page when sign in is set up, else the Account page to set it up.
+  // Back from GitHub's sign-in page (the callback in backend/github_account_api.py): what came of it, said once.
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.hash.split("?")[1] ?? "");
+    const signedIn = query.get("signed_in");
+    const error = query.get("error");
+    if (signedIn === null && error === null) {
+      return;
+    }
+    if (signedIn !== null) {
+      toast.success(`Signed in as @${signedIn}`);
+    }
+    if (error !== null) {
+      toast.error(`Could not sign in: ${error}`);
+    }
+    window.dispatchEvent(new Event("github-account"));
+    window.location.replace("#/");
+  }, []);
+
+  // The header's Sign in: straight to GitHub's sign-in page when sign in is set up, else Settings → Account to set it up.
   async function signIn() {
     if (account === null || !account.can_sign_in) {
-      window.location.hash = "#/github/account";
+      openSettings("account");
       return;
     }
     try {
@@ -200,52 +139,39 @@ export default function App() {
     }
   }
 
+  function openSettings(section: string | null) {
+    setMenuOpen(false);
+    setSettingsSection(section);
+    setSettingsOpen(true);
+  }
+
   useEffect(() => {
     function onHashChange() {
       setHash(window.location.hash);
-      // The Dashboard's pages (and an unknown address, which shows the Dashboard) open its tab; a VM page or an agent's
-      // chat stays on the tab it was opened from; anything else is Home's (also the Agents page, #/agents).
-      const path = window.location.hash.replace(/^#\/?/, "").split("?")[0];
-      const next = path.split("/")[0];
-      if (next === "dashboard" || !PAGES.includes(next)) {
-        setOnDashboard(true);
-      } else if (next !== "vms" && !path.startsWith("agents/")) {
-        setOnDashboard(false);
-      }
-      // A page was picked (also from a button, like the sidebar's + on Agents): phone mode's Menu is done.
+      // A page was picked (also from a button): phone mode's Menu is done.
       setMenuOpen(false);
     }
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  // "#/vms/vm1?x=y" → page "vms", id "vm1", query "x=y". Anything unknown opens the Dashboard.
+  // "#/vms/vm1?x=y" → page "vms", id "vm1", query "x=y". Anything unknown opens the Overview.
   const [pathPart, queryPart] = hash.replace(/^#\/?/, "").split("?");
   const parts = pathPart.split("/");
-  const known = PAGES.includes(parts[0]);
-  const page = known ? parts[0] : "dashboard";
-  const id = known && parts.length > 1 && parts[1] !== "" ? decodeURIComponent(parts.slice(1).join("/")) : null;
+  const id = parts.length > 1 && parts[1] !== "" ? decodeURIComponent(parts.slice(1).join("/")) : null;
+  let page = PAGES.includes(parts[0]) ? parts[0] : "overview";
+  if (page === "agents" && id === null) {
+    page = "overview";
+  }
   const query = new URLSearchParams(queryPart ?? "");
-  // GitHub's section: "#/github/issues" → "issues", "#/github" → "pulls".
-  const section = id !== null && GITHUB_SECTIONS.includes(id) ? id : "pulls";
-  const onHome = !onDashboard;
-  // Phone mode's header: the open page's name, a VM's own name on its page.
-  let pageName = page === "github" ? GITHUB_NAMES[section] : PAGE_NAMES[page];
+  // Phone mode's header: the open page's name, a VM's own name on its page, an agent's name on its chat.
+  const agentName = useLiveValue((topics) => topics.agents.find((agent) => agent.id === id)?.name ?? "Agent");
+  let pageName = PAGE_NAMES[page];
   if (page === "vms" && id !== null) {
     pageName = id;
   }
-  if (page === "dashboard") {
-    pageName = "Repository";
-  }
-
-  // Keep the address for its tab (setting state while rendering, like visitedVMs below). No hash at all is the Dashboard,
-  // kept as its Repository. Only a page of that tab counts: for a moment after a tab is clicked, the address is still
-  // the other tab's.
-  if (onHome && page !== "dashboard" && hash !== "" && hash !== lastHome) {
-    setLastHome(hash);
-  }
-  if (onDashboard && (page === "dashboard" || page === "vms" || (page === "agents" && id !== null)) && hash !== "" && hash !== lastDashboard) {
-    setLastDashboard(hash);
+  if (page === "agents") {
+    pageName = agentName;
   }
 
   // Remember every VM page opened, so it stays mounted. (Setting state while rendering is React's
@@ -288,20 +214,13 @@ export default function App() {
     }
   }
 
-  // Panel sizes and sidebar folds only live in memory, so a reload resets them. The Repos sort and columns are
-  // kept in localStorage (the keys in Repos.tsx), so forget those first. Theme and accent are settings: they stay.
+  // Panel sizes and folds only live in memory, so a reload resets them. Theme and accent are settings: they stay.
   function resetView() {
-    try {
-      localStorage.removeItem("repos-sort");
-      localStorage.removeItem("repos-columns-2");
-    } catch {
-      // Storage blocked (private window): nothing was kept, the reload alone resets.
-    }
     window.location.reload();
   }
 
-  // The header's tabs, like line tabs (components/ui/tabs.tsx): quiet until hovered; the open one in full color with
-  // the accent under it, over the header's border. Only the open one has aria-current.
+  // The header's tab, like line tabs (components/ui/tabs.tsx): in full color with the accent under it, over the
+  // header's border.
   const tab = "relative flex h-full items-center gap-1.5 px-2 font-medium text-muted-foreground hover:text-foreground";
   const currentTab = "text-foreground after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-primary";
 
@@ -309,7 +228,7 @@ export default function App() {
     <TooltipProvider>
       <div className="flex h-full flex-col">
         <header className="flex h-9 shrink-0 items-center gap-3 border-b bg-sidebar px-3">
-          {/* Phone mode: Menu and the open page's name instead of the tabs. */}
+          {/* Phone mode: Menu and the open page's name instead of the tab. */}
           <button
             type="button"
             className="-ml-1.5 flex h-7 shrink-0 items-center gap-1.5 rounded-sm px-1.5 font-medium text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
@@ -317,45 +236,11 @@ export default function App() {
             onClick={() => setMenuOpen(true)}
           >
             <Menu className="size-4" />
-            {pending + waiting > 0 && (
-              <span className="min-w-4.5 rounded-full bg-primary px-1.5 text-center text-xs leading-4.5 font-medium text-primary-foreground tabular-nums">
-                {pending + waiting}
-              </span>
-            )}
           </button>
           <span className="-ml-1.5 min-w-0 truncate font-medium md:hidden">{pageName}</span>
           <div className="flex h-full items-center max-md:hidden">
-            <a
-              href={lastDashboard}
-              aria-current={onDashboard ? "page" : undefined}
-              className={cn(tab, onDashboard && currentTab)}
-              onClick={(event) => {
-                event.preventDefault();
-                setOnDashboard(true);
-                window.location.hash = lastDashboard;
-              }}
-            >
+            <a href="#/" aria-current="page" className={cn(tab, currentTab)}>
               Dashboard
-            </a>
-            <a
-              href={lastHome}
-              aria-current={onHome ? "page" : undefined}
-              className={cn(tab, onHome && currentTab)}
-              onClick={(event) => {
-                // Set the tab first: the address may stay the same (a VM page on both tabs).
-                event.preventDefault();
-                setOnDashboard(false);
-                window.location.hash = lastHome;
-              }}
-              title={pending + waiting > 0 ? `${pending + waiting} ${pending + waiting === 1 ? "draft or pull request waits" : "drafts and pull requests wait"} for your decision` : undefined}
-            >
-              Home
-              {/* Like the Inbox's own count: a filled pill, like unread mail. */}
-              {pending + waiting > 0 && (
-                <span className="min-w-4.5 rounded-full bg-primary px-1.5 text-center text-xs leading-4.5 font-medium text-primary-foreground tabular-nums">
-                  {pending + waiting}
-                </span>
-              )}
             </a>
           </div>
           <div className="ml-auto flex items-center gap-1">
@@ -380,15 +265,16 @@ export default function App() {
               </Button>
             )}
             {account !== null && account.connected && (
-              <a
-                href="#/github/account"
+              <button
+                type="button"
                 className="mr-1 flex h-7 items-center gap-1.5 rounded-sm px-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
                 title="Your GitHub account"
+                onClick={() => openSettings("account")}
               >
                 <img src={`https://github.com/${account.login}.png?size=40`} alt="" className="size-5 rounded-full" />
                 {/* Phone mode: only the picture, to leave room for the page's name. */}
                 <span className="max-md:hidden">@{account.login}</span>
-              </a>
+              </button>
             )}
             {__REPO_URL__ !== "" && (
               <a
@@ -409,77 +295,20 @@ export default function App() {
         </header>
 
         <div className="flex min-h-0 flex-1">
-          {/* The open tab's left list; phone mode has Menu instead. */}
+          {/* The left list; phone mode has Menu instead. */}
           <div className="flex shrink-0 max-md:hidden">
-            {onDashboard && <DashboardNav page={page} id={id} />}
-            {onHome && <Sidebar page={page} id={id} section={section} repo={query.get("repo")} onOpenSettings={() => setSettingsOpen(true)} />}
+            <Sidebar page={page} id={id} onOpenSettings={() => openSettings(null)} />
           </div>
           <main className="relative min-w-0 flex-1 overflow-hidden">
-            {page === "inbox" && <Inbox selected={id} />}
-            {page === "github" && section === "overview" && <GitHubOverview />}
-            {page === "github" && section === "notifications" && <Notifications open={query.get("open")} />}
-            {page === "github" && section === "tasks" && <Tasks state={query.get("state") ?? ""} view={query.get("view") ?? ""} task={query.get("task")} open={query.get("open")} />}
-            {page === "github" && section === "repo" && (
-              <Repository
-                key={query.get("repo") ?? ""}
-                repo={query.get("repo") ?? ""}
-                tab={query.get("tab") ?? "overview"}
-                state={query.get("state") === "closed" ? "closed" : "open"}
-                open={query.get("open")}
-              />
-            )}
-            {page === "github" && (section === "pulls" || section === "issues" || section === "account") && (
-              <GitHub
-                key={section}
-                section={section}
-                repo={query.get("repo")}
-                state={query.get("state") === "closed" ? "closed" : "open"}
-                open={query.get("open")}
-              />
-            )}
-            {page === "issues" && <Issues repo={query.get("repo")} open={query.get("open")} />}
-            {page === "jobs" && <Jobs selected={id} />}
-            {page === "explore" && <Explore />}
-            {page === "repos" && <Repos />}
-            {page === "tracked" && <Tracked />}
-            {page === "agents" && id === null && <Agents />}
+            {page === "overview" && <Overview />}
+            {page === "pulls" && <PullRequests state={query.get("state") ?? "open"} />}
+            {page === "repos" && <RepositoryCards />}
+            {page === "blockers" && <Blockers />}
+            {page === "automation" && <Automation />}
             {page === "agents" && id !== null && <AgentChat key={id} agentId={id} />}
-            {page === "home" && (
-              <Home
-                repo={query.get("repo")}
-                tab={query.get("tab") ?? ""}
-                state={query.get("state") === "closed" ? "closed" : "open"}
-                open={query.get("open")}
-              />
-            )}
-            {page === "dashboard" && <RepositoryCards />}
-            {page === "pulls" && (
-              <PullRequests
-                key={query.get("view") ?? "created"}
-                state={query.get("state") === "closed" ? "closed" : "open"}
-                view={query.get("view") ?? "created"}
-                visibility={query.get("visibility") ?? "all"}
-                repo={query.get("repo")}
-                sort={query.get("sort") ?? "created-desc"}
-                open={query.get("open")}
-                base="#/pulls"
-                plain={false}
-              />
-            )}
-            {page === "papers" && <Papers />}
-            {page === "vm" && <PhoneVM />}
-            {page === "workflow" && (
-              <Workflow
-                repo={query.get("repo")}
-                tab={query.get("tab") ?? "overview"}
-                state={query.get("state") === "closed" ? "closed" : "open"}
-                open={query.get("open")}
-              />
-            )}
             {page === "vms" && id === null && (
               <VMs tab={query.get("tab") === "images" ? "images" : query.get("tab") === "defaults" ? "defaults" : "vms"} />
             )}
-            {page === "resource" && <Resource />}
             {mountedVMs.map((name) => (
               <div key={name} className={name === openVM ? "h-full" : "hidden"}>
                 <VMPage name={name} active={name === openVM} tab={name === openVM ? query.get("tab") : null} />
@@ -488,8 +317,7 @@ export default function App() {
           </main>
         </div>
       </div>
-      {/* Phone mode's Menu: both tabs' left lists one under another, so every page is in it. They keep their look; here
-          each is as wide as the menu and as tall as what it holds, and the menu scrolls as a whole. */}
+      {/* Phone mode's Menu: the left list, as wide as the menu and as tall as what it holds; the menu scrolls as a whole. */}
       {menuOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 animate-in bg-black/40 duration-200 ease-out fade-in-0 dark:bg-black/60" onClick={() => setMenuOpen(false)} />
@@ -513,25 +341,14 @@ export default function App() {
               </button>
               <span className="font-medium text-foreground">Menu</span>
             </div>
-            <div className="px-3 pt-3 pb-1 text-xs font-medium text-muted-foreground">Dashboard</div>
-            <DashboardNav page={page} id={id} />
-            <div className="border-t px-3 pt-3 pb-1 text-xs font-medium text-muted-foreground">Home</div>
-            <Sidebar
-              page={page}
-              id={id}
-              section={section}
-              repo={query.get("repo")}
-              onOpenSettings={() => {
-                setMenuOpen(false);
-                setSettingsOpen(true);
-              }}
-            />
+            <Sidebar page={page} id={id} onOpenSettings={() => openSettings(null)} />
           </div>
         </div>
       )}
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
+        section={settingsSection}
         theme={theme}
         onTheme={changeTheme}
         accent={accent}

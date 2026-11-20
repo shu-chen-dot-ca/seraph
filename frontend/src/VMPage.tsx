@@ -726,9 +726,9 @@ export default function VMPage(props: { name: string; active: boolean; tab: stri
                         </div>
                         {holderJob !== undefined && (
                           <div className="space-y-0.5 pb-1">
-                            <a href={`#/jobs/${holderJob.id}`} className="block truncate hover:underline" title={holderJob.title}>
+                            <div className="truncate" title={holderJob.title}>
                               {holderJob.title}
-                            </a>
+                            </div>
                             <JobProgressBar job={holderJob} />
                             {holderJob.headline !== "" && <div className="line-clamp-2 text-xs">{holderJob.headline}</div>}
                           </div>
@@ -980,9 +980,9 @@ export default function VMPage(props: { name: string; active: boolean; tab: stri
                         {agentById[job.agent]?.name ?? job.agent}
                       </a>
                       {job.drafts.map((draft) => (
-                        <a key={draft} href={`#/inbox/${draft}`} className="shrink-0 font-mono text-xs text-primary hover:underline">
+                        <span key={draft} className="shrink-0 font-mono text-xs">
                           {draft}
-                        </a>
+                        </span>
                       ))}
                       <span className="shrink-0 text-right text-xs whitespace-nowrap text-muted-foreground">
                         {new Date(job.updated_at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}

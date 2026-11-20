@@ -6,8 +6,7 @@ without connecting again (a lock comes and goes while the agent works).
 The agent page's Desktop (AgentChat.tsx) uses it view-only. Through the remote access domain (REMOTE) the VM page
 (VMPage.tsx) uses it too, instead of noVNC's page from the VM in an iframe:
 the phone can't reach the VM's address, and an https page can't load http. Its VNC connection then passes through
-the backend (the websocket /api/vms/{name}/vnc). The phone's VM page (PhoneVM.tsx) always connects that way, and
-passes rfbRef to send keys from its own keyboard row.
+the backend (the websocket /api/vms/{name}/vnc). rfbRef, when given, hands the caller the client.
 */
 
 import RFB from "@novnc/novnc";

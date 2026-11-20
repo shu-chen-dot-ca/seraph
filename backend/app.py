@@ -1,20 +1,15 @@
 """The backend: one FastAPI app that serves everything under /api.
 
-The pieces are made once in backend/shared.py (the Repos, Issues and Tracked lists,
-jobs, the inbox, your GitHub account, your PRs, the VMs, the VM queue and the agents), and each page has its
-own router in backend/*_api.py (the GitHub tab: github_api.py, its Account page: github_account_api.py, Your
-repositories: your_repositories_api.py, Notifications: notifications_api.py, the Workspace tab's Pull requests:
-pull_requests_api.py, a repository's Live tab on the Workspace tab: repo_live_api.py, Sherpa: sherpa_api.py, Settings →
-Asking: ask_settings_api.py, Settings → Secrets: secrets_api.py, Settings → Fix problems: problem_fixes_api.py).
-topic_data() is each topic of the live feed below; Sherpa reads the pages' data through it too.
+The pieces are made once in backend/shared.py (the Repos and Issues lists, jobs, the inbox, your GitHub account, your
+PRs, the VMs, the VM queue and the agents), and each part of the app has its own router in backend/*_api.py.
+topic_data() is each topic of the live feed below.
 
-The browser never polls. It keeps one websocket open on /api/live, gets every
-topic when it connects, then only the topics that changed. Every store has a
-`version` number that goes up on each change, so finding the changes is a
-cheap comparison every 250 ms. The big topics go at most every BIG_TOPIC_SECONDS, with all their changes since.
-
-The browser also says, on the same websocket, whether it shows a Resource page: {"watch_resource": true or false}.
-While none does, the NVIDIA GPU is never asked for its numbers, so it can sleep (sandbox/resource_usage.py).
+The browser never polls. It keeps one websocket open on /api/live, gets every topic when it connects, then only the
+topics that changed. Every store has a `version` number that goes up on each change, so finding the changes is a
+cheap comparison every 250 ms. The big topics go at most every BIG_TOPIC_SECONDS, with all their changes since. The
+topics are only what the pages show (TOPICS): the repos, your PRs, jobs, the blockers waiting for you, agents, VMs,
+images, updates and the Automation's settings. A topic is read and encoded once per change, and that same text goes to
+every open browser (TEXTS).
 
 Only this machine's own pages may use the API: the Host must be localhost or
 127.0.0.1 (no DNS rebinding), and a request or websocket with an Origin must
@@ -31,7 +26,7 @@ The page itself comes from Vite in the dev copy (./run.sh). The live copy (deplo
 built page (frontend/dist) from here, at /, so it needs no Vite.
 
 Every exception nobody caught (in a request, a background task on the event loop, or a thread) is reported to the app's
-own errors (github_searcher/crashes.py), which its agent turns into issues (backend/projects_api.py).
+own errors (github_searcher/crashes.py).
 
 SERAPH_CHECK=1 in .env is the check a new release gets before it goes live (github_searcher/updates.py): it runs on a
 copy of data/, and nothing in the background starts (no agents, no keepers), so it never acts on anything; it only
@@ -57,9 +52,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocketDisconnect, WebSocketDisconnected
 
-from backend import agents_api, artifacts_api, ask_settings_api, automation_api, repo_automation_api, explore_api, github_account_api, images_api, inbox_api, issues_api, github_api, notifications_api, problems_api, projects_api, problem_fixes_api, pull_requests_api, remote_access_api, repo_live_api, repos_api, secrets_api, sherpa_api, tracked_api, updates_api, vms_api, workflow_api, your_repositories_api
-from backend.shared import agents, crashes, explore, images, inbox, issue_drafts, issue_facts, issue_tags, issues, jobs, notifications, pr_tracking, problems, projects, remote_access, repo_signals, repos, resource_usage, sherpa, tracked, tracked_issues, updates, vms, workflow, your_repositories
-from github_searcher.projects import SELF_REPO
+from backend import agents_api, artifacts_api, automation_api, errors_api, github_account_api, github_api, images_api, inbox_api, issues_api, problem_fixes_api, remote_access_api, repo_automation_api, repos_api, secrets_api, updates_api, vms_api
+from backend.shared import agents, crashes, explore, images, inbox, issue_tags, jobs, pr_tracking, remote_access, repos, updates, vms
 from github_searcher.remote_access import COOKIE, DOMAIN as REMOTE_DOMAIN
 from github_searcher.token_balancer import BALANCER
 from github_searcher.updates import HOME
@@ -73,10 +67,12 @@ ALLOWED_HOSTS = LOCAL_HOSTS + ([REMOTE_DOMAIN] if REMOTE_DOMAIN != "" else [])
 THREADS = 64
 # The live feed ends for a browser that takes nothing for this long (feed).
 SEND_SECONDS = 30
-# The big topics (repos, issues, tracked, jobs, inbox, prs, agents) go to a browser at most this often (feed): while
+# The big topics (repos, jobs, inbox, prs, agents) go to a browser at most this often (feed): while
 # GitHub is read again they change every second or two, one issue or PR at a time, and each change sent the whole
 # topic again (over 1 MB a second all day long, the page's memory grew until the computer ran out).
 BIG_TOPIC_SECONDS = 5
+# How much of a finished job's notes the jobs topic carries (the agent chat shows three lines of them).
+FINISHED_NOTES_CHARS = 400
 # A new release's check before it goes live (module docstring).
 CHECK = os.environ.get("SERAPH_CHECK", "") == "1"
 
@@ -116,7 +112,7 @@ async def lifespan(app: FastAPI):
     # An Explore run the restart cut off goes on, when only the code reloaded.
     explore.resume()
     keepers = [
-        # What is left of every GitHub quota, for the Explore page's bars from the start.
+        # What is left of every GitHub quota, so Explore's first run knows how many workers it may have.
         asyncio.create_task(asyncio.to_thread(BALANCER.prime)),
         asyncio.create_task(issues_api.keep_facts()),
         asyncio.create_task(issues_api.keep_tags()),
@@ -128,29 +124,26 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(issues_api.keep_catalog_agents()),
         asyncio.create_task(issues_api.keep_stale_prs()),
         asyncio.create_task(repos_api.keep_signals()),
-        asyncio.create_task(tracked_api.keep_tracked()),
         asyncio.create_task(github_api.keep_prs()),
         asyncio.create_task(github_api.keep_branches_clean()),
         asyncio.create_task(github_api.keep_forks_trimmed()),
         asyncio.create_task(github_api.keep_assignments_released()),
         asyncio.create_task(github_api.keep_profile_readme()),
-        asyncio.create_task(your_repositories_api.keep_your_repositories()),
-        asyncio.create_task(notifications_api.keep_notifications()),
+        asyncio.create_task(github_api.keep_your_repositories()),
         asyncio.create_task(updates_api.keep_updates()),
         asyncio.create_task(problem_fixes_api.keep_problem_fixes()),
-        asyncio.create_task(projects_api.keep_projects()),
-        asyncio.create_task(workflow_api.keep_workflow()),
     ]
     yield
     explore.save_for_restart()
     for keeper in keepers:
         keeper.cancel()
+    # The tags not written yet (issue_tags.py writes them at most every SAVE_SECONDS).
+    issue_tags.flush(now=True)
     await agents.stop()
 
 
 app = FastAPI(lifespan=lifespan)
-# Every page's router; Sherpa gets their endpoints too (below).
-ROUTERS = [inbox_api.router, ask_settings_api.router, automation_api.router, repo_automation_api.router, github_api.router, github_account_api.router, your_repositories_api.router, notifications_api.router, pull_requests_api.router, issues_api.router, repos_api.router, explore_api.router, tracked_api.router, agents_api.router, vms_api.router, images_api.router, artifacts_api.router, remote_access_api.router, secrets_api.router, repo_live_api.router, updates_api.router, projects_api.router, problems_api.router, problem_fixes_api.router, workflow_api.router, sherpa_api.router]
+ROUTERS = [inbox_api.router, automation_api.router, github_api.router, github_account_api.router, repos_api.router, agents_api.router, vms_api.router, images_api.router, artifacts_api.router, remote_access_api.router, secrets_api.router, updates_api.router, problem_fixes_api.router, errors_api.router]
 for router in ROUTERS:
     app.include_router(router)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
@@ -201,226 +194,113 @@ async def live(websocket: WebSocket) -> None:
         await websocket.close(code=4401)
         return
     await websocket.accept()
-    # Whether this browser counts as one of resource_usage.watchers now: counted out again however the feed ends.
-    watch = {"resource": False}
-    try:
-        await feed(websocket, watch)
-    finally:
-        if watch["resource"]:
-            resource_usage.watchers -= 1
+    await feed(websocket)
 
 
-# The live feed's topics, by name: what the pages show, the same for Sherpa's look (github_searcher/sherpa.py).
-TOPICS = ["repos", "issues", "tracked", "explore", "github", "jobs", "inbox", "issue_drafts", "prs", "your_repos", "notifications", "agents", "vms", "images", "resource", "updates", "projects", "crashes", "problems", "workflow", "automation"]
+# The live feed's topics, by name: what the pages show.
+TOPICS = ["repos", "jobs", "inbox", "prs", "agents", "vms", "images", "updates", "automation"]
+# Topics older releases had. The live copy checks a new release with its own list of topics (updates.py TOPICS), so in
+# that check these go once too, empty, or a live copy from before the trim would refuse every new release.
+OLD_TOPICS = ["issues", "tracked", "explore", "github", "issue_drafts", "your_repos", "notifications", "resource", "projects", "crashes"]
+# Each topic's message as last made, by topic: (its version, the JSON text). Every browser's feed sends the same text,
+# so a topic is read and encoded once per change however many browsers are open (the phone and the computer, say).
+TEXTS = {}
 
 
 def topic_data(topic: str):
     """One topic of the live feed as the pages get it."""
-    # Repos carry their signals (repo_signals.py).
+    # The Repositories cards: the list, and which are archived, planned, prioritized or removed.
     if topic == "repos":
-        signals = repo_signals.all()
-        items = repos.items()
-        for item in items:
-            item["signals"] = signals.get(item["full_name"])
-        return {"items": items, "can_undo": repos.can_undo(), "can_redo": repos.can_redo(), "archived": repos.archived(), "planned": repos.planned()}
-    # Issues carry their facts (issue_facts.py) and tags (issue_tags.py), so the topic changes when any does.
-    if topic == "issues":
-        facts = issue_facts.all()
-        tags = issue_tags.all()
-        items = issues.items()
-        for item in items:
-            item["facts"] = facts.get(item["id"])
-            item["tags"] = tags.get(item["id"])
-        return {"items": items, "can_undo": issues.can_undo(), "can_redo": issues.can_redo(), **issues.board()}
-    # Each tracked repo carries its latest check (tracked_issues.py), like issues carry their facts, each issue
-    # in it its tags (issue_tags.py), and the repo its signals (repo_signals.py), like on the Repos page.
-    if topic == "tracked":
-        checks = tracked_issues.all()
-        tags = issue_tags.all()
-        signals = repo_signals.all()
-        items = tracked.items()
-        for item in items:
-            item["signals"] = signals.get(item["full_name"])
-            item["check"] = checks.get(item["full_name"])
-            if item["check"] is None:
-                continue
-            for issue in item["check"]["issues"]:
-                issue["tags"] = tags.get(f"{item['full_name']}#{issue['number']}")
-        return {"items": items, "can_undo": tracked.can_undo(), "can_redo": tracked.can_redo()}
-    # The run in progress (or the last one), the found list and the profile.
-    if topic == "explore":
-        return explore.summary()
-    if topic == "github":
-        return BALANCER.status()
+        return {"items": repos.items(), "can_undo": repos.can_undo(), "can_redo": repos.can_redo(), "archived": repos.archived(), "planned": repos.planned(), "priority": repos.priorities(), "removed": repos.removed()}
+    # Jobs without what no page shows (their evidence and timeline: half the topic), and a finished one with only the
+    # start of its notes and no test runs: the topic goes out again on every change, and the jobs only grow.
     if topic == "jobs":
-        return jobs.list()
-    # A project's PR draft only once its review passed (inbox.py): until then it isn't the user's to see.
-    # Without their diffs: those were most of the topic (28 MB over 900 drafts, sent again on every change; the page
-    # grew to 11 GB in a day and the computer ran out of memory). A commit's diff is never shown, and a draft that
-    # can't go out any more (rejected, answered or sent) shows its diff only when opened: the Inbox reads that one
-    # whole then (GET /api/inbox/<id>).
+        items = jobs.list()
+        for job in items:
+            job.pop("evidence", None)
+            job.pop("timeline", None)
+            if job["status"] in ["done", "cancelled"]:
+                job["notes"] = job["notes"][:FINISHED_NOTES_CHARS]
+                job["tests"] = {"before": None, "after": None}
+        return items
+    # Only the blockers still waiting for you (approval drafts, inbox.py): every other draft goes to GitHub by itself
+    # (repo_automation_api.py keep_drafts) and no page shows it.
     if topic == "inbox":
-        drafts = []
-        for draft in inbox.list():
-            if draft["review"] is not None and draft["review"]["state"] != "passed":
-                continue
-            for commit in draft["commits"]:
-                commit["diff"] = ""
-            if draft["status"] != "pending" and not (draft["status"] == "approved" and draft["sent"] is None):
-                draft["diff"] = ""
-            drafts.append(draft)
-        return drafts
-    # The issues repository agents drafted, shown as cards in their chats (issue_drafts.py).
-    if topic == "issue_drafts":
-        return issue_drafts.list()
+        return [draft for draft in inbox.pending() if draft["kind"] == "approval"]
     # Your PRs on GitHub and how each stands (pr_tracking.py).
     if topic == "prs":
         return pr_tracking.summary()
-    # Your repositories and your GitHub notifications, read with your sign-in.
-    if topic == "your_repos":
-        return your_repositories.summary()
-    if topic == "notifications":
-        return notifications.summary()
     if topic == "agents":
         return agents.summaries()
     if topic == "vms":
         return [vms.summary(record) for record in vms.list()]
     if topic == "images":
         return images.summary()
-    # This computer's use (resource_usage.py).
-    if topic == "resource":
-        return resource_usage.summary()
     # The live copy's updates (updates_api.py): the version that runs, and a newer one that is ready.
     if topic == "updates":
         return updates.summary()
-    # Your repositories agents develop all the time (projects.py), and the app's own errors (crashes.py).
-    if topic == "projects":
-        items = projects.list()
-        # The app's own repo: its Development page shows the app's errors too.
-        for item in items:
-            item["app"] = item["repo"].lower() == SELF_REPO.lower()
-        return items
-    if topic == "crashes":
-        return crashes.list()
-    # What went wrong in how the app made agents work, as they reported it (problems.py): the Dashboard's Problems.
-    if topic == "problems":
-        return problems.list()
-    # The Workflow tab's repositories (workflow.py), their issues and pull requests.
-    if topic == "workflow":
-        return workflow.list()
-    # The Dashboard's Automation (automation_api.py): on or off, its repos' labels, what it did, and every level of
-    # automation (a repo's, an issue's, the Issues board's).
+    # The Automation page (automation_api.py): its settings, its repos' labels and what it did.
     if topic == "automation":
         return automation_api.summary()
     raise ValueError(f"No topic {topic}: one of {', '.join(TOPICS)}")
 
 
-# Sherpa works the app through its endpoints and reads what its pages show (github_searcher/sherpa.py).
-sherpa.routes = [route for router in ROUTERS for route in router.routes]
-sherpa.topic_data = topic_data
-
-
-async def feed(websocket: WebSocket, watch: dict) -> None:
+async def feed(websocket: WebSocket) -> None:
     """The live feed of one browser, until it goes away."""
     # The version of each topic this browser has; None until it is sent.
-    sent = {"repos": None, "issues": None, "tracked": None, "explore": None, "github": None, "jobs": None, "inbox": None, "issue_drafts": None, "prs": None, "your_repos": None, "notifications": None, "agents": None, "vms": None, "images": None, "resource": None, "updates": None, "projects": None, "crashes": None, "problems": None, "workflow": None, "automation": None}
+    sent = {"repos": None, "jobs": None, "inbox": None, "prs": None, "agents": None, "vms": None, "images": None, "updates": None, "automation": None}
     # When each big topic last went (time.monotonic()): again only BIG_TOPIC_SECONDS later, with every change since.
-    sent_at = {"repos": 0.0, "issues": 0.0, "tracked": 0.0, "jobs": 0.0, "inbox": 0.0, "prs": 0.0, "agents": 0.0}
+    sent_at = {"repos": 0.0, "jobs": 0.0, "inbox": 0.0, "prs": 0.0, "agents": 0.0}
     outside = remote_access.from_outside(websocket.headers)
     cookie = websocket.cookies.get(COOKIE)
+    if CHECK:
+        for topic in OLD_TOPICS:
+            await websocket.send_json({"topic": topic, "data": None})
     while True:
         # A device removed or signed out in the meantime (or its session over) stops getting the feed at once.
         if outside and remote_access.device_for(cookie) is None:
             await websocket.close(code=4401)
             return
+        # Each topic's version now. Images say which VMs were made from each, so they are sent again when the VM list
+        # changes too; not on every usage sample though: only the number of VMs and their images matter.
+        vm_images = [(record.name, record.image_fingerprint) for record in vms.list()]
+        versions = {
+            "repos": repos.version,
+            "jobs": jobs.version,
+            "inbox": inbox.version,
+            "prs": pr_tracking.version,
+            "agents": agents.version,
+            "vms": vms.version,
+            "images": (images.version, vm_images),
+            "updates": updates.version,
+            "automation": issues_api.AUTOMATION_VERSION["version"],
+        }
         # The version is noted before the data is read: a change in between is sent again next tick, never lost.
         messages = []
         now = time.monotonic()
-        if sent["repos"] != (repos.version, repo_signals.version) and now - sent_at["repos"] >= BIG_TOPIC_SECONDS:
-            sent["repos"] = (repos.version, repo_signals.version)
-            sent_at["repos"] = now
-            messages.append({"topic": "repos", "data": topic_data("repos")})
-        if sent["issues"] != (issues.version, issue_facts.version, issue_tags.version) and now - sent_at["issues"] >= BIG_TOPIC_SECONDS:
-            sent["issues"] = (issues.version, issue_facts.version, issue_tags.version)
-            sent_at["issues"] = now
-            messages.append({"topic": "issues", "data": topic_data("issues")})
-        if sent["tracked"] != (tracked.version, tracked_issues.version, issue_tags.version, repo_signals.version) and now - sent_at["tracked"] >= BIG_TOPIC_SECONDS:
-            sent["tracked"] = (tracked.version, tracked_issues.version, issue_tags.version, repo_signals.version)
-            sent_at["tracked"] = now
-            messages.append({"topic": "tracked", "data": topic_data("tracked")})
-        if sent["explore"] != explore.version:
-            sent["explore"] = explore.version
-            messages.append({"topic": "explore", "data": topic_data("explore")})
-        # GitHub's rate limits per token (token_balancer.py): changes with every GitHub request, sent at most every tick.
-        if sent["github"] != BALANCER.version:
-            sent["github"] = BALANCER.version
-            messages.append({"topic": "github", "data": topic_data("github")})
-        if sent["jobs"] != jobs.version and now - sent_at["jobs"] >= BIG_TOPIC_SECONDS:
-            sent["jobs"] = jobs.version
-            sent_at["jobs"] = now
-            messages.append({"topic": "jobs", "data": topic_data("jobs")})
-        if sent["inbox"] != inbox.version and now - sent_at["inbox"] >= BIG_TOPIC_SECONDS:
-            sent["inbox"] = inbox.version
-            sent_at["inbox"] = now
-            messages.append({"topic": "inbox", "data": topic_data("inbox")})
-        if sent["issue_drafts"] != issue_drafts.version:
-            sent["issue_drafts"] = issue_drafts.version
-            messages.append({"topic": "issue_drafts", "data": topic_data("issue_drafts")})
-        if sent["prs"] != pr_tracking.version and now - sent_at["prs"] >= BIG_TOPIC_SECONDS:
-            sent["prs"] = pr_tracking.version
-            sent_at["prs"] = now
-            messages.append({"topic": "prs", "data": topic_data("prs")})
-        if sent["your_repos"] != your_repositories.version:
-            sent["your_repos"] = your_repositories.version
-            messages.append({"topic": "your_repos", "data": topic_data("your_repos")})
-        if sent["notifications"] != notifications.version:
-            sent["notifications"] = notifications.version
-            messages.append({"topic": "notifications", "data": topic_data("notifications")})
-        if sent["agents"] != agents.version and now - sent_at["agents"] >= BIG_TOPIC_SECONDS:
-            sent["agents"] = agents.version
-            sent_at["agents"] = now
-            messages.append({"topic": "agents", "data": topic_data("agents")})
-        if sent["vms"] != vms.version:
-            sent["vms"] = vms.version
-            messages.append({"topic": "vms", "data": topic_data("vms")})
-        # Images say which VMs were made from each, so they are sent again when the VM list changes too.
-        # Not on every usage sample though: only the number of VMs and their images matter.
-        vm_images = [(record.name, record.image_fingerprint) for record in vms.list()]
-        if sent["images"] != (images.version, vm_images):
-            sent["images"] = (images.version, vm_images)
-            messages.append({"topic": "images", "data": topic_data("images")})
-        # This computer's use (resource_usage.py): a new reading about once a second.
-        if sent["resource"] != resource_usage.version:
-            sent["resource"] = resource_usage.version
-            messages.append({"topic": "resource", "data": topic_data("resource")})
-        if sent["updates"] != updates.version:
-            sent["updates"] = updates.version
-            messages.append({"topic": "updates", "data": topic_data("updates")})
-        if sent["projects"] != projects.version:
-            sent["projects"] = projects.version
-            messages.append({"topic": "projects", "data": topic_data("projects")})
-        if sent["crashes"] != crashes.version:
-            sent["crashes"] = crashes.version
-            messages.append({"topic": "crashes", "data": topic_data("crashes")})
-        if sent["problems"] != problems.version:
-            sent["problems"] = problems.version
-            messages.append({"topic": "problems", "data": topic_data("problems")})
-        if sent["automation"] != issues_api.AUTOMATION_VERSION["version"]:
-            sent["automation"] = issues_api.AUTOMATION_VERSION["version"]
-            messages.append({"topic": "automation", "data": topic_data("automation")})
-        if sent["workflow"] != workflow.version:
-            sent["workflow"] = workflow.version
-            messages.append({"topic": "workflow", "data": topic_data("workflow")})
+        for topic in TOPICS:
+            if sent[topic] == versions[topic]:
+                continue
+            if topic in sent_at and now - sent_at[topic] < BIG_TOPIC_SECONDS:
+                continue
+            sent[topic] = versions[topic]
+            if topic in sent_at:
+                sent_at[topic] = now
+            # Read and encoded once per version for every open browser (TEXTS), not once per browser.
+            if topic not in TEXTS or TEXTS[topic][0] != versions[topic]:
+                TEXTS[topic] = (versions[topic], json.dumps({"topic": topic, "data": topic_data(topic)}, separators=(",", ":"), ensure_ascii=False))
+            messages.append(TEXTS[topic][1])
 
         # A browser that takes nothing for SEND_SECONDS is gone (its tab or the dev server's proxy stopped reading): the
         # feed ends, and a page still open connects again.
         try:
             for message in messages:
-                await asyncio.wait_for(websocket.send_json(message), timeout=SEND_SECONDS)
+                await asyncio.wait_for(websocket.send_text(message), timeout=SEND_SECONDS)
         except (TimeoutError, WebSocketDisconnect, WebSocketDisconnected):
             return
         try:
-            # Waiting for a message from the browser is the 250 ms tick; it also notices a closed tab at once.
+            # Waiting for a message from the browser is the 250 ms tick; it also notices a closed tab at once. The
+            # browser sends nothing else.
             received = await asyncio.wait_for(websocket.receive(), timeout=0.25)
         except TimeoutError:
             continue
@@ -428,16 +308,6 @@ async def feed(websocket: WebSocket, watch: dict) -> None:
             return
         if received["type"] == "websocket.disconnect":
             return
-        # The only thing a browser sends: whether it shows a Resource page now.
-        if received.get("text") is None:
-            continue
-        message = json.loads(received["text"])
-        if message.get("watch_resource") is True and not watch["resource"]:
-            watch["resource"] = True
-            resource_usage.watchers += 1
-        if message.get("watch_resource") is False and watch["resource"]:
-            watch["resource"] = False
-            resource_usage.watchers -= 1
 
 
 class Page(StaticFiles):

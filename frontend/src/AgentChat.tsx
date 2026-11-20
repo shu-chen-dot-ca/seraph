@@ -1,6 +1,6 @@
 /*
 One agent's page: its name and id in the header (the id is unique and never changes); under the header, the job it is on now (its title and every step, the current one marked, and a
-warning when it has been quiet too long; the rest of its progress is on the Jobs page); the conversation on the left;
+warning when it has been quiet too long); the conversation on the left;
 on the right where it stands in a VM queue, its jobs in two lists that each fold with their header: In queue (still to
 do, being done or waiting on you, in the order it takes them, with their progress; a queued one has an x that takes it
 off: the job is cancelled, and the agent is told) and Finished (done and cancelled, newest first), and the Desktop.
@@ -37,8 +37,7 @@ that takes it out before it goes in. Esc anywhere on the page (not while a dialo
 the next queued message goes in. What you type
 and don't send is kept in this browser per agent (localStorage), so it is still there when you come back, after a
 reload, and after a backend restart.
-A new agent (nothing in its conversation yet, like one just made with New agent or the sidebar's +) opens with the
-focus in the composer, so you can type to it right away.
+A new agent (nothing in its conversation yet) opens with the focus in the composer, so you can type to it right away.
 Like Claude Code, Up in the composer (with the cursor on its first line) brings back your earlier messages, newest
 first, the queued ones too; Down (on its last line) goes forward again, and Down after the newest brings back what you
 were typing before.
@@ -48,13 +47,11 @@ Give priority puts the agent's work first until its tasks are over (github_searc
 before agents without it, more of the VM's CPU, its runs stopped last when memory runs out. Remove priority takes it
 back; it also ends by itself. The backend refuses it for an agent with no tasks going.
 
-A repository's agent (one that belongs to one of your repositories) drafts issues (draft_issue): each shows where it was drafted as a card
-with the issue as it would be opened (its title, labels and text), Create issue (opens it on GitHub as you) and
-Discard, and once decided, what became of it (the drafts come live, topic "issue_drafts").
-
-compact is the chat on a repository's Agents tab (RepoAgents.tsx), next to its list of agents: a slim header (the
+compact is a slim version of this page for showing next to something else (no page uses it now): a slim header (the
 agent's name, a link to this page, where it is, Interrupt), the job it is on, and the conversation with the composer;
 no tabs, target VM, context, job lists or Desktop. Esc interrupts only from the message box there.
+
+After Delete the app goes to the Overview (#/). Its jobs and drafts show as plain text: there are no pages for them.
 */
 
 import {
@@ -64,11 +61,9 @@ import {
   Brain,
   Camera,
   ChevronRight,
-  CircleCheck,
   CircleDot,
   CircleHelp,
   Clock,
-  ExternalLink,
   FileText,
   Flag,
   FlaskConical,
@@ -110,7 +105,6 @@ import {
 import { Button } from "@/components/ui/button";
 import AgentArtifacts from "@/AgentArtifacts";
 import LiveDesktop, { REMOTE } from "@/LiveDesktop";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { JobProgressBar, JobSteps, currentJob, stuckFor, useNow } from "@/components/ui/job-progress";
@@ -121,7 +115,7 @@ import { AGENT_TONE, JOB_LABEL, JOB_TONE, StatusDot, VM_TONE } from "@/component
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { api, useLive, useLiveValue, useLoaded, type HistoryEntry, type IssueDraft, type VMStatus } from "@/live";
+import { api, useLive, useLiveValue, useLoaded, type HistoryEntry, type VMStatus } from "@/live";
 import { cn } from "@/lib/utils";
 
 // Entries loaded at first, and per "Show earlier".
@@ -244,67 +238,6 @@ const ToolRow = memo(function ToolRow(props: { entry: ToolEntry; result: ToolRes
         {result !== undefined && result.image && <div className="text-xs text-muted-foreground">It returned an image (not kept).</div>}
       </div>
     </details>
-  );
-});
-
-// An issue a repository's agent drafted (draft_issue): the issue as it would be opened, with Create issue (opens it on
-// GitHub as you) and Discard. Once decided it says so, with a link to the issue. Memoized like ToolRow: its markdown is
-// only drawn again when the draft changes.
-const IssueDraftCard = memo(function IssueDraftCard(props: { draft: IssueDraft }) {
-  const { draft } = props;
-  // The button whose request is on its way: "create" or "discard".
-  const [busy, setBusy] = useState("");
-
-  async function decide(action: "create" | "discard") {
-    setBusy(action);
-    try {
-      const result = await api<IssueDraft>(`/api/issue_drafts/${draft.id}/${action}`, { method: "POST" });
-      if (action === "create") {
-        toast.success(`Created ${result.repo} #${result.number}`);
-      }
-    } catch (err) {
-      toast.error(`Could not ${action === "create" ? "create the issue" : "discard it"}: ${err instanceof Error ? err.message : err}`);
-    }
-    setBusy("");
-  }
-
-  return (
-    <div className="my-1 overflow-hidden rounded-lg border bg-card">
-      <div className="flex h-8 items-center gap-1.5 border-b bg-muted/40 px-3 text-xs text-muted-foreground">
-        <CircleDot className="size-3.5" />
-        New issue in {draft.repo}
-      </div>
-      <div className="space-y-1.5 px-3 py-2">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="font-semibold">{draft.title}</span>
-          {draft.labels.map((label) => (
-            <Badge key={label} variant="outline" className="py-0">
-              {label}
-            </Badge>
-          ))}
-        </div>
-        <Markdown text={draft.body} repo={draft.repo} className="max-h-80 overflow-y-auto" />
-      </div>
-      <div className="flex min-h-10 items-center gap-2 border-t px-3 py-1.5">
-        {draft.status === "pending" && (
-          <>
-            <Button size="sm" disabled={busy !== ""} title="Open it on GitHub, as you" onClick={() => decide("create")}>
-              {busy === "create" && <Loader2 className="animate-spin" />}
-              Create issue
-            </Button>
-            <Button size="sm" variant="ghost" disabled={busy !== ""} onClick={() => decide("discard")}>
-              Discard
-            </Button>
-          </>
-        )}
-        {draft.status === "created" && (
-          <a href={draft.url ?? undefined} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-ok hover:underline">
-            <CircleCheck className="size-3.5" /> Created #{draft.number} <ExternalLink className="size-3" />
-          </a>
-        )}
-        {draft.status === "discarded" && <span className="text-muted-foreground">Discarded</span>}
-      </div>
-    </div>
   );
 });
 
@@ -436,8 +369,6 @@ function VMUsageCards(props: { name: string }) {
 
 export default function AgentChat(props: { agentId: string; compact?: boolean }) {
   const agents = useLive("agents");
-  // The issues repository agents drafted (only theirs have any): each shows as a card where it was drafted.
-  const issueDrafts = useLive("issue_drafts");
   const jobs = useLive("jobs");
   // Only the VMs' names, states, desktops' holders and whether they answer, as one string: the whole VM list changes
   // every second while a VM runs (its usage samples), and this page would re-render with it.
@@ -779,7 +710,7 @@ export default function AgentChat(props: { agentId: string; compact?: boolean })
     try {
       await api(`/api/agents/${props.agentId}`, { method: "DELETE" });
       toast.success(`Deleted ${summary?.name ?? props.agentId}`);
-      window.location.hash = "#/agents";
+      window.location.hash = "#/";
     } catch (err) {
       toast.error(`Could not delete: ${err instanceof Error ? err.message : err}`);
     }
@@ -789,10 +720,7 @@ export default function AgentChat(props: { agentId: string; compact?: boolean })
     if (agentsLoaded && (seen || historyError !== "")) {
       return (
         <div className="p-4 text-muted-foreground">
-          This agent doesn't exist (anymore).{" "}
-          <a href="#/agents" className="text-primary hover:underline">
-            All agents
-          </a>
+          This agent doesn't exist (anymore).
         </div>
       );
     }
@@ -849,7 +777,7 @@ export default function AgentChat(props: { agentId: string; compact?: boolean })
       key: "queue",
       label: "In queue",
       jobs: mine.filter((job) => OPEN_STATUSES.includes(job.status)).reverse(),
-      empty: "Nothing to do. Assign issues to it from the Issues page.",
+      empty: "Nothing to do.",
     },
     {
       key: "finished",
@@ -862,11 +790,11 @@ export default function AgentChat(props: { agentId: string; compact?: boolean })
   const job = currentJob(summary.id, jobs);
   const stuck = stuckFor(summary, now);
 
-  // Skip checks: the job's PR may be drafted now, without passing tests or a reviewer; it still waits for your Approve.
+  // Skip checks: the job's PR may be drafted now, without passing tests or a reviewer.
   async function skipChecks(id: string) {
     try {
       await api(`/api/jobs/${id}/skip_checks`, { method: "POST" });
-      toast.success("Checks skipped: the agent drafts the PR now. It still waits for your Approve in the Inbox.");
+      toast.success("Checks skipped: the agent drafts the PR now.");
     } catch (err) {
       toast.error(`Could not skip the checks: ${err instanceof Error ? err.message : err}`);
     }
@@ -907,7 +835,7 @@ export default function AgentChat(props: { agentId: string; compact?: boolean })
             <div className="py-8 text-center text-muted-foreground">
               {summary.repo !== null
                 ? `Nothing yet. Ask ${summary.name} about the code, issues and pull requests, or tell it what to build: it writes the issue.`
-                : `Nothing yet. Tell ${summary.name} what to look for, or give it an issue from the Issues page.`}
+                : `Nothing yet. Tell ${summary.name} what to look for.`}
             </div>
           )}
 
@@ -945,16 +873,6 @@ export default function AgentChat(props: { agentId: string; compact?: boolean })
                   <div className="mt-1 mb-2 ml-1.5 border-l-2 pl-3 break-words whitespace-pre-wrap italic">{entry.text}</div>
                 </details>
               );
-            }
-
-            // An issue the agent drafted: its card, once the call answered with the draft's id.
-            if (entry.type === "tool" && entry.name === "draft_issue") {
-              const answer = results[entry.id];
-              const match = answer !== undefined && !answer.is_error ? /issue_[0-9a-f]{6}/.exec(answer.text) : null;
-              const draft = match !== null ? issueDrafts.find((each) => each.id === match[0]) : undefined;
-              if (draft !== undefined) {
-                return <IssueDraftCard key={key} draft={draft} />;
-              }
             }
 
             if (entry.type === "tool") {
@@ -1059,8 +977,7 @@ export default function AgentChat(props: { agentId: string; compact?: boolean })
           </div>
         )}
         <div className="mx-auto flex max-w-4xl items-end gap-2">
-          {/* A new agent (nothing said yet, like one just made with New agent or the sidebar's +) opens with the
-              focus here, so you can type to it right away. */}
+          {/* A new agent (nothing said yet) opens with the focus here, so you can type to it right away. */}
           <Textarea
             className="max-h-48 min-h-14 resize-none"
             autoFocus={summary.history_length === 0}
@@ -1202,8 +1119,8 @@ export default function AgentChat(props: { agentId: string; compact?: boolean })
                   </AlertDialogTitle>
                   <AlertDialogDescription>
                     {confirmAction === "archive"
-                      ? "It stops, its open jobs are cancelled and it leaves every VM queue. Its conversation stays: it is under Archived on the Agents page, and a message or a job brings it back."
-                      : "Its conversation is deleted, its open jobs are cancelled and it leaves every VM queue. Its drafts stay in the Inbox."}
+                      ? "It stops, its open jobs are cancelled and it leaves every VM queue. Its conversation stays: a message or a job brings it back."
+                      : "Its conversation is deleted, its open jobs are cancelled and it leaves every VM queue."}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -1252,9 +1169,9 @@ export default function AgentChat(props: { agentId: string; compact?: boolean })
       {job !== undefined && (
         <div className="shrink-0 space-y-1.5 border-b bg-muted/20 px-3 py-2">
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            <a href={`#/jobs/${job.id}`} className="truncate font-medium hover:underline" title={job.title}>
+            <span className="truncate font-medium" title={job.title}>
               {job.title}
-            </a>
+            </span>
             <JobSteps job={job} />
             {job.skip_checks === true && <span className="ml-auto text-xs text-muted-foreground">Checks skipped</span>}
             {job.skip_checks !== true && (
@@ -1262,7 +1179,7 @@ export default function AgentChat(props: { agentId: string; compact?: boolean })
                 variant="outline"
                 size="xs"
                 className="ml-auto"
-                title="Let the agent draft the PR now, without waiting for the project's tests to pass and without a reviewer. It still waits for your Approve in the Inbox."
+                title="Let the agent draft the PR now, without waiting for the project's tests to pass and without a reviewer."
                 onClick={() => skipChecks(job.id)}
               >
                 Skip checks
@@ -1359,15 +1276,9 @@ export default function AgentChat(props: { agentId: string; compact?: boolean })
                           <div key={job.id} className={cn("border-b px-3 py-1.5", !OPEN_STATUSES.includes(job.status) && "text-muted-foreground")}>
                             <div className="flex items-center gap-1.5">
                               <StatusDot tone={JOB_TONE[job.status] ?? "gray"} />
-                              {job.repo !== null ? (
-                                <a href={`#/issues?repo=${encodeURIComponent(job.repo)}`} className="truncate hover:underline" title={job.title}>
-                                  {job.title}
-                                </a>
-                              ) : (
-                                <span className="truncate" title={job.title}>
-                                  {job.title}
-                                </span>
-                              )}
+                              <span className="truncate" title={job.title}>
+                                {job.title}
+                              </span>
                               {job.status === "queued" && (
                                 <Button
                                   variant="ghost"
@@ -1390,9 +1301,9 @@ export default function AgentChat(props: { agentId: string; compact?: boolean })
                                 </a>
                               )}
                               {job.drafts.map((draft) => (
-                                <a key={draft} href={`#/inbox/${draft}`} className="font-mono text-primary hover:underline">
+                                <span key={draft} className="font-mono">
                                   {draft}
-                                </a>
+                                </span>
                               ))}
                             </div>
                             {OPEN_STATUSES.includes(job.status) && (

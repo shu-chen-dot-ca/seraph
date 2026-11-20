@@ -1,13 +1,14 @@
 /*
-The Settings dialog, opened from the bottom of the Home tab's sidebar: the theme (Light, Dark or System), the accent
-color, Reset view, the env vars for all VMs, Remote access (RemoteAccess.tsx: the address for your phone and any
-device, and the devices that may sign in there), Secrets (Secrets.tsx: on this computer or in AWS Secrets Manager) and
-Fix problems (ProblemFixes.tsx: the daily run that fixes the agents' problems and releases the app), then About
-(About.tsx: the version that runs, Check for updates and Previous version). Your GitHub account is on the GitHub tab
-(Account, GitHub.tsx).
+The Settings dialog, opened from the bottom of the left list (Sidebar.tsx), or on its Account section from the header's
+Sign in or your GitHub picture (App.tsx): the theme (Light, Dark or System), the accent color, Reset view, Account
+(Account.tsx: your GitHub account, Sign in and Sign out), the env vars for all VMs, Remote access (RemoteAccess.tsx: the
+address for your phone and any device, and the devices that may sign in there), Secrets (Secrets.tsx: on this computer
+or in AWS Secrets Manager) and Fix problems (ProblemFixes.tsx: the daily run that fixes the agents' problems and
+releases the app), then About (About.tsx: the version that runs, Check for updates and Previous version).
+section "account" scrolls the dialog to Account when it opens.
 
-Reset view puts every panel, fold, sort and column back to its default: it forgets the Repos page's sort and columns
-and reloads the page (App's resetView). Theme, accent and the env vars stay.
+Reset view puts every panel and fold back to its default: it reloads the page (App's resetView). Theme, accent and the
+env vars stay.
 
 App owns the theme and accent: it applies them to <html> (class "dark" and data-accent) and keeps them in localStorage,
 so a pick shows on the whole app at once, behind the dialog. index.html applies the saved ones before the first paint.
@@ -28,6 +29,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import About from "@/About";
+import Account from "@/Account";
 import ProblemFixes from "@/ProblemFixes";
 import RemoteAccess from "@/RemoteAccess";
 import Secrets from "@/Secrets";
@@ -62,6 +64,7 @@ const ACCENTS = [
 export default function SettingsDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  section: string | null;
   theme: ThemeMode;
   onTheme: (theme: ThemeMode) => void;
   accent: string;
@@ -74,6 +77,7 @@ export default function SettingsDialog(props: {
   const [envEdited, setEnvEdited] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
   // The env vars for all VMs: each time the dialog opens, and after a save or a discard (unless you are editing them).
   useEffect(() => {
     if (!props.open || envEdited) {
@@ -221,8 +225,10 @@ export default function SettingsDialog(props: {
           <Button variant="outline" size="sm" onClick={props.onResetView}>
             <RotateCcw /> Reset view
           </Button>
-          <span className="text-xs text-muted-foreground">Puts every panel, fold, sort and column back to its default. The page reloads.</span>
+          <span className="text-xs text-muted-foreground">Puts every panel and fold back to its default. The page reloads.</span>
         </section>
+
+        <Account open={props.open} scrollTo={props.section === "account"} />
 
         <section>
           <div className="mb-2 font-medium">Env vars for all VMs</div>

@@ -313,7 +313,7 @@ class GithubAccount:
         """Sends a PR or comment draft to GitHub as you, once. Returns the draft with "sent". Runs in a thread."""
         account = self.load()
         if account is None:
-            raise SendError("Sign in with GitHub first: the GitHub tab, Account.")
+            raise SendError("Sign in with GitHub first: Settings, Account.")
         headers = {"Accept": "application/vnd.github+json", "Authorization": f"Bearer {account['token']}", "X-GitHub-Api-Version": "2022-11-28"}
         with self.send_lock:
             draft = self.inbox.get(draft_id)
@@ -436,7 +436,7 @@ class GithubAccount:
                 if details:
                     message += ": " + "; ".join(details)
                 if response.status_code == 401:
-                    message += ". Sign in with GitHub again: the GitHub tab, Account."
+                    message += ". Sign in with GitHub again: Settings, Account."
                 raise SendError(f"GitHub refused while {self.step}: {message}") from None
             except httpx.HTTPError as error:
                 raise SendError(f"Could not reach GitHub while {self.step}: {error}") from None
@@ -1043,7 +1043,7 @@ class GithubAccount:
         Returns {"url", "id"}; SendError says why it didn't. Runs in a thread."""
         account = self.load()
         if account is None:
-            raise SendError("Sign in with GitHub first: the GitHub tab, Account.")
+            raise SendError("Sign in with GitHub first: Settings, Account.")
         repo, _, number = target.rpartition("#")
         if repo.count("/") != 1 or not number.isdigit():
             raise SendError(f"{target} isn't a PR or issue (owner/name#number).")
@@ -1072,7 +1072,7 @@ class GithubAccount:
             if details:
                 message += ": " + "; ".join(details)
             if response.status_code == 401:
-                message += ". Sign in with GitHub again: the GitHub tab, Account."
+                message += ". Sign in with GitHub again: Settings, Account."
             raise SendError(f"GitHub refused: {message}") from None
         except httpx.HTTPError as error:
             raise SendError(f"Could not reach GitHub: {error}") from None
@@ -1085,7 +1085,7 @@ class GithubAccount:
         a thread."""
         account = self.load()
         if account is None:
-            raise SendError("Sign in with GitHub first: the GitHub tab, Account.")
+            raise SendError("Sign in with GitHub first: Settings, Account.")
         headers = {"Accept": "application/vnd.github+json", "Authorization": f"Bearer {account['token']}", "X-GitHub-Api-Version": "2022-11-28"}
         try:
             with httpx.Client(base_url=API, headers=headers, timeout=60) as client:
@@ -1109,7 +1109,7 @@ class GithubAccount:
             if details:
                 message += ": " + "; ".join(details)
             if response.status_code == 401:
-                message += ". Sign in with GitHub again: the GitHub tab, Account."
+                message += ". Sign in with GitHub again: Settings, Account."
             raise SendError(f"GitHub refused: {message}") from None
         except httpx.HTTPError as error:
             raise SendError(f"Could not reach GitHub: {error}") from None
@@ -1144,7 +1144,7 @@ class GithubAccount:
         it didn't. Runs in a thread."""
         account = self.load()
         if account is None:
-            raise SendError("Sign in with GitHub first: the GitHub tab, Account.")
+            raise SendError("Sign in with GitHub first: Settings, Account.")
         headers = {"Accept": "application/vnd.github+json", "Authorization": f"Bearer {account['token']}", "X-GitHub-Api-Version": "2022-11-28"}
         try:
             with httpx.Client(base_url=API, headers=headers, timeout=60) as client:
@@ -1237,7 +1237,7 @@ class GithubAccount:
                 data = {}
             message = data.get("message") or f"{response.status_code} {response.reason_phrase}"
             if response.status_code == 401:
-                message += ". Sign in with GitHub again: the GitHub tab, Account."
+                message += ". Sign in with GitHub again: Settings, Account."
             raise SendError(f"GitHub refused: {message}") from None
         except httpx.HTTPError as error:
             raise SendError(f"Could not reach GitHub: {error}") from None

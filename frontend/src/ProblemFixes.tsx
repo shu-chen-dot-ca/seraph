@@ -1,6 +1,6 @@
 /*
-Settings → Fix problems: every day at a set time, Claude Code fixes every open problem on the Dashboard's Problems
-page, each fix with a regression test; the fixes that pass the tests are pushed to main, main is released, and the live
+Settings → Fix problems: every day at a set time, Claude Code fixes every open problem the agents reported
+(github_searcher/problems.py), each fix with a regression test; the fixes that pass the tests are pushed to main, main is released, and the live
 copy installs the release by itself (github_searcher/problem_fixes.py has how it works).
 
 The switch turns the daily run on or off, and the time (this computer's) says when; each change is saved at once. Fix

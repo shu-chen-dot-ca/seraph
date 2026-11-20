@@ -1,48 +1,47 @@
-"""The GitHub tab: your PRs and issues on GitHub and how each one stands (github_searcher/pr_tracking.py), each one's
-whole thread for the thread pop-up, which agent follows each one, and the changes you make there, as you
-(github_searcher/github_account.py). Its Account page signs you in (backend/github_account_api.py).
+"""Your PRs on GitHub and how each one stands (github_searcher/pr_tracking.py), which agent follows each one, and the
+background work around them, as you (github_searcher/github_account.py). Settings → Account signs you in
+(backend/github_account_api.py).
 
 GET /api/github/thread?id=owner/name%23n is one PR or issue as GitHub has it now, read with the search tokens (with
 your sign-in when it is in one of your repositories or stars, which may be private: github_searcher/your_repositories.py): the
 description, the newest 100 timeline items (comments, reviews with their code comments, commits, and events in plain
 words; "hidden" says how many earlier ones are left out), and for a PR its branch, commits, the newest commit's checks
 (with GitHub Actions runs that wait for a maintainer to approve them) and files changed. "you" is your signed-in login,
-and "mine" marks your comments. "yours" says it is in one of your repositories, where the pop-up offers what a
-maintainer does there (backend/your_repositories_api.py); "repo_labels" are then every label the repo has,
-and "failed_runs" a PR's newest commit's failed GitHub Actions runs (to run their failed jobs again).
+and "mine" marks your comments. "yours" says it is in one of your repositories; "repo_labels" are then every label the
+repo has, and "failed_runs" a PR's newest commit's failed GitHub Actions runs. The Pull requests page reads who closed a
+closed PR from it.
 
-POST /api/github/agent sets one followed PR's or issue's agent: drafts (with an agent; none makes a new one) or off.
-Turning drafts on checks the thread at once. keep_prs(), which the app runs in the background, reads the PRs and
-issues again every refresh_prs_minutes (the Issues board's robot, "Needs action and Waiting approval": 10 at first), at
-once when Approve just sent something, and soon after you comment or delete a comment here. After every read (Check
-now's too), every open PR of yours without an agent gets one that owns it (unless you set it to Off), and each thread
+keep_prs(), which the app runs in the background, reads the PRs and issues again every refresh_prs_minutes (the Issues
+board's, 10 at first) and at once when something was just sent. After every read, every open PR of yours without an
+agent gets one that owns it (unless it is set to Off, or the repo is one of your own), and each thread
 pr_tracking.needs_reply() lists (someone else wrote there, your PR's checks failed, or anything else changed on your PR)
-goes to its agent as a follow_up job (agents.follow_up); what the agent drafts then waits for you in the Inbox.
+goes to its agent as a follow_up job (agents.follow_up); what the agent drafts then goes out by itself
+(backend/repo_automation_api.py keep_drafts).
 
 What each open PR of yours needs from us (the Issues board's Needs action, else Waiting approval) is worked out every
 PRS_CHECK_SECONDS (pr_tracking.update_actions): by rules, and by Claude (judge_prs), which reads a PR again, JUDGE_BATCH
 at a time, when it changed on GitHub or a job on it ended since it last did, never while a job on it is open. One that
 needs action, as Claude last read it, with no job open on it, goes to its agent as a follow_up job saying what it needs
 (never for a draft you approved and only have to send). Every need is the agent's: a CLA too, which it asks you to
-approve on the Dashboard's Approvals page first and then signs (Approvals in agent/prompt.md). Once that job ended, the PR waits for others until something really
+approve on the Dashboard's Blockers page first and then signs (Approvals in agent/prompt.md). Once that job ended, the PR waits for others until something really
 changes on it (pr_tracking's action state: a commit, checks, a conflict, the draft state, labels, someone else's comment
 or review, a comment on an issue it fixes), so Needs action only has PRs an agent works on, and a job that ended finding
 nothing we can do isn't given the same need again for nothing. Agents work in the Issues board's order:
 the ones with a job queued or working on a PR that needs action get priority (agents.set_pr_priority): ahead in the
 VM's line, more CPU, stepped down last; then the ones reviewing a PR draft before the Inbox, the board's Review
 (agents.set_review_priority): next in the line, stepped down after the rest; then the rest (In progress and Catalog).
+The button on a repo's card on the Repository page (repo_list.py priority) moves its work: the agents with a job queued
+or working on a prioritized repo get priority like the PR ones; a deprioritized repo's PRs that need action don't, and
+the agents whose jobs are all on deprioritized repos go last (agents.set_low_priority). A stopped repo's PRs get no new
+follow_up job (agents.follow_up): a job already open on one still hears what changed.
 
 keep_profile_readme(), also in the background, keeps the merged pull requests table on your GitHub profile's README
-(github_searcher/profile_readme.py): every time Seraph starts, whenever a PR of yours shows up merged here (so within a
-few minutes of the merge), and every PROFILE_README_SECONDS for the ones not followed here. One that fails (GitHub or
-the network down, say right after the computer starts) is tried again PROFILE_README_RETRY_SECONDS later. It commits as
-you without the Inbox: only that one file in your own profile repository.
+and Seraph's own (github_searcher/profile_readme.py): every time Seraph starts, whenever a PR of yours shows up merged
+here (so within a few minutes of the merge), and every PROFILE_README_SECONDS for the ones not followed here. One that
+fails (GitHub or the network down, say right after the computer starts) is tried again PROFILE_README_RETRY_SECONDS
+later. It commits as you without the Inbox: only README.md, in your profile repository and Seraph's.
 
-The buttons (each asks "are you sure?" in the browser first): post a comment as you, delete one of your comments
-(refused when it isn't yours; a draft that posted it keeps when it was deleted), close or reopen one of your PRs,
-delete a closed or merged PR's branch from your fork. After a change to a PR, the PRs are read again.
-
-keep_branches_clean(), also in the background, does that last one by itself: every BRANCHES_CHECK_SECONDS, each PR of
+keep_branches_clean(), also in the background: every BRANCHES_CHECK_SECONDS, each PR of
 yours that is no longer open (merged or closed) and still has its branch in your own fork gets that branch deleted, like
 GitHub's Delete branch button (the PR's page on GitHub has Restore branch, to reopen one, while its fork is there). Only
 branches in your fork, only PRs that aren't open; one GitHub refuses is tried again only when the branch has a newer
@@ -53,7 +52,7 @@ per project): every BRANCHES_CHECK_SECONDS, each fork in your account that nothi
 stays while it has any branch besides its default one and pr-pictures (an open PR's: keep_branches_clean deletes the
 finished ones first; or one that isn't ours to judge), an open PR of yours comes from it, or a job on its project
 isn't done or cancelled (a PR may go there soon). Never a repository of your own, never while a draft is being sent,
-and only once you signed in with the delete_repo permission (the Account page asks you to sign in again). A later PR
+and only once you signed in with the delete_repo permission (Settings → Account asks you to sign in again). A later PR
 to the same project makes the fork again. Pictures on PRs live in your profile repository, not the fork
 (github_account.pictures).
 
@@ -65,9 +64,12 @@ the last RELEASE_WAIT_SECONDS (a PR just sent is in the PRs read by then), no PR
 that closes it, or one sent from a draft for it), and it isn't in the Issues board's Catalog (an agent takes it again).
 Never in a repository of your own, nor an issue you opened (ours, opened as you, too): we never give one of those up.
 Release: you off its assignees, else a comment that it is free (github_account.manage's release_issue), once:
-RELEASED_FILE keeps when, so only a new job on it brings it back. Check now
-(POST /api/github/refresh) reads them all at once. The PRs and issues reach the browser through /api/live (topic
-"prs"), the drafts with the Inbox (topic "inbox").
+RELEASED_FILE keeps when, so only a new job on it brings it back. The PRs and issues reach the browser through
+/api/live (topic "prs").
+
+keep_your_repositories(), also in the background, reads your repositories again every YOUR_REPOS_SECONDS, at once when
+you sign in or out, and soon after a change (github_searcher/your_repositories.py), so the app knows which repos are
+your own.
 """
 
 import asyncio
@@ -78,15 +80,14 @@ from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
 from backend.issues_api import AUTO_REMOVE_FILE, AUTO_REMOVE_OFF
-from backend.shared import agents, github_account, inbox, issues, pr_tracking, workflow, your_repositories
+from backend.shared import agents, github_account, inbox, issues, pr_tracking, repos, your_repositories
 from github_searcher.claude_judge import judge
 from github_searcher.github_account import DATA_DIR, PICTURES_BRANCH, SendError
 from github_searcher import profile_readme
-from github_searcher.pr_tracking import AGENT_MODES, ROLLUP
-from github_searcher.search import get_action_runs, get_check_runs, get_commit_statuses, get_full_thread, get_issue_comment, get_pr_files
+from github_searcher.pr_tracking import ROLLUP
+from github_searcher.search import get_action_runs, get_check_runs, get_commit_statuses, get_full_thread, get_pr_files
 
 router = APIRouter(prefix="/api")
 
@@ -150,9 +151,9 @@ RELEASED_FILE = DATA_DIR / "released_issues.json"
 RELEASE_WAIT_SECONDS = 60 * 60
 PROFILE_README_SECONDS = 24 * 60 * 60
 PROFILE_README_RETRY_SECONDS = 5 * 60
-PR_ACTIONS = ["close", "reopen", "delete_branch"]
+# How often your repositories are read again (keep_your_repositories): one cheap request.
+YOUR_REPOS_SECONDS = 60
 THREAD_ID = r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#(\d+)"
-NAME = r"[A-Za-z0-9_.-]+"
 # A finished check run's conclusion, and a commit status, in the pop-up's words.
 CONCLUSIONS = {
     "success": "passed",
@@ -172,27 +173,9 @@ CLOSE_REASONS = {"COMPLETED": " as completed", "NOT_PLANNED": " as not planned",
 SUMMARY_CHARS = 300
 
 
-class AgentRequest(BaseModel):
-    id: str
-    mode: str
-    agent: str | None = None  # drafts without one: a new agent is made for it.
-
-
-class CommentRequest(BaseModel):
-    target: str
-    body: str
-
-
-@router.post("/github/refresh")
-async def refresh_prs() -> dict:
-    """Read every PR and issue again now. Takes a few seconds per open one."""
-    await asyncio.to_thread(pr_tracking.refresh)
-    return {"ok": True}
-
-
 @router.get("/github/thread")
 async def thread_details(id: str) -> dict:
-    """One PR or issue as GitHub has it now, for the thread pop-up (frontend/src/ThreadDialog.tsx). Its timeline is
+    """One PR or issue as GitHub has it now (the Pull requests page reads who closed one from it). Its timeline is
     oldest first: comments, reviews, commits and events, each in a simpler shape than GitHub's."""
     match = re.fullmatch(THREAD_ID, id)
     if match is None:
@@ -442,106 +425,6 @@ async def thread_details(id: str) -> dict:
     }
 
 
-@router.post("/github/agent")
-async def set_agent(body: AgentRequest) -> dict:
-    """Drafts or off for one PR or issue the GitHub tab follows. Drafts without an agent makes a new one. On the event
-    loop: making an agent and giving it a job happen there."""
-    if body.mode not in AGENT_MODES:
-        raise HTTPException(status_code=400, detail=f"Unknown mode {body.mode}: drafts or off.")
-    followed = pr_tracking.summary()
-    ids = [item["id"] for item in followed["items"]] + [issue["id"] for issue in followed["issues"]]
-    if body.id not in ids:
-        raise HTTPException(status_code=404, detail=f"The GitHub tab doesn't follow {body.id}.")
-    agent_id = None
-    if body.mode == "drafts":
-        agent_id = body.agent
-    if agent_id is not None and agent_id not in agents.agents:
-        raise HTTPException(status_code=404, detail=f"No agent {agent_id}.")
-    if body.mode == "drafts" and agent_id is None:
-        agent_id = agents.create()["id"]
-    setting = pr_tracking.set_agent(body.id, body.mode, agent_id)
-
-    # Drafts on: when someone else wrote last (or your PR's checks failed) and no agent was given it yet, the agent
-    # gets a follow_up job now.
-    for entry in pr_tracking.needs_reply():
-        if entry["id"] != body.id:
-            continue
-        job = agents.follow_up(entry)
-        if job is not None:
-            pr_tracking.mark_answered(entry["id"], entry["at"], entry["failed_sha"], entry["signals"])
-    return setting
-
-
-@router.post("/github/comment")
-async def post_comment(request: CommentRequest) -> dict:
-    """Your own comment on a PR or issue, as you (the browser asked "are you sure?"). Returns {"url", "id"}."""
-    if re.fullmatch(THREAD_ID, request.target) is None:
-        raise HTTPException(status_code=400, detail="The target must be owner/name#number.")
-    if request.body.strip() == "":
-        raise HTTPException(status_code=400, detail="Write the comment first.")
-    try:
-        posted = await asyncio.to_thread(github_account.comment, request.target, request.body)
-    except SendError as error:
-        raise HTTPException(status_code=400, detail=str(error))
-    # Read again soon: your comment is your newest there, so its agent doesn't answer what you answered.
-    pr_tracking.wanted = True
-    return posted
-
-
-@router.post("/github/prs/{owner}/{name}/{number}/{action}")
-async def change_pr(owner: str, name: str, number: int, action: str) -> dict:
-    """Close or reopen one of your PRs, or delete its branch from your fork. Returns what happened, in words."""
-    if action not in PR_ACTIONS:
-        raise HTTPException(status_code=404, detail=f"Unknown action {action}.")
-    try:
-        done = await asyncio.to_thread(github_account.manage, action, f"{owner}/{name}", number)
-    except SendError as error:
-        raise HTTPException(status_code=400, detail=str(error))
-    await asyncio.to_thread(pr_tracking.refresh)
-    return {"done": done}
-
-
-@router.post("/github/comments/{owner}/{name}/{comment_id}/delete")
-async def delete_comment(owner: str, name: str, comment_id: int) -> dict:
-    """Delete one of your comments on GitHub, as you. Refused when it isn't yours. A draft that posted it keeps that
-    it was deleted, and when."""
-    if re.fullmatch(NAME, owner) is None or re.fullmatch(NAME, name) is None:
-        raise HTTPException(status_code=400, detail="That isn't a GitHub repo.")
-    account = github_account.status()
-    if not account["connected"]:
-        raise HTTPException(status_code=400, detail="Sign in with GitHub first: the GitHub tab, Account.")
-    # Whose it is, read with the search tokens first: GitHub deletes by id alone, and your token may delete other
-    # people's comments on a repo you maintain.
-    comment = None
-    try:
-        comment = await asyncio.to_thread(get_issue_comment, owner, name, comment_id)
-    except httpx.HTTPStatusError as error:
-        if error.response.status_code != 404:
-            raise
-    login = "ghost"
-    if comment is not None and comment["user"] is not None:
-        login = comment["user"]["login"]
-    if comment is not None and login.lower() != account["login"].lower():
-        raise HTTPException(status_code=400, detail=f"That comment is by {login}, not you.")
-    done = "The comment is gone already."
-    if comment is not None:
-        try:
-            done = await asyncio.to_thread(github_account.manage, "delete_comment", f"{owner}/{name}", comment_id)
-        except SendError as error:
-            raise HTTPException(status_code=400, detail=str(error))
-
-    now = datetime.now(UTC).isoformat()
-    for draft in inbox.list():
-        sent = draft["sent"]
-        if sent is None or sent["kind"] != "comment" or sent.get("id") != comment_id:
-            continue
-        if sent["repo"].lower() != f"{owner}/{name}".lower():
-            continue
-        inbox.mark_sent(draft["id"], {**sent, "deleted_at": now})
-    pr_tracking.wanted = True
-    return {"done": done}
-
-
 async def keep_branches_clean() -> None:
     """Runs as long as the backend: deletes the branch in your fork of every PR of yours that is no longer open (see the
     top of this file)."""
@@ -701,9 +584,9 @@ async def keep_assignments_released() -> None:
 
 
 async def keep_profile_readme() -> None:
-    """Runs as long as the backend: brings your profile README's merged pull requests table up to date at start, when a
-    PR of yours newly shows up merged, and every PROFILE_README_SECONDS (see the top of this file). One that fails is
-    tried again PROFILE_README_RETRY_SECONDS later."""
+    """Runs as long as the backend: brings the merged pull requests table in your profile README and Seraph's up to
+    date at start, when a PR of yours newly shows up merged, and every PROFILE_README_SECONDS (see the top of this
+    file). One that fails is tried again PROFILE_README_RETRY_SECONDS later."""
     merged = None
     last = None
     failed = False
@@ -925,8 +808,8 @@ async def keep_prs() -> None:
                     continue
                 if settings.get(pr["id"], {}).get("mode") == "off":
                     continue
-                # The Workflow tab's pull requests have their own agents (workflow.py).
-                if workflow.get(pr["repo"]) is not None:
+                # Not in a repository of your own: only other people's projects are ours to follow up.
+                if your_repositories.is_yours(pr["repo"]):
                     continue
                 owner = None
                 for job in agents.jobs.list():
@@ -985,7 +868,7 @@ async def keep_prs() -> None:
                 # A draft you approved and didn't send is yours to send: nothing for the agent.
                 if action["reasons"] == ["Not sent"]:
                     continue
-                if pr["agent_mode"] != "drafts" or workflow.get(pr["repo"]) is not None:
+                if pr["agent_mode"] != "drafts" or your_repositories.is_yours(pr["repo"]):
                     continue
                 if [job for job in own[pr["id"]] if job["status"] in ["queued", "working", "waiting_on_user", "paused"]]:
                     continue
@@ -1016,15 +899,20 @@ async def keep_prs() -> None:
                 if agents.follow_up(entry) is not None:
                     pr_tracking.mark_action_given(pr["id"], base, key, action["state"])
 
-            # The agents working on a PR that needs action go first in the VM's line.
+            # The agents working on a PR that needs action go first in the VM's line, but not on a deprioritized repo;
+            # so do the agents with a job queued or working on a prioritized repo (the button on its card, repo_list.py).
+            priority = {name.lower(): each for name, each in repos.priorities().items()}
             first = set()
             for pr in prs:
                 action = pr.get("action")
-                if action is None or not action["needs"]:
+                if action is None or not action["needs"] or priority.get(pr["repo"].lower()) == "low":
                     continue
                 for job in own[pr["id"]]:
                     if job["status"] in ["queued", "working"]:
                         first.add(job["agent"])
+            for job in all_jobs:
+                if job["status"] in ["queued", "working"] and job["repo"] is not None and priority.get(job["repo"].lower()) == "high":
+                    first.add(job["agent"])
             agents.set_pr_priority(first)
             # Then the agents reviewing a PR draft before the Inbox (the board's Review), ahead of In progress and Catalog.
             reviewing = set()
@@ -1032,7 +920,38 @@ async def keep_prs() -> None:
                 if job["kind"] == "review" and job["status"] in ["queued", "working"]:
                     reviewing.add(job["agent"])
             agents.set_review_priority(reviewing)
+            # Last, the agents whose jobs queued or working are all on deprioritized repos.
+            low = set()
+            others = set()
+            for job in all_jobs:
+                if job["status"] not in ["queued", "working"]:
+                    continue
+                if job["repo"] is not None and priority.get(job["repo"].lower()) == "low":
+                    low.add(job["agent"])
+                else:
+                    others.add(job["agent"])
+            agents.set_low_priority(low - others - first - reviewing)
         except Exception as error:
             # A file or an agent failed: the next round tries again.
             print(f"[github] could not work out what your PRs need: {error}")
         await asyncio.sleep(PRS_CHECK_SECONDS)
+
+
+async def keep_your_repositories() -> None:
+    """Runs as long as the backend: reads your repositories again every YOUR_REPOS_SECONDS, at once when you sign in or
+    out, and soon after a change (your_repositories.wanted), so is_yours() stays right. A failed read is tried again next
+    round."""
+    last = None
+    # The login the list was last read for: a sign in or out reads it again at once.
+    read_for = "none yet"
+    while True:
+        login = github_account.status().get("login")
+        if your_repositories.wanted or last is None or login != read_for or time.monotonic() - last > YOUR_REPOS_SECONDS:
+            last = time.monotonic()
+            read_for = login
+            your_repositories.wanted = False
+            try:
+                await asyncio.to_thread(your_repositories.refresh)
+            except Exception as error:
+                print(f"[your repositories] could not read them: {error}")
+        await asyncio.sleep(10)

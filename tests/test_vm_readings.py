@@ -1,12 +1,12 @@
-"""What the app reads from Incus, from inside the VMs and from this computer, and the paths it accepts.
+"""What the app reads from Incus and from inside the VMs, and the paths it accepts.
 
 A VM's status is what Incus says once no stop or start goes on anymore (vm1 showed as stopping while it ran on,
 2026-11-11), and a stop that hangs is forced, then reported (prb_3e5cac). A long run (sandbox/agent/long_runs.py) only
 counts as ended when Incus says the VM is off (prb_7b8fd5), and why it ended is read from what the VM shows: a reboot, a
 full disk (vm1, 2026-11-11), its log deleted. Internet use is counted once, across backend restarts and VM reboots.
-Copying files (sandbox/file_transfer.py) never overwrites and refuses relative paths and the whole disk. GPU readings
-(sandbox/resource_usage.py) never wake a sleeping NVIDIA card. Image names, task ids and fingerprints that come from a
-URL (sandbox/images.py) can't reach outside their folders, and an image a VM was made from stays.
+Copying files (sandbox/file_transfer.py) never overwrites and refuses relative paths and the whole disk. Image names,
+task ids and fingerprints that come from a URL (sandbox/images.py) can't reach outside their folders, and an image a VM
+was made from stays.
 
 Nothing here runs a command or touches Incus: every answer is a stand-in, and every folder is pytest's temporary one,
 never DATA_DIR."""
@@ -26,7 +26,6 @@ from sandbox import vms as vms_module
 from sandbox.agent import long_runs
 from sandbox.file_transfer import FileTransferError
 from sandbox.images import Images, ImagesError
-from sandbox.resource_usage import ResourceUsage
 from sandbox.vm import VM, VMError
 from sandbox.vms import VMRecord, VMs
 
@@ -78,25 +77,6 @@ def run():
     """agent_a's run on desktop 2 of vm1, started an hour ago."""
     started_at = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
     return {"id": "run_1", "agent": "agent_a", "desktop": 2, "log": "~/.cache/sandbox-runs/run_1.log", "started_at": started_at, "stopped_by_user": False}
-
-
-@pytest.fixture
-def usage():
-    """This computer's use, without its start: that reads the real /proc and /sys and starts a thread."""
-    usage = ResourceUsage.__new__(ResourceUsage)
-    usage.watchers = 0
-    return usage
-
-
-@pytest.fixture
-def gpu(tmp_path):
-    """An NVIDIA card as /sys shows it, awake, with no driver linked yet. The drivers it can be linked to are made."""
-    device = tmp_path / "0000:01:00.0"
-    (device / "power").mkdir(parents=True)
-    (device / "power" / "runtime_status").write_text("active\n")
-    for driver in ["nvidia", "vfio-pci", "amdgpu"]:
-        (tmp_path / "drivers" / driver).mkdir(parents=True)
-    return {"device": device, "vendor": "nvidia", "name": "NVIDIA GeForce RTX 4060"}
 
 
 @pytest.fixture
@@ -526,90 +506,6 @@ def test_computer_listing_needs_a_folder(tmp_path):
 
     with pytest.raises(FileTransferError, match="is not a folder on this computer"):
         file_transfer.list_computer(str(tmp_path / "notes.txt"))
-
-
-# --- This computer's GPUs --------------------------------------------------------------------------------------------
-
-
-def test_gpu_given_to_a_vm(usage, gpu, tmp_path):
-    (gpu["device"] / "driver").symlink_to(tmp_path / "drivers" / "vfio-pci")
-
-    assert usage.read_gpu(gpu)["state"] == "in_vm"
-
-
-def test_nvidia_gpu_without_its_driver(usage, gpu):
-    assert usage.read_gpu(gpu)["state"] == "no_driver"
-
-
-def test_sleeping_nvidia_gpu_is_never_woken(usage, gpu, tmp_path):
-    # nvidia-smi wakes it and keeps it awake, draining the battery. Running it fails the test (no_commands).
-    (gpu["device"] / "driver").symlink_to(tmp_path / "drivers" / "nvidia")
-    (gpu["device"] / "power" / "runtime_status").write_text("suspended\n")
-    usage.watchers = 1
-
-    assert usage.read_gpu(gpu)["state"] == "asleep"
-
-
-def test_nvidia_gpu_is_asked_only_while_a_resource_page_is_open(usage, gpu, tmp_path):
-    (gpu["device"] / "driver").symlink_to(tmp_path / "drivers" / "nvidia")
-
-    assert usage.read_gpu(gpu)["state"] == "not_watched"
-
-
-def test_nvidia_gpu_numbers(usage, gpu, tmp_path, monkeypatch):
-    (gpu["device"] / "driver").symlink_to(tmp_path / "drivers" / "nvidia")
-    usage.watchers = 1
-    answer = "NVIDIA GeForce RTX 4060 Laptop GPU, 37, 1024, 8192, 52, [N/A], 2100\n"
-    monkeypatch.setattr(subprocess, "run", lambda command, **kwargs: subprocess.CompletedProcess(command, 0, answer, ""))
-
-    reading = usage.read_gpu(gpu)
-
-    assert reading["state"] == "on"
-    assert reading["percent"] == 37.0
-    assert reading["memory_used_gb"] == 1.0
-    assert reading["memory_total_gb"] == 8.0
-    assert reading["temp_c"] == 52.0
-    # What this GPU doesn't report is None, not an error.
-    assert reading["power_w"] is None
-    assert reading["mhz"] == 2100.0
-    # The driver's name is kept for when it sleeps.
-    assert gpu["name"] == "NVIDIA GeForce RTX 4060 Laptop GPU"
-
-
-def test_nvidia_answer_that_cant_be_read(usage, gpu, tmp_path, monkeypatch):
-    (gpu["device"] / "driver").symlink_to(tmp_path / "drivers" / "nvidia")
-    usage.watchers = 1
-    monkeypatch.setattr(subprocess, "run", lambda command, **kwargs: subprocess.CompletedProcess(command, 9, "", "No devices were found"))
-
-    assert usage.read_gpu(gpu)["state"] == "error"
-
-
-def test_built_in_amd_graphics_leave_out_the_whole_chips_power(usage, gpu, tmp_path):
-    device = gpu["device"]
-    gpu["vendor"] = "amd"
-    (device / "driver").symlink_to(tmp_path / "drivers" / "amdgpu")
-    (device / "gpu_busy_percent").write_text("12\n")
-    (device / "mem_info_vram_used").write_text(f"{512 * 1024**2}\n")
-    (device / "mem_info_vram_total").write_text(f"{2 * 1024**3}\n")
-    (device / "mem_info_gtt_used").write_text(f"{1024**3}\n")
-    (device / "mem_info_gtt_total").write_text(f"{8 * 1024**3}\n")
-    hwmon = device / "hwmon" / "hwmon3"
-    hwmon.mkdir(parents=True)
-    (hwmon / "temp1_input").write_text("45000\n")
-    (hwmon / "freq1_input").write_text("800000000\n")
-    # PPT is the whole chip's power, CPU too.
-    (hwmon / "power1_input").write_text("15000000\n")
-    (hwmon / "power1_label").write_text("PPT\n")
-
-    reading = usage.read_gpu(gpu)
-
-    assert reading["state"] == "on"
-    assert reading["percent"] == 12
-    assert reading["memory_used_gb"] == 0.5
-    assert reading["shared_total_gb"] == 8.0
-    assert reading["temp_c"] == 45.0
-    assert reading["mhz"] == 800.0
-    assert reading["power_w"] is None
 
 
 # --- Images ----------------------------------------------------------------------------------------------------------

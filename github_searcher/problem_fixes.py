@@ -251,7 +251,7 @@ class ProblemFixes:
         """Steps 1 to 5 of a run (module docstring), filling run in. FixError says which step failed and why."""
         account = self.github_account.load()
         if account is None:
-            raise FixError("Sign in with GitHub first: the GitHub tab, Account.")
+            raise FixError("Sign in with GitHub first: Settings, Account.")
         if SELF_REPO == "":
             raise FixError("The app's own repo on GitHub isn't known: set SERAPH_REPO in .env.")
         # git acts as you on github.com (the token goes in an environment variable, never in a command line or a file).

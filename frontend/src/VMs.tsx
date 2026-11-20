@@ -4,8 +4,8 @@ size; under it a row of cards, all the same size, side by side (the row scrolls 
 - Desktop: a small picture of the VM's screen, taken again every few seconds (GET /api/vms/<name>/screen). Only a
   picture: nothing reaches the desktop, and a click opens the VM's page. Off, starting, or a terminal-only image
   say so instead.
-- Jobs: how many are open, then the latest few on this VM (open ones first), each a link, with the step bar of
-  the one being worked on.
+- Jobs: how many are open, then the latest few on this VM (open ones first), with the step bar of the one being
+  worked on.
 - Notes: what agents (and you) set up in the VM, newest first, one line each (the whole note on hover); it opens
   the VM page's Notes tab (#/vms/<name>?tab=notes).
 - CPU, Memory and Internet: the number now and a chart of the last minute. Internet also has the total since it
@@ -324,9 +324,9 @@ export default function VMs(props: { tab: "vms" | "images" | "defaults" }) {
                       <div key={job.id} className="min-w-0">
                         <div className="flex min-w-0 items-center gap-1.5">
                           <StatusDot tone={JOB_TONE[job.status]} />
-                          <a href={`#/jobs/${job.id}`} className="truncate hover:underline" title={job.title}>
+                          <span className="truncate" title={job.title}>
                             {job.title}
-                          </a>
+                          </span>
                           <span className="ml-auto shrink-0 text-xs text-muted-foreground">{JOB_LABEL[job.status]}</span>
                         </div>
                         {job.status === "working" && <JobProgressBar job={job} className="mt-0.5 pl-3.5" />}

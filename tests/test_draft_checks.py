@@ -2,8 +2,8 @@
 draft_pr, draft_comment and evidence_add, and the claim a job takes back when it ends (job_update, close_issue).
 
 A PR draft needs an overview, a checklist and also_tested, a before and an after of the problem, passing tests on
-exactly its diff, the project's rules read, a Conventional Commit title on the user's own projects, and an AI line only
-where the repo's policy asks for one (kestra). It never carries a secret, GitNexus's own files, someone else's commit,
+exactly its diff, the project's rules read, and an AI line only where the repo's policy asks for one (kestra). It never
+carries a secret, GitNexus's own files, someone else's commit,
 a co-author, or a git address other than the user's noreply one (openmed#5425, #5427). It is refused while someone
 else's PR closes the issue (repowise#5369) or another job's version of the same PR waits (openmed#5511). A claim comes
 only once the job is taken (repowise#5421); one comment per round on a thread, and none to a bot (grimmory#3112).
@@ -154,7 +154,7 @@ class FakeVM:
 @pytest.fixture
 def agents(tmp_path, monkeypatch):
     """What the work tools reach through the Agents manager: the jobs and the Inbox (in a temporary folder), the repos'
-    AI policies (signals), the user's projects (none), the signed-in account and vm1. The reviews asked for are kept in
+    AI policies (signals), the signed-in account and vm1. The reviews asked for are kept in
     reviewed. Every call that would read GitHub or ask Claude fails the test unless the test answers it."""
     monkeypatch.setattr(jobs_module, "DATA_DIR", tmp_path)
     monkeypatch.setattr(jobs_module, "EVIDENCE_DIR", tmp_path / "evidence")
@@ -173,7 +173,6 @@ def agents(tmp_path, monkeypatch):
         inbox=Inbox(),
         signals=signals,
         repo_signals=SimpleNamespace(all=lambda: signals, get=lambda repo: signals.get(repo)),
-        projects=SimpleNamespace(get=lambda repo: None),
         agents={"agent-2": SimpleNamespace(name="agent-2")},
         vm=vm,
         vms=SimpleNamespace(get=lambda name: vm),
@@ -231,7 +230,7 @@ def follow_up(agents, tools):
         ("fix(search,ui): keep the filter", False),
     ],
 )
-def test_project_titles_are_conventional_commits(title, conventional):
+def test_app_titles_are_conventional_commits(title, conventional):
     assert (TITLE.fullmatch(title) is not None) is conventional
 
 
@@ -462,21 +461,6 @@ def test_rules_and_merged_prs_are_read_first(agents, job):
     unread.guides_read.add("owner/proj")
     result = asyncio.run(unread.draft_pr(dict(PR_ARGS, job_id=job)))
     assert "First read how owner/proj's own people write their PRs (pr_examples)" in result["content"][0]["text"]
-
-
-def test_project_pr_title_is_a_conventional_commit(agents, tools, job):
-    agents.projects.get = lambda repo: {"repo": repo}
-
-    result = asyncio.run(tools.draft_pr(dict(PR_ARGS, job_id=job)))
-    assert "PR titles are Conventional Commits" in result["content"][0]["text"]
-
-    long_title = "fix(cli): " + "list every flag " * 5
-    result = asyncio.run(tools.draft_pr(dict(PR_ARGS, job_id=job, title=long_title)))
-    assert "PR titles are Conventional Commits" in result["content"][0]["text"]
-
-    result = asyncio.run(tools.draft_pr(dict(PR_ARGS, job_id=job, title="fix(cli): list every flag in the help")))
-    assert result.get("is_error") is None
-    assert agents.inbox.list()[0]["title"] == "fix(cli): list every flag in the help"
 
 
 def test_issue_is_read_again_before_its_pr(tools, job):
@@ -1090,21 +1074,6 @@ def test_only_png_jpeg_gif_or_webp(agents, tools, picture_args):
 
 
 # VM error text never shows the user's secrets
-
-
-def test_report_without_code_hides_the_users_secrets(agents, tools):
-    paper = agents.jobs.create("reproduce_paper", "Reproduce VALORIS", "agent-1", "user")
-    agents.jobs.update(paper["id"], status="working")
-    agents.vm.env = {"OPENAI_API_KEY": SECRET}
-    agents.vm.errors["--no-index"] = f"cd: /home/sam/{SECRET}: No such file or directory"
-    report = {"job_id": paper["id"], "title": "VALORIS: the numbers reproduce", "body": "The full report.",
-              "paper": "VALORIS: a way to keep data private", "claims": "It keeps the data private.",
-              "verdict": "The numbers hold.", "results": [], "problems": [], "code": "~/valoris"}
-
-    result = asyncio.run(tools.draft_report(report))
-
-    assert result["is_error"] is True
-    assert result["content"][0]["text"].startswith("Found no code in ~/valoris (cd: /home/sam/[hidden]: No such file or directory).")
 
 
 def test_copy_from_the_vm_hides_the_users_secrets(agents, tools):

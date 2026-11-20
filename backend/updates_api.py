@@ -12,7 +12,7 @@ the middle of a tool call, so none is cut off half-way through a command. An age
 off like on any restart, and the agent carries on after it (Agents.stop and start). VMs, and the runs in them, keep going.
 
 keep_updates(), which the app runs in the background, checks every CHECK_SECONDS, and at once when asked (Check for
-updates, or a Release on the app's own repo: backend/projects_api.py). A newer release that is ready (it passed its
+updates in Settings, or a release Fix problems made: github_searcher/problem_fixes.py). A newer release that is ready (it passed its
 check, updates.py) waits for Restart in the Update dialog; with AUTO_INSTALL it is installed by itself, the same way.
 The state reaches the browser through /api/live (topic "updates").
 """

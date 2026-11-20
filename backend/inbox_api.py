@@ -1,44 +1,22 @@
-"""The Inbox: the user decides on the agents' drafts (PRs, comments, questions), and on the app's old questions from when
-an issue an agent works on got taken (approve: keep working, reject: stop the agent; new ones aren't made: the agent
-decides that itself now, github_searcher/agents.py issue_taken). An answer to a question is the user's (answered_by
-"user"); a timed one nobody answers in time the app answers itself (Agents.answer_questions). The blockers agents ask
-you to approve (kind "approval", a CLA to sign and the like) are decided here too, from the Dashboard's Approvals page.
+"""The Blockers page (frontend/src/Blockers.tsx): the user lifts or skips what only they can do, the agents' approval
+drafts (a contributor agreement to sign and the like; inbox.py). Done is Approve: the agent goes on (signs it the way
+the project asks). Skip is Reject: the agent gives the job up. Every other draft goes to GitHub by itself
+(backend/repo_automation_api.py keep_drafts).
 
-Approving tells the agent. Only with send (the Inbox asks "are you sure?" first, and only when your
-GitHub account is connected: the GitHub tab, Account) does Approve on a PR or comment send it to GitHub as you,
-before the agent is told; if GitHub refuses, nothing is decided. POST /send does the same for one
-approved before (while no account was connected). Sending runs in a thread (github_account.py). A PR draft that is
-a new version of your open PR (update_of) is pushed onto that PR's branch, and its text posted there as your comment
-(a rebase is force-pushed). An edit draft changes the title and description of your own PR or issue.
+Every decision goes through Agents.decide, which also puts the draft's job back in the queue and wakes the agent, so
+those endpoints run on the event loop (`async def`). The blockers reach the browser through /api/live (topic "inbox").
 
-POST /inbox/{id}/edit changes a pending PR, comment or edit draft's title and text before you decide (the Inbox and the
-GitHub tab's thread pop-up); its agent is told with your decision that you edited it, and the final text.
-
-Every decision goes through Agents.decide, which also puts the draft's job back in the queue and
-wakes the agent, so those endpoints run on the event loop (`async def`). The
-drafts themselves reach the browser through /api/live. GET /inbox/{id} is one whole: the feed leaves out the diff of
-a draft that can't go out any more, so the Inbox reads that one when it is opened.
-
-POST /inbox/delete deletes decided drafts for good (pending ones stay: their agents wait for an answer). Their
-agents aren't told, and what was sent to GitHub stays there.
-
-GET /actions is everything agents put on GitHub, newest first (inbox.py ACTIONS_FILE): the Dashboard's Pull requests,
-Actions. Sent drafts stay in it when they are deleted here.
-
-A draft's evidence (screenshots, images, command output) is files in EVIDENCE_DIR,
-served by name. Names are only ever ones the agent tools made (ev_<hex>.<ext>), so
-a request can't reach any other file.
+A draft's evidence (screenshots, images, command output) is files in EVIDENCE_DIR, served by name (the agent chat shows
+them). Names are only ever ones the agent tools made (ev_<hex>.<ext>), so a request can't reach any other file.
 """
 
-import asyncio
 import re
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from backend.shared import agents, github_account, inbox
-from github_searcher.github_account import SendError
+from backend.shared import agents, inbox
 from github_searcher.jobs import EVIDENCE_DIR
 
 router = APIRouter(prefix="/api")
@@ -48,142 +26,40 @@ EVIDENCE_TYPES = {"jpg": "image/jpeg", "png": "image/png", "gif": "image/gif", "
 
 class ReplyRequest(BaseModel):
     text: str = ""
-    # Approve only: send the PR or comment to GitHub as you first.
-    send: bool = False
-
-
-class DeleteRequest(BaseModel):
-    ids: list[str]
-
-
-class EditRequest(BaseModel):
-    title: str
-    body: str
-
-
-@router.get("/actions")
-def actions() -> list[dict]:
-    return inbox.actions()
-
-
-@router.post("/inbox/delete")
-def delete(body: DeleteRequest) -> dict:
-    """Deletes the decided ones among these; returns the ids deleted."""
-    return {"deleted": inbox.delete(body.ids)}
 
 
 @router.post("/inbox/{draft_id}/approve")
 async def approve(draft_id: str, body: ReplyRequest | None = None) -> dict:
-    """A note can come along (the reply box's text); without one the body can be left out."""
+    """Done on the Blockers page. A note can come along; without one the body can be left out."""
     reply = ""
-    send = False
     if body is not None:
         reply = body.text
-        send = body.send
     try:
-        if send:
-            draft = inbox.get(draft_id)
-            if draft["status"] != "pending":
-                raise ValueError(f"{draft_id} was already {draft['status']}")
-            await asyncio.to_thread(github_account.send, draft_id)
+        # Only a blocker: the other drafts go to GitHub by themselves.
+        if inbox.get(draft_id)["kind"] != "approval":
+            raise ValueError(f"{draft_id} isn't a blocker.")
         return agents.decide(draft_id, "approved", reply)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"No draft {draft_id}")
-    except SendError as error:
-        raise HTTPException(status_code=400, detail=str(error))
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error))
 
 
 @router.post("/inbox/{draft_id}/reject")
 async def reject(draft_id: str, body: ReplyRequest | None = None) -> dict:
-    """Like approve: the reply box's text can come along as the reason."""
+    """Skip on the Blockers page. A reason can come along, like approve's note."""
     reply = ""
     if body is not None:
         reply = body.text
     try:
+        # Only a blocker: the other drafts go to GitHub by themselves.
+        if inbox.get(draft_id)["kind"] != "approval":
+            raise ValueError(f"{draft_id} isn't a blocker.")
         return agents.decide(draft_id, "rejected", reply)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"No draft {draft_id}")
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error))
-
-
-@router.post("/inbox/{draft_id}/reply")
-async def reply(draft_id: str, body: ReplyRequest) -> dict:
-    """The user answers without deciding; the agent reads the reply and keeps working."""
-    if not body.text.strip():
-        raise HTTPException(status_code=400, detail="The reply is empty.")
-    try:
-        return agents.decide(draft_id, "replied", body.text)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"No draft {draft_id}")
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error))
-
-
-@router.post("/inbox/{draft_id}/edit")
-def edit(draft_id: str, body: EditRequest) -> dict:
-    """The user changes a pending PR or comment draft's title and text; returns the draft."""
-    if not body.title.strip() or not body.body.strip():
-        raise HTTPException(status_code=400, detail="The title and the text can't be empty.")
-    try:
-        return inbox.edit(draft_id, body.title, body.body)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"No draft {draft_id}")
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error))
-
-
-@router.post("/inbox/{draft_id}/send")
-async def send(draft_id: str) -> dict:
-    """An approved PR or comment that isn't on GitHub yet, sent as you now; its agent is told."""
-    try:
-        draft = inbox.get(draft_id)
-        if draft["status"] != "approved":
-            raise ValueError("Only an approved draft is sent from here; a pending one is sent by Approve.")
-        draft = await asyncio.to_thread(github_account.send, draft_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"No draft {draft_id}")
-    except SendError as error:
-        raise HTTPException(status_code=400, detail=str(error))
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error))
-    what = "comment"
-    if draft["kind"] == "pr":
-        what = "PR"
-    if draft["kind"] == "edit":
-        what = "title and description"
-    text = f"The user sent your approved {what} draft {draft_id} ({draft['title']}) to GitHub: {draft['sent']['url']}"
-    if draft["sent"].get("update"):
-        text = f"The user pushed your approved draft {draft_id} ({draft['title']}) onto their PR: {draft['sent']['url']}"
-    agents.notify(draft["agent"], text)
-    return draft
-
-
-@router.get("/inbox/{draft_id}")
-def get_draft(draft_id: str) -> dict:
-    """One draft whole: the live feed leaves out the diff of one that can't go out any more (backend/app.py)."""
-    try:
-        return inbox.get(draft_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"No draft {draft_id}")
-
-
-@router.get("/inbox/{draft_id}/patch")
-def download_patch(draft_id: str) -> Response:
-    """A PR draft's diff as a .patch file, ready for `git apply`."""
-    try:
-        draft = inbox.get(draft_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"No draft {draft_id}")
-    diff = draft["diff"]
-    if not diff:
-        raise HTTPException(status_code=400, detail="This draft has no changes.")
-    # git apply wants the last line to end with a newline.
-    if not diff.endswith("\n"):
-        diff = diff + "\n"
-    return Response(diff, media_type="text/plain", headers={"Content-Disposition": f'attachment; filename="{draft_id}.patch"'})
 
 
 @router.get("/evidence/{name}")

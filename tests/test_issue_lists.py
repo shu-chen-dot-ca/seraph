@@ -1,6 +1,5 @@
 """The issue stores around the tags: the Issues list (github_searcher/issue_list.py) with its undo/redo, dismissed
-issues and board, the Tracked page's issues (github_searcher/tracked_issues.py), and what GitHub says about each listed
-issue (github_searcher/issue_facts.py).
+issues and board, and what GitHub says about each listed issue (github_searcher/issue_facts.py).
 
 An issue an agent is working on is never taken out of the Issues list, by remove, dismiss, undo or redo; a dismissed
 one is never added again except by the user by hand. GitHub is a fake that sends what the test says, the agents' jobs
@@ -12,10 +11,9 @@ import types
 
 import pytest
 
-from github_searcher import issue_facts, issue_list, tracked_issues
+from github_searcher import issue_facts, issue_list
 from github_searcher.issue_facts import IssueFacts
 from github_searcher.issue_list import IssueList
-from github_searcher.tracked_issues import GOOD_FIRST, TrackedIssues
 
 ONE = {"id": "owner/repo#1", "title": "Crash on empty input", "note": "", "added_by": "user"}
 TWO = {"id": "owner/repo#2", "title": "Add a dark theme", "note": "", "added_by": "agent_1"}
@@ -236,170 +234,6 @@ def test_list_from_before_dismissed_and_the_board_still_loads(tmp_path, monkeypa
     assert issues.dismissed() == []
     assert issues.board() == {"catalog": [], "order": [], "held": []}
     assert issues.add([ONE, TWO]) == ["owner/repo#2"]
-
-
-# The Tracked page's issues.
-
-
-@pytest.fixture
-def github():
-    """What GitHub sends for owner/repo's open issues: the newest (#5, #3), and the issues under labels GitHub's loose
-    label search found: "good first issue" (#3 again, #1), "Difficulty: Hard" (#2, found by "first") and "helm" (#4,
-    found by "help")."""
-    return {
-        "stargazerCount": 120,
-        "description": "A command line tool",
-        "newest": {
-            "nodes": [
-                {"number": 5, "title": "Add a dark theme", "url": "https://github.com/owner/repo/issues/5", "createdAt": "2026-11-05T10:00:00Z",
-                 "updatedAt": "2026-11-06T10:00:00Z", "author": {"login": "alice"}, "labels": {"nodes": []},
-                 "comments": {"totalCount": 0}, "assignees": {"totalCount": 0}},
-                {"number": 3, "title": "Update install docs", "url": "https://github.com/owner/repo/issues/3", "createdAt": "2026-11-03T10:00:00Z",
-                 "updatedAt": "2026-11-03T10:00:00Z", "author": {"login": "bob"}, "labels": {"nodes": [{"name": "good first issue"}]},
-                 "comments": {"totalCount": 2}, "assignees": {"totalCount": 1}},
-            ]
-        },
-        "firstLabels": {
-            "nodes": [
-                {"name": "good first issue", "issues": {"nodes": [
-                    {"number": 3, "title": "Update install docs", "url": "https://github.com/owner/repo/issues/3", "createdAt": "2026-11-03T10:00:00Z",
-                     "updatedAt": "2026-11-03T10:00:00Z", "author": {"login": "bob"}, "labels": {"nodes": [{"name": "good first issue"}]},
-                     "comments": {"totalCount": 2}, "assignees": {"totalCount": 1}},
-                    {"number": 1, "title": "Crash on empty input", "url": "https://github.com/owner/repo/issues/1", "createdAt": "2026-10-01T10:00:00Z",
-                     "updatedAt": "2026-10-02T10:00:00Z", "author": None, "labels": {"nodes": [{"name": "good first issue"}, {"name": "bug"}]},
-                     "comments": {"totalCount": 5}, "assignees": {"totalCount": 0}},
-                ]}},
-                {"name": "Difficulty: Hard", "issues": {"nodes": [
-                    {"number": 2, "title": "Rewrite the parser", "url": "https://github.com/owner/repo/issues/2", "createdAt": "2026-10-02T10:00:00Z",
-                     "updatedAt": "2026-10-02T10:00:00Z", "author": {"login": "lead"}, "labels": {"nodes": [{"name": "Difficulty: Hard"}]},
-                     "comments": {"totalCount": 0}, "assignees": {"totalCount": 0}},
-                ]}},
-            ]
-        },
-        "beginnerLabels": {"nodes": []},
-        "easyLabels": {"nodes": []},
-        "helpLabels": {
-            "nodes": [
-                {"name": "helm", "issues": {"nodes": [
-                    {"number": 4, "title": "Bump the chart", "url": "https://github.com/owner/repo/issues/4", "createdAt": "2026-10-04T10:00:00Z",
-                     "updatedAt": "2026-10-04T10:00:00Z", "author": {"login": "lead"}, "labels": {"nodes": [{"name": "helm"}]},
-                     "comments": {"totalCount": 0}, "assignees": {"totalCount": 0}},
-                ]}},
-            ]
-        },
-        "grabsLabels": {"nodes": []},
-    }
-
-
-@pytest.fixture
-def tracked(tmp_path, monkeypatch, github):
-    """TrackedIssues with its files in a temporary folder. GitHub sends github, read at the time of the call."""
-    monkeypatch.setattr(tracked_issues, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(tracked_issues, "get_tracked_issues", lambda owner, repo: copy.deepcopy(github))
-    return TrackedIssues()
-
-
-@pytest.mark.parametrize(
-    "label, anyone",
-    [
-        ("good first issue", True),
-        ("🌱 Good first issue", True),
-        ("good-first-issue", True),
-        ("first-timers-only", True),
-        ("beginner-friendly", True),
-        ("Difficulty: Easy", True),
-        ("help wanted", True),
-        ("up-for-grabs", True),
-        ("Difficulty: Hard", False),
-        ("helm", False),
-        ("help: question", False),
-        ("first-party", False),
-    ],
-)
-def test_good_first_labels(label, anyone):
-    assert bool(GOOD_FIRST.search(label)) is anyone
-
-
-def test_check_keeps_the_newest_and_good_first_issues_once(tracked):
-    tracked.check("owner/repo")
-    check = tracked.all()["owner/repo"]
-
-    assert [issue["number"] for issue in check["issues"]] == [5, 3, 1]
-    assert check["stars"] == 120
-    assert check["description"] == "A command line tool"
-    assert check["error"] is None
-    assert check["read"] == []
-    assert check["checked_at"].endswith("Z")
-    assert check["issues"][2] == {
-        "number": 1,
-        "title": "Crash on empty input",
-        "url": "https://github.com/owner/repo/issues/1",
-        "created_at": "2026-10-01T10:00:00Z",
-        "updated_at": "2026-10-02T10:00:00Z",
-        "author": "ghost",
-        "labels": ["good first issue", "bug"],
-        "comments": 5,
-        "assignees": 0,
-    }
-
-
-def test_issues_marked_read_stay_read_while_open(tracked, github):
-    tracked.check("owner/repo")
-    tracked.mark_read()
-    assert tracked.all()["owner/repo"]["read"] == [5, 3, 1]
-
-    # #5 was closed and #6 opened since.
-    github["newest"]["nodes"][0]["number"] = 6
-    tracked.check("owner/repo")
-
-    assert [issue["number"] for issue in tracked.all()["owner/repo"]["issues"]] == [6, 3, 1]
-    assert tracked.all()["owner/repo"]["read"] == [3, 1]
-
-
-def test_failed_check_keeps_the_issues_and_says_why(tracked, monkeypatch):
-    tracked.check("owner/repo")
-    tracked.mark_read()
-
-    def broken(owner, repo):
-        raise ValueError("GitHub has no repo owner/repo")
-
-    monkeypatch.setattr(tracked_issues, "get_tracked_issues", broken)
-    with pytest.raises(ValueError):
-        tracked.check("owner/repo")
-    check = tracked.all()["owner/repo"]
-
-    assert check["error"] == "GitHub has no repo owner/repo"
-    assert [issue["number"] for issue in check["issues"]] == [5, 3, 1]
-    assert check["read"] == [5, 3, 1]
-    assert check["stars"] == 120
-
-
-def test_first_check_that_fails_without_a_message_names_the_error(tracked, monkeypatch):
-    def broken(owner, repo):
-        raise TimeoutError()
-
-    monkeypatch.setattr(tracked_issues, "get_tracked_issues", broken)
-    with pytest.raises(TimeoutError):
-        tracked.check("owner/new")
-    check = tracked.all()["owner/new"]
-
-    assert check["error"] == "TimeoutError"
-    assert check["issues"] == []
-    assert check["stars"] is None
-
-
-def test_issues_taken_up_are_noted_once_and_come_back(tracked):
-    tracked.note_added(["owner/repo#1"])
-    tracked.note_added(["owner/repo#3"])
-    tracked.check("owner/repo")
-
-    restarted = TrackedIssues()
-
-    assert restarted.added() == ["owner/repo#1", "owner/repo#3"]
-    assert restarted.all() == tracked.all()
-
-
-# What GitHub says about each listed issue.
 
 
 @pytest.fixture

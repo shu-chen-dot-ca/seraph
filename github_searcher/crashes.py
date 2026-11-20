@@ -1,4 +1,4 @@
-"""Errors: what went wrong in the app itself, for the agent of the app's own repo to turn into issues (projects.py).
+"""Errors: what went wrong in the app itself. GET /api/health counts them (since_start) and a release's check reads them.
 
 Four places report here:
 - the backend: an exception nobody caught, in a request, a background task or a thread (backend/app.py);
@@ -15,9 +15,9 @@ its stack. Kept in DATA_DIR/crashes.json, a list, the newest first, MAX_KEPT at 
      "key", "count", "first_at", "last_at", "version": the release that ran when it last happened,
      "state": "new" | "sent" | "filed" | "skipped", "issue": the issue's number | None, "note": the agent's line on it}
 
-new: not given to the agent yet. sent: given (backend/projects_api.py sends the new ones every SEND_SECONDS). filed:
-it made an issue of it or added it to one (issue). skipped: the agent decided it isn't worth an issue (note says why).
-Happening again makes a filed or skipped one new again, so the agent sees it came back.
+new: nobody looked at it yet. sent, filed and skipped are from when the app's own repo had an agent that turned them
+into issues (gone now): sent was given to it, filed made an issue of it or added it to one (issue), skipped wasn't
+worth an issue (note says why). Happening again makes a filed or skipped one new again.
 
 since_start counts every report since the backend started: GET /api/health has it, and deploy/switch.sh takes a new
 release back when it climbs in its first minutes.

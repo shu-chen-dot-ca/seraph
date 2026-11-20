@@ -1,4 +1,4 @@
-"""The tags the app puts on issues, the same on the Tracked and Issues pages: free or assigned, whether a pull
+"""The tags the app puts on issues: free or assigned, whether a pull
 request from us would get merged (or out of scope), what kind, about how many lines the fix changes.
 
 GitHub's own labels are spelled differently in every repo ("good first issue", "good-first-issue", "help wanted",
@@ -119,14 +119,25 @@ read.
 
 Kept apart from the lists on purpose, like issue_facts.py: undo/redo of a list shouldn't undo tags, and an issue
 that comes back with an undo keeps its tags. version goes up on every change.
+
+At scale (some 90,000 issues, a 49 MB file) two things would stall the backend, so they don't happen:
+- all() gives a new dict of the same tags, not a deep copy of them (0.7 s each time, and the background asks every few
+  seconds). Each issue's tags are only ever replaced whole, never changed in place, so nobody can see one change half
+  way; whoever reads them must never change one either.
+- The file isn't written on every change: flush() writes it at most every SAVE_SECONDS (backend/issues_api.py keep_tags
+  calls it every round) and once more when the backend stops. A crash loses at most that much, and those issues are
+  tagged again.
+forget_closed() drops the tags of a repo's issues that aren't open any more (backend/repo_automation_api.py add_issues
+reads every repo's open issues), and forget_repos() those of repos no longer in Repos, so the file only holds what can
+still be worked on.
 """
 
 import asyncio
-import copy
 import json
 import os
 import re
 import threading
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -319,6 +330,8 @@ SCHEMA = {
     },
     "required": ["issues"],
 }
+# The tags file is written at most this often (flush).
+SAVE_SECONDS = 120
 
 
 class IssueTags:
@@ -332,22 +345,61 @@ class IssueTags:
         self.tags = {}
         if self.path.exists():
             self.tags = json.loads(self.path.read_text())
+        # Changed since the file was written, and when it was (flush).
+        self.dirty = False
+        self.saved_at = 0.0
         # What the last read of each issue found of other people's open pull requests tied to it (see the top of this
         # file), "owner/name#n by login": backend/issues_api.py tells an agent with a job on it of each one. In memory only.
         self.open_prs = {}
 
     def save(self) -> None:
-        """Write the tags to disk. Called with the lock held, after every change."""
+        """Called with the lock held, after every change: flush() writes it to disk later (see the top of this file)."""
         self.version += 1
+        self.dirty = True
+
+    def flush(self, now: bool = False) -> None:
+        """Write the tags to disk when they changed and SAVE_SECONDS went by since the last write, or at once with now
+        (the backend stopping). In a thread when it can: the whole file is written."""
+        with self.lock:
+            if not self.dirty or (not now and time.monotonic() - self.saved_at < SAVE_SECONDS):
+                return
+            self.dirty = False
+            self.saved_at = time.monotonic()
+            # A new dict of the same tags: they are replaced whole, never changed (see the top of this file).
+            tags = dict(self.tags)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Write, then rename: a crash never leaves half a file.
         temporary = self.path.with_name(self.path.name + ".tmp")
-        temporary.write_text(json.dumps(self.tags))
+        temporary.write_text(json.dumps(tags))
         temporary.replace(self.path)
 
     def all(self) -> dict:
+        """Every issue's tags, by id. A new dict, but the tags in it are the store's own: read them, never change one."""
         with self.lock:
-            return copy.deepcopy(self.tags)
+            return dict(self.tags)
+
+    def forget_closed(self, repo: str, open_ids: list[str], keep: list[str]) -> None:
+        """Drops the tags of repo's issues that aren't in open_ids (its open issues, as GitHub just said) nor in keep
+        (the Issues list's)."""
+        prefix = repo.lower() + "#"
+        wanted = set(issue_id.lower() for issue_id in open_ids + keep)
+        with self.lock:
+            gone = [issue_id for issue_id in self.tags if issue_id.lower().startswith(prefix) and issue_id.lower() not in wanted]
+            for issue_id in gone:
+                del self.tags[issue_id]
+            if gone:
+                self.save()
+
+    def forget_repos(self, repos: list[str], keep: list[str]) -> None:
+        """Drops the tags of every repo not in repos (Repos' list), but the issues in keep (the Issues list's)."""
+        names = set(name.lower() for name in repos)
+        wanted = set(issue_id.lower() for issue_id in keep)
+        with self.lock:
+            gone = [issue_id for issue_id in self.tags if issue_id.split("#")[0].lower() not in names and issue_id.lower() not in wanted]
+            for issue_id in gone:
+                del self.tags[issue_id]
+            if gone:
+                self.save()
 
     async def tag(self, ids: list[str], force: bool = False) -> list[str]:
         """Tag these issues ("owner/name#n", any repos) and keep the tags. Returns the ids tagged. With force nothing

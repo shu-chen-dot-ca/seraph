@@ -2,22 +2,17 @@
 Live data from the backend, and the one fetch helper.
 
 One websocket to /api/live. On connect the server sends every topic, then only the topics that changed:
-{"topic": "repos" | "issues" | "tracked" | "explore" | "github" | "jobs" | "inbox" | "issue_drafts" | "prs" | "your_repos" | "notifications" | "agents"
-| "vms" | "images" | "resource" | "updates" | "projects" | "crashes" | "problems" | "workflow" | "automation",
-"data": ...}.
+{"topic": "repos" | "jobs" | "inbox" | "prs" | "agents" | "vms" | "images" | "updates" | "automation", "data": ...}.
 Each message replaces that topic in the store, and components read it with useLive(topic), so the page never
 polls and never re-fetches lists. When the socket drops it reconnects after a second, and the server sends
 everything again. When the app that answers is another version than this page's (an update restarted it, see
 UpdateDialog.tsx), the page reloads into the new version, at the same place (the page is in the URL). Through the remote access address without a sign in, the server closes it with 4401 and the page
-opens the Sign in page instead (backend/app.py).
-
-The page sends one thing back: {"watch_resource": true | false}, whether a Resource page is open
-(useWatchResource). Only then does the backend ask the NVIDIA GPU for its numbers, so it can sleep otherwise.
+opens the Sign in page instead (backend/app.py). The page sends nothing back.
 
 The types below mirror the records in the spec (data/*.json and the live summaries).
 */
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 // ---- Records ----
 
@@ -30,324 +25,7 @@ export type RepoItem = {
   note: string;
   added_by: string; // "user", "explore" or an agent id
   added_at: string;
-  lane?: string; // repos Explore found: the profile lane it was found for ("prestige", "ai", ...)
-  fit?: number; // repos Explore found: how well Claude thinks it fits the profile, 0..1
-  tag?: string; // the user's own group for the repo, the Repos list's on every page when it is in it; missing or "" when none
 };
-
-// What a repo's contribution files say about AI (github_searcher/repo_signals.py).
-export type AIPolicyTag = "welcome" | "disclose" | "no_ai" | "unclear" | "none";
-
-export type AIPolicy = {
-  tag: AIPolicyTag;
-  quote: string; // the sentence that decides it ("" for unclear and none)
-  file: string;
-  basis: string;
-};
-
-export type BeginnerIssue = {
-  number: number;
-  title: string;
-  created_at: string;
-  labels: string[];
-  assignees: number;
-  cross_references: number; // a PR or issue that mentions it: above 0 usually means someone is on it
-};
-
-// How a repo treats outside contributors, from GitHub (github_searcher/repo_signals.py). Over outside contributors'
-// PRs opened in the last 90 days; null when there are too few to tell.
-export type RepoSignals = {
-  fetched_at: string;
-  stars: number;
-  description: string;
-  topics: string[];
-  language: string | null;
-  archived: boolean;
-  fork: boolean;
-  pushed_at: string;
-  outside_prs_90d: number;
-  outside_merged_90d: number;
-  outside_closed_90d: number;
-  outside_merge_rate: number | null; // merged / (merged + closed unmerged)
-  median_days_to_first_reply: number | null;
-  median_days_to_merge: number | null;
-  average_days_to_merge_30d?: number | null; // each outside contributor's mean over 30 days, then the mean of those
-  merge_authors_30d?: number; // how many contributors that average is over
-  stale_outside_prs: number; // open over 30 days, nobody answered
-  active_mergers_30d: number; // people who merged a PR in 30 days: the page calls them maintainers
-  active_contributors?: number; // people who opened a PR in the window; missing until the next fetch
-  contributors_total?: number | null; // everyone who ever contributed, as on the repo's GitHub page; null: GitHub won't count them
-  commits_30d: number;
-  // In all: the commits on the default branch, the open, merged and closed (without a merge) PRs and the open issues; missing until
-  // the next fetch.
-  commits_total?: number;
-  open_prs_total?: number;
-  merged_prs_total?: number;
-  closed_prs_total?: number;
-  open_issues_total?: number;
-  beginner_issues: BeginnerIssue[];
-  unclaimed_beginner_issues: number;
-  pr_window_days?: number; // how many days the 100 newest PRs reach back (at most 90)
-  // Missing on signals fetched before these were counted (until the backend reads them again, once).
-  newcomers?: Newcomers;
-  reviewers?: Reviewers;
-  activity?: RepoActivity;
-  community?: Community;
-  atmosphere?: Atmosphere | null; // null until Claude first read the reviews
-  ai_policy: AIPolicy;
-  newcomer_verdict?: NewcomerVerdict | null; // null until Claude first decided (or when that failed)
-};
-
-// Whether a repo is open to newcomers, Claude's call from its stars per all-time contributor, its contributing guide
-// and how outside PRs went (github_searcher/repo_signals.py), with one sentence on what decided it.
-export type NewcomerVerdict = { verdict: "welcome" | "closed"; reason: string; judged_at: string };
-
-export type NewcomerTag = "welcomes" | "ok" | "turned_away" | "left_waiting" | "few";
-
-// Who reviews outside contributors' PRs: how many got a review or comment only from an AI reviewer (a bot like
-// CodeRabbit or Copilot), from both, or only from maintainers; tag is the one most are ("few": too few to tell).
-export type ReviewerTag = "agent" | "both" | "human" | "few";
-export type Reviewers = { agent: number; both: number; human: number; tag: ReviewerTag };
-
-// Outside authors who never opened a PR in the repo before the window, and how their first PRs went.
-export type Newcomers = {
-  prs: number;
-  merged: number;
-  closed: number;
-  merge_rate: number | null;
-  median_days_to_first_reply: number | null;
-  returned: number; // opened a second PR
-  authors_checked: number;
-  tag: NewcomerTag;
-};
-
-// Monthly averages over 90 days, and the last 30 days as they are.
-export type RepoActivity = {
-  prs_opened_month: number;
-  prs_merged_month: number;
-  issues_opened_month: number;
-  issues_closed_month: number;
-  commits_month: number;
-  prs_opened_30d: number;
-  prs_merged_30d: number;
-  issues_opened_30d: number;
-  issues_closed_30d: number;
-  trend: "up" | "down" | "flat";
-  last_release: string | null;
-  last_release_at: string | null;
-  issue_reply_rate: number | null; // share of outsiders' new issues a maintainer answered within a week
-  issues_checked: number;
-};
-
-export type Community = {
-  contributing: boolean;
-  code_of_conduct: boolean;
-  discussions: boolean;
-  channels: string[]; // "Discord", "Slack", ...
-};
-
-export type Tone = "warm" | "neutral" | "strict" | "curt" | "unknown";
-
-// How maintainers' feedback on outside PRs feels, read by Claude at most once a week.
-export type Atmosphere = {
-  tone: Tone;
-  summary: string;
-  asks_for: string[];
-  prs: number;
-  judged_at: string;
-};
-
-// A repo in the Repos list, with what the live feed merges in.
-export type ListedRepo = RepoItem & {
-  signals: RepoSignals | null; // null until fetched (within seconds of being added)
-};
-
-export type IssueItem = {
-  id: string; // "owner/name#812"
-  repo: string;
-  number: number;
-  title: string;
-  labels: string[];
-  state: "OPEN" | "CLOSED";
-  comments: number;
-  html_url: string;
-  note: string;
-  added_by: string;
-  added_at: string;
-  facts?: IssueFacts | null; // Merged in by the live feed; null until fetched from GitHub.
-  tags?: IssueTags | null; // Merged in by the live feed; null until made.
-};
-
-// The tags the app puts on an issue, the same on the Tracked and Issues pages (github_searcher/issue_tags.py), in
-// place of GitHub's labels. status: free (a newcomer can start now), assigned (someone is on it) or waiting (nobody
-// is, but it isn't ready). merge is whether a pull request from us would get merged: likely, or the first thing in the
-// way; out of scope (we don't take it: not a pull request to that repo for its own users, made and run in a Linux VM,
-// or it touches politics) can't be assigned. lines is a rough guess of the lines the fix adds and removes, tests
-// included. checks, kind and lines are null when it is assigned on GitHub (not asked); merge is missing on tags from
-// before it (they had a level), until they are read again.
-export type IssueTags = {
-  // fixed: open on GitHub, but a merged pull request or commit already does what it asks; it only needs closing.
-  status: "free" | "assigned" | "waiting" | "fixed";
-  merge?: Merge;
-  // The yes / no answers merge follows from by fixed rules, with the status and the repo's numbers.
-  checks?: Record<string, boolean> | null;
-  kind: "bug" | "feature" | "docs" | "question" | null;
-  lines?: number | null;
-  name?: string | null; // the short name on the Dashboard's Issues board ("Fix SQL query logic"); null when assigned on GitHub
-  complexity?: "easy" | "medium" | "hard" | null; // how hard the fix is; null when assigned on GitHub
-  scope_clear?: boolean | null; // what to change and what done looks like are clear; null when assigned on GitHub
-  reason: string;
-  updated_at: string;
-  judged_at: string;
-};
-
-export type Merge =
-  | "likely"
-  | "fixed"
-  | "out of scope"
-  | "claimed"
-  | "maintainers only"
-  | "waiting"
-  | "no outside prs"
-  | "large feature"
-  | "big change"
-  | "can't validate";
-
-// What GitHub says about an issue right now (github_searcher/issue_facts.py).
-// Roles are GitHub's author association (OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, NONE, ...) or BOT.
-export type IssueFacts = {
-  state: "OPEN" | "CLOSED";
-  title: string;
-  labels: string[];
-  created_at: string;
-  updated_at: string;
-  author: string;
-  author_role: string;
-  assignees: string[];
-  participants: number;
-  thumbs_up: number;
-  comments: number;
-  last_comment_at: string | null;
-  last_comment_by: string | null;
-  last_comment_role: string | null;
-  linked_prs: { number: number; repo: string; state: "OPEN" | "CLOSED" | "MERGED"; url: string; author: string }[];
-  repo_stars: number;
-  repo_pushed_at: string;
-  fetched_at: string;
-};
-
-// One open issue a tracked repo's last check found (github_searcher/tracked_issues.py).
-export type TrackedIssue = {
-  number: number;
-  title: string;
-  url: string;
-  created_at: string;
-  updated_at?: string; // its last change on GitHub, a new comment too; missing in checks made before it was asked for
-  author: string;
-  labels: string[];
-  comments: number;
-  assignees: number;
-  tags?: IssueTags | null; // Merged in by the live feed; null until made.
-};
-
-// A tracked repo's latest check. An issue is new for three days after it was opened, unless it is in read.
-export type TrackedCheck = {
-  checked_at: string;
-  error: string | null; // why the last check failed (the issues are from the check before)
-  stars: number | null;
-  description: string;
-  issues: TrackedIssue[]; // newest first
-  read?: number[]; // the issues Mark all as read saw; missing in checks made before it was there
-};
-
-// A repo in the Tracked list, with its latest check merged in by the live feed (null until the first one).
-// signals: the same as a Repos row's, null until fetched (within seconds of being tracked).
-export type TrackedRepo = RepoItem & { check: TrackedCheck | null; signals: RepoSignals | null };
-
-// Explore (github_searcher/explore.py): the profile it searches with, the current or last run, and the found list.
-export type ExploreLane = {
-  id: string;
-  label: string;
-  about: string; // what the lane is for, given to Claude when it judges fit
-  share: number; // 0..100: the part of the finds that should come from this lane
-  queries: string[]; // GitHub repo searches
-};
-
-// The user writes about, and each type of repo (a lane's label and about); Claude plans each one's
-// searches when the profile is saved. The types are the tags that classify repos (a repo's "lane").
-export type ExploreProfile = {
-  about: string;
-  lanes: ExploreLane[];
-};
-
-// A repo Explore found, waiting for the user to approve it into Repos or remove it. Kept across runs.
-export type ExploreFound = {
-  name: string;
-  lane: string;
-  description: string;
-  stars: number;
-  default_branch: string;
-  html_url: string;
-  fit: number;
-  ai_policy: AIPolicyTag;
-  newcomers: NewcomerTag;
-  tone: Tone | null;
-  atmosphere: string; // its one-sentence summary
-  prs_month: number;
-  issues_month: number;
-  commits_month: number;
-  trend: "up" | "down" | "flat";
-  note: string;
-  found_at: string;
-  // From its signals: outside PRs merged (of those merged or closed, 0..1), how newcomers' first PRs went (counts and
-  // their merge rate; prs is how many new contributors it had in window_days), median days to a maintainer's first
-  // reply on an outside PR, how many days its 100 newest PRs cover, who merged PRs in 30 days, outside PRs over 30
-  // days nobody answered, who reviews outside PRs.
-  // Null when not counted (too few PRs, or found before these were).
-  merged: number | null;
-  newcomer_stats: Newcomers | null;
-  reply: number | null;
-  window_days: number | null;
-  maintainers: number | null;
-  unanswered: number | null;
-  reviewers?: Reviewers | null;
-};
-
-export type ExploreRun = {
-  status: "running" | "done" | "stopped" | "failed";
-  started_at: string;
-  ended_at: string | null;
-  end_reason: string;
-  count: number | null;
-  minutes: number | null;
-  workers: number | null; // null: as many as GitHub's quota allows (the Dashboard's Automation runs)
-  filters: Record<string, "include" | "exclude">; // the tags it keeps to or keeps out (explore.py FILTERS)
-  found: number;
-  looked_at: number;
-  // have: the repos of that type active in Repos when the run started.
-  lanes: Record<string, { label: string; share: number; have?: number; found: number; in_flight: number; exhausted: boolean }>;
-  checking: { name: string; lane: string; since: string }[];
-  skipped: Record<string, number>; // why → how many
-  errors: { name: string; error: string; at: string }[];
-};
-
-export type ExploreData = {
-  profile: ExploreProfile;
-  run: ExploreRun | null;
-  found: ExploreFound[]; // waiting for a decision, oldest first
-};
-
-// GitHub's rate limits (github_searcher/token_balancer.py), per kind of request and token. remaining and limit are
-// null until known; a quota whose reset_at has passed is full again. Times are ISO.
-export type GithubKind = "core" | "graphql" | "search" | "code_search";
-
-export type GithubStatus = Record<
-  GithubKind,
-  {
-    waiting: number;
-    tokens: { name: string; remaining: number | null; limit: number | null; reset_at: string | null; paused_until: string | null; running: number }[];
-  }
->;
 
 export type ListData<T> = {
   items: T[];
@@ -375,21 +53,21 @@ export type EvidenceItem = {
 // paused: the user paused its issue on the Dashboard's Issues board; paused_from is the status it goes back to on Resume.
 export type JobStatus = "queued" | "working" | "waiting_on_user" | "waiting_on_maintainers" | "paused" | "done" | "cancelled";
 
+// A job as the jobs topic carries it (backend/app.py): without its evidence and timeline, which no page shows, and a
+// finished one with only the start of its notes and no test runs.
 export type Job = {
   id: string;
-  kind: string; // "fix_issue" | "task" | "reproduce_paper" | future kinds
+  kind: string; // "fix_issue" | "follow_up" | "review" | "task" | future kinds
   title: string;
   agent: string;
   issue: string | null;
   thread: string | null; // follow_up: the PR or issue on GitHub it answers ("owner/name#n")
-  paper: string | null; // reproduce_paper: the PDF in the agent's artifacts ("papers/name.pdf")
   repo: string | null;
   vm: string | null;
   status: JobStatus;
   instructions: string;
   notes: string;
   drafts: string[];
-  evidence: EvidenceItem[];
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -406,12 +84,7 @@ export type Job = {
   // last resort.
   tests: { before: TestRun | null; after: TestRun | null };
   skip_checks?: boolean; // you pressed Skip checks: its PR may be drafted now, without passing tests or a reviewer
-  // What happened, oldest first (github_searcher/jobs.py): made, each step the agent reached (its headline), status
-  // changes, test runs, and what the app told the agent. [] on jobs from before it was kept.
-  timeline: JobEvent[];
 };
-
-export type JobEvent = { at: string; kind: "created" | "step" | "status" | "tests" | "notice"; text: string; step?: string };
 
 export type TestRun = {
   command: string;
@@ -628,56 +301,8 @@ export type PRsData = {
   refreshing: boolean;
 };
 
-// A repo of yours on GitHub (public or private, one you can push to) or one you starred
-// (github_searcher/your_repositories.py, read with your sign-in). checks: the default branch's newest commit's.
-export type YourRepo = {
-  name: string; // owner/name
-  private: boolean;
-  fork: boolean;
-  description: string;
-  url: string;
-  default_branch: string;
-  pushed_at: string | null;
-  checks: "passed" | "failed" | "running" | "none";
-  open_issues: number;
-  open_prs: number;
-  stars: number;
-  starred: boolean; // you starred it
-  can_push: boolean; // one of your repositories: a maintainer's buttons
-  parent: string | null; // a fork: the repo it was forked from
-};
-
-export type YourReposData = {
-  repos: YourRepo[]; // the ones you can push to, most recently pushed first
-  starred: YourRepo[]; // the ones you starred and can't push to, most recently starred first
-  parents: YourRepo[]; // the repos your forks were forked from, when in neither list
-  login: string | null; // who they were read for; null when not signed in
-  checked_at: string | null;
-  error: string | null;
-};
-
-// One of GitHub's own notifications for you (github_searcher/notifications.py). reason and type are GitHub's words.
-export type GithubNotification = {
-  id: string;
-  unread: boolean;
-  reason: string; // mention, review_requested, assign, author, comment, ci_activity, state_change, subscribed, ...
-  updated_at: string;
-  title: string;
-  type: string; // Issue, PullRequest, Release, CheckSuite, Discussion, Commit, ...
-  repo: string;
-  number: number | null; // an issue's or PR's
-  url: string;
-};
-
-export type NotificationsData = {
-  items: GithubNotification[]; // the newest first
-  login: string | null;
-  checked_at: string | null;
-  error: string | null;
-};
-
-// Your GitHub account (GET /api/github_account, the GitHub tab's Account page), the one that sends what you approve
-// and that the GitHub tab's buttons act as. Never the token.
+// Your GitHub account (GET /api/github_account, Settings → Account), the one the app sends pull requests and comments
+// as. Never the token.
 export type GithubAccountStatus = {
   connected: boolean;
   // Whether Sign in with GitHub is set up (the app registered on GitHub, its client ID and secret saved).
@@ -728,27 +353,6 @@ export type AgentSummary = {
 // How far a repository's agent's set-up is (github_searcher/agents.py, prepare_live): its VM coming up and the code
 // going in, then ready (it has its set_up_repo job), or failed with why (Try again).
 export type LiveSetUp = { state: "preparing" | "ready" | "failed"; error: string | null };
-
-// An issue a repository's agent drafted for you (github_searcher/issue_drafts.py), a card in its chat.
-export type IssueDraft = {
-  id: string;
-  agent: string;
-  repo: string;
-  title: string;
-  body: string; // markdown
-  labels: string[];
-  status: "pending" | "created" | "discarded";
-  url: string | null; // the issue on GitHub, once created
-  number: number | null;
-  created_at: string;
-  decided_at: string | null;
-};
-
-export type Todo = {
-  content: string;
-  status: "pending" | "in_progress" | "completed";
-  activeForm: string;
-};
 
 export type HistoryEntry =
   | { type: "user"; text: string; time: string }
@@ -955,83 +559,6 @@ export type VMSettings = {
   env: Record<string, string>;
 };
 
-export type TreeFile = {
-  path: string;
-  type: "blob" | "tree";
-  size: number;
-};
-
-export type RepoTree = {
-  ref: string;
-  files: TreeFile[];
-  truncated: boolean;
-  readme: string | null;
-};
-
-export type RepoFile = {
-  path: string;
-  text: string | null;
-  size: number;
-  binary: boolean;
-  too_big: boolean;
-};
-
-export type Readme = {
-  markdown: string | null;
-  ref?: string;
-};
-
-export type Thread = {
-  title: string;
-  state: string;
-  author: string;
-  body: string;
-  labels: string[];
-  assignees: string[];
-  comments: { author: string; at: string; body: string }[];
-  html_url: string;
-};
-
-// This computer's use (sandbox/resource_usage.py), a new reading about once a second. Rates are bytes a second.
-// A number is null when this computer doesn't have it, or before the second reading.
-export type GPUState = "on" | "asleep" | "not_watched" | "in_vm" | "no_driver" | "unknown" | "error";
-
-export type GPUUsage = {
-  address: string; // PCI address, "0000:01:00.0"
-  vendor: "nvidia" | "amd" | "intel" | "other";
-  name: string;
-  state: GPUState; // only "on" has numbers
-  percent: number | null;
-  memory_used_gb: number | null;
-  memory_total_gb: number | null;
-  shared_used_gb: number | null; // system memory a built-in GPU borrows
-  shared_total_gb: number | null;
-  temp_c: number | null;
-  power_w: number | null;
-  mhz: number | null;
-};
-
-export type ResourceSample = {
-  cpu_percent: number | null;
-  memory_used_gb: number;
-  gpu_percent: (number | null)[]; // one per GPU, in the order of gpus
-  disk_read_rate: number | null;
-  disk_write_rate: number | null;
-  net_down_rate: number | null;
-  net_up_rate: number | null;
-};
-
-export type ResourceUsage = {
-  cpu: { name: string; threads: number; percent: number | null; per_thread: (number | null)[]; mhz: number | null; temp_c: number | null };
-  memory: { total_gb: number; used_gb: number; swap_total_gb: number; swap_used_gb: number };
-  gpus: GPUUsage[];
-  disk: { total_gb: number; used_gb: number; read_rate: number | null; write_rate: number | null; temp_c: number | null };
-  network: { interface: string | null; down_rate: number | null; up_rate: number | null };
-  battery: { percent: number; status: string; power_w: number | null; plugged_in: boolean | null } | null;
-  fans: number[]; // rpm
-  samples: ResourceSample[]; // the last 60, one a second
-};
-
 // The live copy's updates (github_searcher/updates.py): the version that runs, and a newer release that is ready.
 export type UpdatesData = {
   live: boolean; // false in the dev copy (./run.sh): no updates there
@@ -1049,273 +576,33 @@ export type UpdatesData = {
   restarting: boolean;
 };
 
-// One of your repositories agents develop all the time (github_searcher/projects.py): Development and Releases.
-export type ProjectIssue = {
-  number: number;
-  title: string;
-  state: "working" | "denied" | "stopped" | "closed" | "done";
-  job: string | null;
-  agent: string | null;
-  kind: string | null; // denied: not_valid, duplicate, conflicting, out_of_scope, cannot_reproduce
-  why: string; // denied: the agent's reason
-  at: string;
-};
-
-export type ProjectPR = {
-  number: number;
-  title: string;
-  url: string;
-  draft: string | null; // the Inbox draft Approve opened it from
-  job: string | null;
-  agent: string | null;
-  issue: number | null;
-  state: "open" | "merged" | "closed";
-  checks: "passed" | "failed" | "running" | "none";
-  mergeable: boolean | null; // false: conflicts with main
-  redo: boolean; // its agent makes it again on the new main
-  replaces: string | null;
-  at: string;
-};
-
-export type Project = {
-  repo: string;
-  on: boolean;
-  mode: "drafts" | "auto";
-  agents: number; // workers
-  goals: string;
-  vm: string | null;
-  chat: string | null; // the chat agent (the repository's agent)
-  workers: string[];
-  reviewer: string | null;
-  issues: Record<string, ProjectIssue>;
-  prs: Record<string, ProjectPR>;
-  crashes_sent_at: string | null;
-  error: string; // why the last round failed
-  created_at: string;
-  app: boolean; // the app's own repo: its errors become its issues
-};
-
-// One of the app's own errors (github_searcher/crashes.py), which the app's own project turns into issues.
-export type Crash = {
-  id: string;
-  source: "backend" | "browser" | "agent" | "release";
-  message: string;
-  detail: string;
-  count: number;
-  first_at: string;
-  last_at: string;
-  version: string;
-  state: "new" | "sent" | "filed" | "skipped";
-  issue: number | null;
-  note: string;
-};
-
-// What went wrong in how the app made an agent work, as the agent reported it (github_searcher/problems.py): the
-// Dashboard's Problems page.
-export type Problem = {
-  id: string;
-  at: string;
-  agent: string;
-  job: string | null;
-  about: string | null; // owner/name#n it happened on
-  text: string;
-  closed_at: string | null; // closed once fixed (Close all on the page)
-};
-
-// The Workflow tab (github_searcher/workflow.py): your own repositories that agents develop one confined issue at a
-// time, each as a pull request the review agent checks before it is merged or rejected.
-export type WorkflowIssue = {
-  number: number;
-  title: string;
-  goal: string; // one sentence
-  requirements: string[]; // empty: not written down yet (its worker does that first)
-  validation: string; // how to check it is done
-  state: "open" | "closed";
-  reason: "merged" | "duplicate" | "not_valid" | "cannot_reproduce" | "too_big" | "by_you" | "on_github" | null;
-  why: string;
-  by: string; // "you", "github" (opened there by hand) or the agent's id
-  found_in: number | null; // the issue or pull request it was found while working on
-  url: string | null; // on GitHub
-  agent: string | null; // its worker
-  job: string | null;
-  pr: number | null; // its newest pull request
-  stopped: boolean; // its job was cancelled: Try again gives it out again
-  created_at: string;
-  closed_at: string | null;
-  at: string;
-};
-
-export type WorkflowReview = {
-  agent: string;
-  job: string | null;
-  advice: "merge" | "dont_merge" | null; // null: still reviewing
-  summary: string; // what changes, in a plain line
-  important: string[];
-  checked: string; // what it ran and saw
-  evidence: EvidenceItem[];
-  at: string;
-};
-
-export type WorkflowPR = {
-  number: number;
-  id: string;
-  title: string;
-  by: string; // the worker's id, or "you" (opened on GitHub by hand)
-  author: string | null; // that one's GitHub login
-  issue: number | null;
-  job: string | null;
-  agent: string | null;
-  state: "review" | "waiting" | "merged" | "rejected" | "closed";
-  url: string | null; // on GitHub
-  github: number | null; // its number on GitHub
-  head: string | null;
-  area: string; // its title's scope
-  files: { path: string; added: number; removed: number }[];
-  added: number;
-  removed: number;
-  review: WorkflowReview | null;
-  decision: { by: "you" | "agent"; action: "merge" | "reject"; reason: string; at: string } | null;
-  checks: "passed" | "failed" | "running" | "none" | null;
-  mergeable: boolean | null;
-  error: string; // why the last merge failed
-  created_at: string;
-  at: string;
-};
-
-export type WorkflowRepo = {
-  repo: string;
-  on: boolean; // workers take new issues
-  prs_on: "seraph" | "github";
-  decides: "you" | "agent";
-  agents: number; // workers
-  vm: string | null;
-  chat: string | null;
-  workers: string[];
-  reviewer: string | null;
-  next_number: number;
-  issues: Record<string, WorkflowIssue>;
-  prs: Record<string, WorkflowPR>;
-  error: string; // why the last round failed
-  created_at: string;
-};
-
-// What a pull request is made of (GET /api/workflow/{repo}/pulls/{n}): a worker's has all of it, one opened on GitHub
-// by hand only its body and diff.
-export type WorkflowPRParts = {
-  body: string;
-  diff: string;
-  overview?: DraftOverview;
-  commits?: DraftCommit[];
-  base?: string;
-  base_sha?: string;
-  branch?: string;
-  evidence?: EvidenceItem[];
-  tests?: { before: TestRun | null; after: TestRun | null };
-};
-
-// The Dashboard's Automation (backend/automation_api.py): it finds repos, works on them and archives the ones that
-// don't merge ours, by itself. Every repo in Repos has a label, worked out from our PRs there, also while it is off.
-export type AutomationLabelName = "Fast" | "Normal" | "New" | "Slow" | "No issues" | "Not merging";
-
-export type AutomationLabel = {
-  label: AutomationLabelName;
-  rank: number; // its place in the order: Fast first
-  why: string; // one line on what decided it
-  merged: number; // our PRs there: merged, closed without a merge, open
-  closed: number;
-  open: number;
-  days: number | null; // business days ours took to merge, the median; null with none merged
-  idle: number; // days since anything was worked on there
-  per_day: number | null; // PRs the repo merges a day, anyone's; null before its signals are read
-};
-
-// A repo's level of automation (backend/repo_automation_api.py; AutomationDialog.tsx edits it).
-export type RepoAutomation = {
-  add_issues?: boolean; // missing on settings from before it
-  queue_issues?: boolean; // missing on settings from before it: Take issues said then
-  take_issues: boolean;
-  questions: boolean;
-  comments: boolean;
-  pull_requests: boolean;
-  open_issues?: boolean; // missing on settings from before it
-  max_prs_first?: number; // open PRs at once until one is merged there; missing on settings from before it (1)
-  max_prs?: number; // and after (5)
-  levels_first?: string[]; // which issues may be taken until one of yours there is merged; missing before it (Easy)
-  levels: string[]; // and once one is: "easy", "medium", "hard"
-  instructions: string;
-};
-
-// An issue's own level, over its repo's (IssueAutomationDialog.tsx edits it).
-export type IssueLevel = { questions: boolean; comments: boolean; pull_requests: boolean };
-
-// The Issues board's automation (backend/issues_api.py; BoardAutomationDialog.tsx edits it).
-export type BoardRules = {
-  claimed: boolean;
-  out_of_scope: boolean;
-  levels: string[];
-  scope_not_clear: boolean;
-  older_than_days: number | null;
-  refresh_open_minutes: number;
-  refresh_catalog_minutes: number;
-  refresh_ongoing_minutes: number;
-  max_agents: number;
-  stale_pr_days: number | null;
-};
-
-// The days behind the labels (business days, but idle_days and leave_days).
-export type AutomationRules = {
-  fast_days: number;
-  normal_days: number;
-  max_open_days: number;
-  close_days: number;
-  idle_days: number;
-  leave_days: number;
-};
-
+// The Automation page's settings (backend/automation_api.py; PUT /api/automation takes the same). A limit that is null
+// has none.
 export type AutomationData = {
-  on: boolean;
-  active_repos: number; // how many repos to keep active (in Repos, not archived)
-  take_new: boolean; // false: Pause new issues, agents take nothing new from Catalog
-  rules: AutomationRules;
-  new_repos: RepoAutomation; // the level the repos it adds get
-  archived: Record<string, string>; // the repos it archived, and when
-  closed: string[]; // our PRs it closed (owner/name#n)
-  run: string | null; // started_at of the Explore run it started
-  log: { at: string; repo: string; what: string; why: string }[]; // newest last
-  labels: Record<string, AutomationLabel>; // by owner/name, as in Repos
-  label_rules: Record<AutomationLabelName, string>; // each label's rule in words
-  // Every level of automation, the same the robot dialogs edit: each repo's (by owner/name), the defaults for one with
-  // none, each issue's own (by owner/name#n) and the Issues board's.
-  repo_levels: Record<string, RepoAutomation>;
-  defaults: RepoAutomation;
-  issue_levels: Record<string, IssueLevel>;
-  board: BoardRules;
+  on: boolean; // Manage repositories: finds and adds repositories, archives the ones that don't merge ours
+  take_new: boolean; // Take new issues
+  send_prs: boolean; // Create pull requests
+  send_comments: boolean; // Reply to reviews and comments
+  max_prs_per_day: number | null;
+  max_open_prs: number | null;
+  max_open_per_repo: number | null;
+  max_agents: number; // at least 1
+  min_stars: number | null; // null: any
+  ai_policies: string[]; // the AI policies whose repositories may be worked on: "welcome", "disclose", "none", "unclear"
 };
 
 // ---- The live store ----
 
 export type Topics = {
-  repos: ListData<ListedRepo> & { archived: string[]; planned: string[] }; // archived, planned: the Dashboard's Repository page (repo_list.py)
-  // catalog and order: the Dashboard's Issues board (moved to Catalog; every card's place), github_searcher/issue_list.py.
-  issues: ListData<IssueItem> & { catalog: string[]; order: string[]; held: string[] };
-  tracked: ListData<TrackedRepo>;
-  explore: ExploreData;
-  github: GithubStatus | null;
+  // archived, planned, priority, removed: the Repositories page (repo_list.py); a repo not in priority is normal.
+  repos: ListData<RepoItem> & { archived: string[]; planned: string[]; priority: Record<string, "high" | "low" | "stopped">; removed: string[] };
   jobs: Job[];
-  inbox: Draft[];
-  issue_drafts: IssueDraft[];
+  inbox: Draft[]; // only the approval requests still waiting: the Blockers page
   prs: PRsData;
-  your_repos: YourReposData;
-  notifications: NotificationsData;
   agents: AgentSummary[];
   vms: VMSummary[];
   images: ImagesData;
-  resource: ResourceUsage | null; // null until the backend's first reading
   updates: UpdatesData;
-  projects: Project[];
-  crashes: Crash[]; // the newest first
-  problems: Problem[]; // the newest first
-  workflow: WorkflowRepo[];
   automation: AutomationData;
 };
 
@@ -1323,21 +610,13 @@ export type Topics = {
 // `loaded` says which topics have arrived, for the few places that must tell "empty" from "not yet".
 const store = {
   topics: {
-    repos: { items: [], can_undo: false, can_redo: false, archived: [], planned: [] },
-    issues: { items: [], can_undo: false, can_redo: false, catalog: [], order: [], held: [] },
-    tracked: { items: [], can_undo: false, can_redo: false },
-    explore: { profile: { about: "", lanes: [] }, run: null, found: [] },
-    github: null,
+    repos: { items: [], can_undo: false, can_redo: false, archived: [], planned: [], priority: {}, removed: [] },
     jobs: [],
     inbox: [],
-    issue_drafts: [],
     prs: { items: [], issues: [], checked_at: null, error: null, refreshing: false },
-    your_repos: { repos: [], starred: [], parents: [], login: null, checked_at: null, error: null },
-    notifications: { items: [], login: null, checked_at: null, error: null },
     agents: [],
     vms: [],
     images: { images: [], unbuilt: [], default: "", tasks: [] },
-    resource: null,
     updates: {
       live: false,
       running: "dev",
@@ -1353,37 +632,17 @@ const store = {
       failed_reason: "",
       restarting: false,
     },
-    projects: [],
-    crashes: [],
-    problems: [],
-    workflow: [],
     automation: {
       on: false,
-      active_repos: 300,
-      take_new: true,
-      rules: { fast_days: 3, normal_days: 5, max_open_days: 10, close_days: 10, idle_days: 14, leave_days: 30 },
-      new_repos: { take_issues: false, questions: false, comments: false, pull_requests: false, levels: [], instructions: "" },
-      archived: {},
-      closed: [],
-      run: null,
-      log: [],
-      labels: {},
-      label_rules: { Fast: "", Normal: "", New: "", Slow: "", "No issues": "", "Not merging": "" },
-      repo_levels: {},
-      defaults: { take_issues: false, questions: false, comments: false, pull_requests: false, levels: [], instructions: "" },
-      issue_levels: {},
-      board: {
-        claimed: false,
-        out_of_scope: false,
-        levels: [],
-        scope_not_clear: false,
-        older_than_days: null,
-        refresh_open_minutes: 30,
-        refresh_catalog_minutes: 15,
-        refresh_ongoing_minutes: 5,
-        max_agents: 3,
-        stale_pr_days: 14,
-      },
+      take_new: false,
+      send_prs: false,
+      send_comments: false,
+      max_prs_per_day: null,
+      max_open_prs: null,
+      max_open_per_repo: null,
+      max_agents: 1,
+      min_stars: null,
+      ai_policies: [],
     },
   } as Topics,
   loaded: {} as Partial<Record<keyof Topics, boolean>>,
@@ -1392,9 +651,6 @@ const store = {
 
 const listeners = new Set<() => void>();
 
-// The open socket, and how many Resource pages this tab shows (useWatchResource).
-let liveSocket: WebSocket | null = null;
-let resourceWatchers = 0;
 // The version of the app this page came from: the first one the backend says it runs.
 let pageVersion: string | null = null;
 
@@ -1410,11 +666,6 @@ function connect() {
   const socket = new WebSocket(`${protocol}//${window.location.host}/api/live`);
 
   socket.onopen = () => {
-    liveSocket = socket;
-    // A new connection starts not watching: say so again when a Resource page is open.
-    if (resourceWatchers > 0) {
-      socket.send(JSON.stringify({ watch_resource: true }));
-    }
     store.connected = true;
     listeners.forEach((listener) => listener());
   };
@@ -1443,7 +694,6 @@ function connect() {
       window.location.href = "/api/remote_access/sign_in";
       return;
     }
-    liveSocket = null;
     if (store.connected) {
       store.connected = false;
       listeners.forEach((listener) => listener());
@@ -1471,22 +721,6 @@ export function useLoaded(topic: keyof Topics): boolean {
   return useSyncExternalStore(subscribe, () => store.loaded[topic] === true);
 }
 
-// For a Resource page: tells the backend one is open while it is mounted, so the NVIDIA GPU's numbers are read.
-export function useWatchResource() {
-  useEffect(() => {
-    resourceWatchers += 1;
-    if (resourceWatchers === 1 && liveSocket !== null) {
-      liveSocket.send(JSON.stringify({ watch_resource: true }));
-    }
-    return () => {
-      resourceWatchers -= 1;
-      if (resourceWatchers === 0 && liveSocket !== null) {
-        liveSocket.send(JSON.stringify({ watch_resource: false }));
-      }
-    };
-  }, []);
-}
-
 // Whether the websocket is open right now (the header shows "Offline" when it is not).
 export function useConnected(): boolean {
   return useSyncExternalStore(subscribe, () => store.connected);
@@ -1494,7 +728,7 @@ export function useConnected(): boolean {
 
 // ---- The fetch helper ----
 
-// api("/api/repos/undo", { method: "POST" }), api<RepoTree>(`/api/repos/tree?name=${...}`).
+// api("/api/repos/plan", { method: "POST", body: {...} }), api<GithubAccountStatus>("/api/github_account").
 // Sends body as JSON. Returns the parsed JSON (or the text for non-JSON answers).
 // Throws Error(detail) on a non-2xx answer, with the backend's HTTPException detail as the message.
 // A 401 with sign_in: true (through the remote access address, signed out) opens the Sign in page.

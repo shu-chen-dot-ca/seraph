@@ -1,11 +1,11 @@
-"""The Inbox: drafts agents write for the user, and the user's decisions on them. It is on the header's
-GitHub tab (#/inbox).
+"""The Inbox: drafts agents write, and the decisions on them.
 
-Agents never send anything to GitHub. A pull request, a comment or a question becomes a draft
-here, and the user approves, rejects, or replies to it (the agent then keeps working).
-Approving tells the agent. With the user's GitHub account connected (the GitHub tab, Account; github_account.py),
-Approve on a PR or comment also sends it to GitHub as them, first; "sent" then says what went out
-(mark_sent). Each draft is one JSON file, DATA_DIR/inbox/<id>.json:
+Agents never send anything to GitHub themselves. A pull request or a comment becomes a draft here, and
+backend/repo_automation_api.py (keep_drafts) sends it as the user once its repo's Level of automation and the
+Automation page's settings let it (a PR only after its reviewer passed it), then approves it, which tells the agent.
+An approval draft is a blocker only the user can lift (a contributor agreement to sign): it waits on the Dashboard's
+Blockers page for Done (approve) or Skip (reject). "sent" says what went to GitHub, as the user (github_account.py,
+mark_sent). Each draft is one JSON file, DATA_DIR/inbox/<id>.json:
 
     {"id": "draft_a1b2c3", "kind": "pr" | "comment" | "question" | "report" | "edit" | "approval" | "taken" (old) | ..., "agent": "<agent id>",
      "job": "job_..." | null, "repo": "owner/name" | null, "target": "owner/name#n" | null,
@@ -58,20 +58,15 @@ so it learns how the user wants it written.
 "template" is the repo's PR template when a PR's body keeps all its headings (None: the repo has none, or the body
 is written another way, as the project's merged PRs or the user's instructions have it).
 
-"report" is an agent's report on a paper it reproduced (a reproduce_paper job, work_tools.py draft_report): "body" is the
-full technical report, "diff" the agent's code (every file new), "path" its folder in the VM, and "overview" holds the
-rest for the user: {"paper", "claims", "verdict", "results": [{"what", "paper", "ours", "authors", "note"}, ...],
-"problems": [{"title", "what", "why", "evidence": "ev_..."}, ...], "unchecked": ["what couldn't be checked, and why"]}.
-Approving it ends the job; nothing is sent anywhere.
+"report" (old) was an agent's report on a paper it reproduced; papers are gone, the drafts stay as they were.
 
-Every PR draft is reviewed by a reviewer agent before you see it: a project's (github_searcher/projects.py: one of your
-repositories agents develop all the time) by the project's reviewer, any other by that repo's own reviewer. "review" is
+Every PR draft is reviewed by its repo's own reviewer agent before it can go out. "review" is
 waiting until the reviewer's verdict (Agents.give_review, review_finished). Drafts from before every PR was reviewed
 have none (null). passed: it shows in the Inbox, with the reviewer's notes. changes: it went back to its author and is
 rejected with the reviewer's notes, so it never shows. The Inbox only lists drafts with no review or a passed one.
-"replaces" is an older PR this one is made again of: a project's that conflicted with main (Agents.redo_pr), or one of
-the agent's own that stalled, made again fresh with a clean history (Agents.remake_pr, or the agent's own call: draft_pr
-replaces). Once this one is on GitHub, the old one is closed (github_account.py; backend/projects_api.py for a project's).
+"replaces" is an older PR this one is made again of: one of the agent's own that stalled, made again fresh with a clean
+history (Agents.remake_pr, or the agent's own call: draft_pr replaces). Once this one is on GitHub, the old one is closed
+(github_account.py).
 
 "edit" is a new title and description for one of the user's own PRs or issues (a follow-up: a maintainer asked for
 it, or the text no longer matches the PR; work_tools.py draft_edit): "target" is it, "title" and "body" the new text,
@@ -79,8 +74,8 @@ it, or the text no longer matches the PR; work_tools.py draft_edit): "target" is
 description), and "overview" {"project", "problem", "why"} like a comment's. Approve changes them on GitHub, only while
 they are still "previous" (github_account.py).
 
-"approval" is a blocker only the user can lift, on the Dashboard's Approvals page (frontend/src/Approvals.tsx; work_tools.py
-ask_approval), not in the Inbox: a CLA or another agreement to sign, something to do by hand, an account, a payment,
+"approval" is a blocker only the user can lift, on the Dashboard's Blockers page (frontend/src/Blockers.tsx; work_tools.py
+ask_approval): a CLA or another agreement to sign, something to do by hand, an account, a payment,
 a secret. "title" says what needs approving, "body" what it means and what happens on Approve and on Reject, and
 "overview" is {"kind": "cla" | "other", "link": the page to read or act on, or ""}. Approve lets the agent go on (a CLA:
 it signs it the way the project asks), Reject makes it give the job up (Agents.decide). Nothing is sent anywhere, and no
@@ -148,7 +143,7 @@ load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 DATA_DIR = PROJECT_ROOT / os.environ["DATA_DIR"]
 DECISIONS = ["approved", "rejected", "replied"]
-# Asking the user (Settings, backend/ask_settings_api.py): how long a timed question waits before the app answers it
+# Asking the user (once set in Settings; no page changes it now): how long a timed question waits before the app answers it
 # with the agent's recommendation, and the kinds of question that always wait for the user (all of them until the
 # user switches some off). Read from the file each time it is needed; these are the defaults.
 ASK_SETTINGS_FILE = DATA_DIR / "ask_settings.json"
@@ -245,6 +240,24 @@ class Inbox:
         with self.lock:
             drafts = sorted(self.drafts.values(), key=lambda draft: draft["created_at"], reverse=True)
             return copy.deepcopy(drafts)
+
+    def pending(self) -> list[dict]:
+        """The drafts still waiting, newest first. Much cheaper than list(): only those are copied, not every draft
+        ever made (the live feed's Blockers and repo_automation_api.py keep_drafts read it all the time)."""
+        with self.lock:
+            drafts = [draft for draft in self.drafts.values() if draft["status"] == "pending"]
+            drafts.sort(key=lambda draft: draft["created_at"], reverse=True)
+            return copy.deepcopy(drafts)
+
+    def new_prs_sent_since(self, at: str) -> int:
+        """How many new PRs (not a new version of an open one) went to GitHub since at (an ISO time in UTC, like the
+        drafts' "sent" "at"), for the Automation's Pull requests per day."""
+        with self.lock:
+            count = 0
+            for draft in self.drafts.values():
+                if draft["kind"] == "pr" and draft["sent"] is not None and draft.get("update_of") is None and draft["sent"]["at"] >= at:
+                    count += 1
+            return count
 
     def get(self, draft_id: str) -> dict:
         with self.lock:

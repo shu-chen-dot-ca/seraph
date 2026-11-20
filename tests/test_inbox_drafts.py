@@ -1,5 +1,4 @@
-"""The stores drafts and jobs live in: the Inbox (github_searcher/inbox.py), issue drafts (github_searcher/issue_drafts.py)
-and jobs (github_searcher/jobs.py). A draft is decided once, edited only while pending, deleted only once decided, and
+"""The stores drafts and jobs live in: the Inbox (github_searcher/inbox.py) and jobs (github_searcher/jobs.py). A draft is decided once, edited only while pending, deleted only once decided, and
 what went to GitHub stays in the actions list even when its draft is gone. Older records load with the fields added
 since. A job's steps, statuses and evidence follow the rules jobs.py describes.
 
@@ -10,10 +9,8 @@ import json
 import pytest
 
 from github_searcher import inbox as inbox_module
-from github_searcher import issue_drafts as issue_drafts_module
 from github_searcher import jobs as jobs_module
 from github_searcher.inbox import Inbox
-from github_searcher.issue_drafts import IssueDrafts
 from github_searcher.jobs import STEPS, Jobs
 
 PR_DIFF = "diff --git a/cli.py b/cli.py\n--- a/cli.py\n+++ b/cli.py\n@@ -1 +1 @@\n-HELP = 'usage'\n+HELP = 'usage: proj'\n"
@@ -25,13 +22,6 @@ def inbox(tmp_path, monkeypatch):
     monkeypatch.setattr(inbox_module, "DATA_DIR", tmp_path)
     monkeypatch.setattr(inbox_module, "ACTIONS_FILE", tmp_path / "actions.json")
     return Inbox()
-
-
-@pytest.fixture
-def issue_drafts(tmp_path, monkeypatch):
-    """No issue drafts yet, issue_drafts.json in a temporary folder."""
-    monkeypatch.setattr(issue_drafts_module, "DATA_DIR", tmp_path)
-    return IssueDrafts()
 
 
 @pytest.fixture
@@ -279,53 +269,6 @@ def test_first_actions_list_is_made_from_drafts_sent_before_it(tmp_path, monkeyp
 
     assert [action["title"] for action in actions] == ["Sent later", "Sent first"]
     assert (tmp_path / "actions.json").is_file()
-
-
-# Issue drafts
-
-
-def test_new_issue_draft_is_pending(issue_drafts, tmp_path):
-    draft = issue_drafts.create("agent-1", "owner/proj", "Add a --verbose flag", "Body", ["enhancement"])
-
-    assert draft["id"].startswith("issue_")
-    assert draft["status"] == "pending"
-    assert draft["url"] is None
-    assert draft["number"] is None
-    assert json.loads((tmp_path / "issue_drafts.json").read_text()) == [draft]
-
-
-def test_issue_draft_is_decided_once(issue_drafts):
-    draft = issue_drafts.create("agent-1", "owner/proj", "Add a --verbose flag", "Body", [])
-
-    created = issue_drafts.decide(draft["id"], "created", "https://github.com/owner/proj/issues/77", 77)
-
-    assert created["status"] == "created"
-    assert created["number"] == 77
-    with pytest.raises(ValueError, match="created already"):
-        issue_drafts.decide(draft["id"], "discarded")
-
-
-def test_issue_draft_unknown_decision_or_id(issue_drafts):
-    draft = issue_drafts.create("agent-1", "owner/proj", "Title", "Body", [])
-
-    with pytest.raises(ValueError, match="Unknown decision"):
-        issue_drafts.decide(draft["id"], "approved")
-    with pytest.raises(KeyError):
-        issue_drafts.decide("issue_000000", "discarded")
-    with pytest.raises(KeyError):
-        issue_drafts.get("issue_000000")
-
-
-def test_deleted_agent_takes_its_issue_drafts_along(issue_drafts):
-    issue_drafts.create("agent-1", "owner/proj", "One", "Body", [])
-    kept = issue_drafts.create("agent-2", "owner/proj", "Two", "Body", [])
-
-    issue_drafts.delete_for_agent("agent-1")
-    version = issue_drafts.version
-    issue_drafts.delete_for_agent("agent-9")
-
-    assert [draft["id"] for draft in IssueDrafts().list()] == [kept["id"]]
-    assert issue_drafts.version == version
 
 
 # Jobs

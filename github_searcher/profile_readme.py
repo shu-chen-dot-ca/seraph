@@ -1,5 +1,6 @@
-"""Your GitHub profile's README (the repository github.com/<you>/<you>, shown on your profile page): a table of your
-merged pull requests, kept up to date as long as Seraph runs (backend/github_api.py's keep_profile_readme()).
+"""Your GitHub profile's README (the repository github.com/<you>/<you>, shown on your profile page) and Seraph's own
+(projects.SELF_REPO, its Merged upstream part): a table of your merged pull requests, kept up to date in both as long as
+Seraph runs (backend/github_api.py's keep_profile_readme()).
 
 update(your_repositories) searches GitHub, as you, for every pull request of yours merged into a public repository
 that isn't yours (is:pr is:merged is:public author:<you> -user:<you>), and writes how many there are and in how many
@@ -7,12 +8,15 @@ repositories ("Seraph merged PRs: 12 in 8 repositories"), then a table: one row 
 most starred first, with a link to each pull request and, in a column of their own, its lines added (green) and
 removed (red). Only the part between START and END changes; everything else in README.md
 stays as you wrote it. When nothing changed, nothing is committed. A README.md without both markers is left alone.
+Both are committed on the repository's default branch, as you: pull before you push Seraph's own.
 
-The first time, when the repository isn't there yet, it is made, public, with a README.md that is FIRST_TEXT and the
-markers with the table between them.
+The first time, when your profile repository isn't there yet, it is made, public, with a README.md that is FIRST_TEXT
+and the markers with the table between them.
 """
 
 import base64
+
+from github_searcher.projects import SELF_REPO
 
 START = "<!-- merged-prs:start -->"
 END = "<!-- merged-prs:end -->"
@@ -77,44 +81,54 @@ def table(your_repositories, login: str) -> str:
 
 
 def update(your_repositories) -> str:
-    """Brings the table up to date. Returns what it did, in words. ValueError or httpx.HTTPError when GitHub refuses.
-    Runs in a thread."""
+    """Brings the table up to date in your profile's README.md and in Seraph's own (SELF_REPO). Returns what it did, in
+    words. ValueError or httpx.HTTPError when GitHub refuses. Runs in a thread."""
     account = your_repositories.github_account.load()
     if account is None:
         return "Not signed in."
     login = account["login"]
-    repo = f"{login}/{login}"
+    profile = f"{login}/{login}"
     section = START + "\n" + table(your_repositories, login) + "\n" + END
+    # Seraph's own README shows the same table (its Merged upstream part). Not when the app's repo isn't known.
+    repos = [profile]
+    if SELF_REPO != "":
+        repos.append(SELF_REPO)
 
+    done = []
     with your_repositories.client() as client:
-        response = client.get(f"/repos/{repo}")
+        response = client.get(f"/repos/{profile}")
         if response.status_code == 404:
             response = client.post("/user/repos", json={"name": login, "private": False})
         response.raise_for_status()
 
-        response = client.get(f"/repos/{repo}/contents/README.md")
-        # No README.md yet (a new repository is empty: also 404).
-        if response.status_code == 404:
-            text = FIRST_TEXT + section + "\n"
-            body = {"message": "docs(readme): add merged pull requests", "content": base64.b64encode(text.encode()).decode()}
+        for repo in repos:
+            response = client.get(f"/repos/{repo}/contents/README.md")
+            # No README.md yet in your profile repository (a new repository is empty: also 404).
+            if response.status_code == 404 and repo == profile:
+                text = FIRST_TEXT + section + "\n"
+                body = {"message": "docs(readme): add merged pull requests", "content": base64.b64encode(text.encode()).decode()}
+                response = client.put(f"/repos/{repo}/contents/README.md", json=body)
+                response.raise_for_status()
+                done.append(f"Made {repo}'s README.md.")
+                continue
+            response.raise_for_status()
+            readme = response.json()
+            old = base64.b64decode(readme["content"]).decode()
+            start = old.find(START)
+            end = old.find(END)
+            if start == -1 or end < start:
+                done.append(f"{repo}'s README.md has no {START} and {END}: left alone.")
+                continue
+            new = old[:start] + section + old[end + len(END):]
+            if new == old:
+                done.append(f"{repo}'s README.md is up to date.")
+                continue
+            body = {
+                "message": "docs(readme): update merged pull requests",
+                "content": base64.b64encode(new.encode()).decode(),
+                "sha": readme["sha"],
+            }
             response = client.put(f"/repos/{repo}/contents/README.md", json=body)
             response.raise_for_status()
-            return f"Made {repo}'s README.md."
-        response.raise_for_status()
-        readme = response.json()
-        old = base64.b64decode(readme["content"]).decode()
-        start = old.find(START)
-        end = old.find(END)
-        if start == -1 or end < start:
-            return f"{repo}'s README.md has no {START} and {END}: left alone."
-        new = old[:start] + section + old[end + len(END):]
-        if new == old:
-            return "Up to date."
-        body = {
-            "message": "docs(readme): update merged pull requests",
-            "content": base64.b64encode(new.encode()).decode(),
-            "sha": readme["sha"],
-        }
-        response = client.put(f"/repos/{repo}/contents/README.md", json=body)
-        response.raise_for_status()
-    return f"Updated {repo}'s README.md."
+            done.append(f"Updated {repo}'s README.md.")
+    return " ".join(done)

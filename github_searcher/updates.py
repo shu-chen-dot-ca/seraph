@@ -59,8 +59,7 @@ STEP_SECONDS = 15 * 60
 CHECK_START_SECONDS = 120
 CHECK_FEED_SECONDS = 10
 # Every topic the live feed sends (backend/app.py): the check needs each of them.
-TOPICS = ["repos", "issues", "tracked", "explore", "github", "jobs", "inbox", "issue_drafts", "prs", "your_repos", "notifications",
-          "agents", "vms", "images", "resource", "updates", "projects", "crashes"]
+TOPICS = ["repos", "jobs", "inbox", "prs", "agents", "vms", "images", "updates", "automation"]
 
 
 class Updates:
@@ -148,7 +147,7 @@ class Updates:
     def check_now(self) -> None:
         account = self.github_account.load()
         if account is None:
-            raise ValueError("Sign in with GitHub (the GitHub tab, Account) to check for updates.")
+            raise ValueError("Sign in with GitHub (Settings, Account) to check for updates.")
         if REPO == "":
             raise ValueError("SERAPH_REPO in .env is empty: the repo to look for releases in.")
         headers = {"Accept": "application/vnd.github+json", "Authorization": f"Bearer {account['token']}", "X-GitHub-Api-Version": "2022-11-28"}
