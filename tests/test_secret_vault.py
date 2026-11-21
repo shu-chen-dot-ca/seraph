@@ -1,11 +1,12 @@
-"""Secrets (github_searcher/secret_vault.py): what status() shows, and how move() and put() keep the secrets in AWS
-Secrets Manager.
+"""Secrets (github_searcher/secret_vault.py): what status() shows, how save() sets a token from Settings, and how move()
+and put() keep the secrets in AWS Secrets Manager.
 
 AWS is a fake Secrets Manager kept in memory, and the system keyring is a fake secret-tool: nothing here reaches AWS
-or the real keyring. .env and the data folder are in pytest's temporary folder, never the real ones. The module's
-SETTINGS, CLIENT and VALUES start as on a computer that keeps its secrets itself, and go back after every test."""
+or the real keyring. The data folder is in pytest's temporary folder, never the real one. The module's SETTINGS,
+CLIENT and VALUES start as on a computer that keeps its secrets itself, and go back after every test."""
 
 import json
+import os
 import subprocess
 from types import SimpleNamespace
 
@@ -14,33 +15,15 @@ from botocore.exceptions import ClientError
 
 from github_searcher import secret_vault
 
-ENV = """# ===== GitHub =====
-GITHUB_TOKEN=ghp_first
-GITHUB_TOKEN_2=ghp_second
-GITHUB_TOKEN_3=
-
-GITHUB_API_URL=https://api.github.com
-
-# ===== Claude =====
-CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat-claude
-CLAUDE_MODEL=claude-opus-5-5[1m]
-
-DATA_DIR=data
-"""
-# What move() leaves of ENV: one note where the first secret was, every other line as it was.
-ENV_AFTER = f"""# ===== GitHub =====
-{secret_vault.ENV_NOTE}
-
-GITHUB_API_URL=https://api.github.com
-
-# ===== Claude =====
-CLAUDE_MODEL=claude-opus-5-5[1m]
-
-DATA_DIR=data
-"""
+# The tokens Settings keeps on this computer, in DATA_DIR/secrets.json.
+SECRETS = {
+    "GITHUB_TOKEN": "ghp_first",
+    "GITHUB_TOKEN_2": "ghp_second",
+    "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat-claude",
+}
 ACCOUNT = {"login": "octocat", "token": "gho_signin"}
 APP = {"client_id": "Iv1.abc", "client_secret": "app_secret"}
-# Everything on this computer in ENV, ACCOUNT and APP, by the name it has in AWS.
+# Everything on this computer in SECRETS, ACCOUNT and APP, by the name it has in AWS.
 ON_DISK = {
     "GITHUB_TOKEN": "ghp_first",
     "GITHUB_TOKEN_2": "ghp_second",
@@ -106,19 +89,27 @@ class FakeSecretTool:
 
 @pytest.fixture(autouse=True)
 def home(tmp_path, monkeypatch):
-    """.env and the data folder in a temporary folder, with every secret still on this computer."""
+    """The data folder in a temporary folder, with every secret still on this computer, read as at import."""
     data = tmp_path / "data"
     data.mkdir()
     monkeypatch.setattr(secret_vault, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(secret_vault, "DATA_DIR", data)
     monkeypatch.setattr(secret_vault, "SETTINGS_PATH", data / "secret_vault.json")
+    monkeypatch.setattr(secret_vault, "SECRETS_PATH", data / "secrets.json")
     monkeypatch.setattr(secret_vault, "SETTINGS", None)
     monkeypatch.setattr(secret_vault, "CLIENT", None)
-    monkeypatch.setattr(secret_vault, "VALUES", {})
-    (tmp_path / ".env").write_text(ENV)
+    monkeypatch.setattr(secret_vault, "VALUES", dict(SECRETS))
+    (data / "secrets.json").write_text(json.dumps(SECRETS))
     (data / "github_account.json").write_text(json.dumps(ACCOUNT))
     (data / "github_app.json").write_text(json.dumps(APP))
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def environment(monkeypatch):
+    """The tokens save() puts in os.environ go back to what they were after every test."""
+    for name in ["GITHUB_TOKEN", "GITHUB_TOKEN_2", "GITHUB_TOKEN_3", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_VM"]:
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -143,20 +134,27 @@ def keyring(monkeypatch):
 
 
 @pytest.fixture
-def in_aws(aws, monkeypatch):
-    """Secrets already moved to AWS (ca-central-1) by an earlier move()."""
+def in_aws(aws, home, monkeypatch):
+    """Secrets already moved to AWS (ca-central-1) by an earlier move(): nothing on this computer's disk."""
     aws.secrets[secret_vault.SECRET_NAME] = json.dumps({"GITHUB_TOKEN": "ghp_first"})
     settings = {"kind": "aws", "region": "ca-central-1", "secret_name": secret_vault.SECRET_NAME, "moved_at": "2026-11-15T12:00:00+00:00"}
     monkeypatch.setattr(secret_vault, "SETTINGS", settings)
     monkeypatch.setattr(secret_vault, "CLIENT", aws)
     monkeypatch.setattr(secret_vault, "VALUES", {"GITHUB_TOKEN": "ghp_first"})
+    (home / "data" / "secrets.json").unlink()
+    (home / "data" / "github_account.json").write_text(json.dumps({"login": "octocat"}))
+    (home / "data" / "github_app.json").write_text(json.dumps({"client_id": "Iv1.abc"}))
     return aws
 
 
-def test_status_on_this_computer_names_what_is_on_disk():
-    # GITHUB_TOKEN_3 is empty, so it isn't a secret on disk.
+def test_status_on_this_computer_shows_the_tokens_and_what_is_on_disk():
     assert secret_vault.status() == {
         "kind": "computer",
+        "tokens": [
+            {"name": "GITHUB_TOKEN", "end": "irst"},
+            {"name": "GITHUB_TOKEN_2", "end": "cond"},
+            {"name": "CLAUDE_CODE_OAUTH_TOKEN", "end": "aude"},
+        ],
         "on_disk": ["GITHUB_TOKEN", "GITHUB_TOKEN_2", "CLAUDE_CODE_OAUTH_TOKEN", "GITHUB_SIGN_IN_TOKEN", "GITHUB_APP_CLIENT_SECRET"],
     }
 
@@ -171,6 +169,8 @@ def test_status_with_aws_names_the_secret_and_its_console_page(in_aws, monkeypat
     assert status["secret_name"] == "seraph/secrets"
     assert status["moved_at"] == "2026-11-15T12:00:00+00:00"
     assert status["names"] == ["CLAUDE_CODE_OAUTH_TOKEN", "GITHUB_TOKEN"]
+    assert status["tokens"] == [{"name": "GITHUB_TOKEN", "end": "irst"}, {"name": "CLAUDE_CODE_OAUTH_TOKEN", "end": "aude"}]
+    assert status["on_disk"] == []
     assert status["console_url"] == "https://ca-central-1.console.aws.amazon.com/secretsmanager/secret?name=seraph%2Fsecrets&region=ca-central-1"
 
 
@@ -181,6 +181,42 @@ def test_status_never_gives_a_value(in_aws, monkeypatch):
 
     for value in ON_DISK.values():
         assert value not in shown
+
+
+def test_save_on_this_computer_keeps_the_token_in_secrets_json_only_for_this_user(home):
+    secret_vault.save("CLAUDE_CODE_OAUTH_TOKEN_VM", "sk-ant-oat-fix")
+
+    path = home / "data" / "secrets.json"
+    assert json.loads(path.read_text()) == {**SECRETS, "CLAUDE_CODE_OAUTH_TOKEN_VM": "sk-ant-oat-fix"}
+    assert oct(path.stat().st_mode & 0o777) == "0o600"
+    assert secret_vault.VALUES["CLAUDE_CODE_OAUTH_TOKEN_VM"] == "sk-ant-oat-fix"
+    assert os.environ["CLAUDE_CODE_OAUTH_TOKEN_VM"] == "sk-ant-oat-fix"
+
+
+def test_save_none_removes_the_token(home, monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN_2", "ghp_second")
+
+    secret_vault.save("GITHUB_TOKEN_2", None)
+
+    assert "GITHUB_TOKEN_2" not in json.loads((home / "data" / "secrets.json").read_text())
+    assert "GITHUB_TOKEN_2" not in secret_vault.VALUES
+    assert "GITHUB_TOKEN_2" not in os.environ
+
+
+def test_save_with_aws_puts_the_token_there_and_nothing_on_disk(in_aws, home):
+    secret_vault.save("GITHUB_TOKEN_3", "ghp_third")
+
+    assert json.loads(in_aws.secrets["seraph/secrets"]) == {"GITHUB_TOKEN": "ghp_first", "GITHUB_TOKEN_3": "ghp_third"}
+    assert not (home / "data" / "secrets.json").exists()
+    assert os.environ["GITHUB_TOKEN_3"] == "ghp_third"
+
+
+@pytest.mark.parametrize("name", ["GITHUB_SIGN_IN_TOKEN", "GITHUB_APP_CLIENT_SECRET", "GITHUB_TOKEN_OLD", "PATH"])
+def test_save_takes_only_the_tokens(home, name):
+    with pytest.raises(ValueError, match="isn't one of the tokens"):
+        secret_vault.save(name, "value")
+
+    assert json.loads((home / "data" / "secrets.json").read_text()) == SECRETS
 
 
 def test_move_puts_every_secret_in_aws(aws):
@@ -194,10 +230,10 @@ def test_move_puts_every_secret_in_aws(aws):
     assert secret_vault.VALUES == ON_DISK
 
 
-def test_move_leaves_one_note_in_env_where_the_secrets_were(home):
+def test_move_deletes_secrets_json(home):
     secret_vault.move(ACCESS_KEY_ID, SECRET_ACCESS_KEY, "ca-central-1")
 
-    assert (home / ".env").read_text() == ENV_AFTER
+    assert not (home / "data" / "secrets.json").exists()
 
 
 def test_move_takes_the_secrets_out_of_the_two_files_and_keeps_the_rest(home):
@@ -264,7 +300,7 @@ def test_first_move_needs_all_three_fields(aws, home, access_key_id, secret_acce
         secret_vault.move(access_key_id, secret_access_key, region)
 
     assert aws.made == []
-    assert (home / ".env").read_text() == ENV
+    assert json.loads((home / "data" / "secrets.json").read_text()) == SECRETS
 
 
 @pytest.mark.parametrize(
@@ -283,7 +319,7 @@ def test_nothing_leaves_this_computer_when_aws_refuses(aws, home, keyring, refus
     with pytest.raises(ValueError, match=problem):
         secret_vault.move(ACCESS_KEY_ID, SECRET_ACCESS_KEY, "ca-central-1")
 
-    assert (home / ".env").read_text() == ENV
+    assert json.loads((home / "data" / "secrets.json").read_text()) == SECRETS
     assert json.loads((home / "data" / "github_account.json").read_text()) == ACCOUNT
     assert json.loads((home / "data" / "github_app.json").read_text()) == APP
     assert not (home / "data" / "secret_vault.json").exists()
@@ -298,7 +334,7 @@ def test_nothing_leaves_this_computer_when_aws_keeps_something_else(aws, home):
     with pytest.raises(ValueError, match="didn't keep them as they were sent"):
         secret_vault.move(ACCESS_KEY_ID, SECRET_ACCESS_KEY, "ca-central-1")
 
-    assert (home / ".env").read_text() == ENV
+    assert json.loads((home / "data" / "secrets.json").read_text()) == SECRETS
     assert json.loads((home / "data" / "github_account.json").read_text()) == ACCOUNT
     assert json.loads((home / "data" / "github_app.json").read_text()) == APP
     assert secret_vault.SETTINGS is None
@@ -311,26 +347,24 @@ def test_nothing_leaves_this_computer_when_the_keyring_is_locked(home, keyring):
     with pytest.raises(ValueError, match="system keyring"):
         secret_vault.move(ACCESS_KEY_ID, SECRET_ACCESS_KEY, "ca-central-1")
 
-    assert (home / ".env").read_text() == ENV
+    assert json.loads((home / "data" / "secrets.json").read_text()) == SECRETS
     assert json.loads((home / "data" / "github_account.json").read_text()) == ACCOUNT
     assert json.loads((home / "data" / "github_app.json").read_text()) == APP
     assert not (home / "data" / "secret_vault.json").exists()
     assert secret_vault.SETTINGS is None
 
 
-def test_second_copys_env_moves_with_the_same_key(in_aws, home, keyring):
-    # ./live.sh's and ./run.sh's .env are not the same file, but data/ is: once the live copy moved its secrets, the
-    # other copy's .env still has them, and moving those needs no key (the one in the keyring is used).
+def test_what_is_left_on_disk_moves_with_the_same_key(in_aws, home, keyring):
+    # Once AWS is set up, secrets.json left on disk (an older copy wrote it) moves with the key in the keyring.
+    (home / "data" / "secrets.json").write_text(json.dumps(SECRETS))
     in_aws.secrets["seraph/secrets"] = json.dumps({"GITHUB_SIGN_IN_TOKEN": "gho_signin", "GITHUB_APP_CLIENT_SECRET": "app_secret"})
-    (home / "data" / "github_account.json").write_text(json.dumps({"login": "octocat"}))
-    (home / "data" / "github_app.json").write_text(json.dumps({"client_id": "Iv1.abc"}))
 
     status = secret_vault.move("", "", "")
 
     assert in_aws.made == []
     assert keyring.calls == []
     assert json.loads(in_aws.secrets["seraph/secrets"]) == ON_DISK
-    assert (home / ".env").read_text() == ENV_AFTER
+    assert not (home / "data" / "secrets.json").exists()
     assert status["region"] == "ca-central-1"
     assert status["on_disk"] == []
 
@@ -367,21 +401,11 @@ def test_put_refused_keeps_what_was_there(in_aws):
     assert secret_vault.VALUES == {"GITHUB_TOKEN": "ghp_first"}
 
 
-def test_an_export_line_leaves_env_too(home):
-    # dotenv reads "export NAME=value" too, so move() sends it to AWS; its line must go from .env as well.
-    (home / ".env").write_text("export GITHUB_TOKEN=ghp_first\nCLAUDE_MODEL=claude-opus-5-5[1m]\n")
-
-    status = secret_vault.move(ACCESS_KEY_ID, SECRET_ACCESS_KEY, "ca-central-1")
-
-    assert (home / ".env").read_text() == f"{secret_vault.ENV_NOTE}\nCLAUDE_MODEL=claude-opus-5-5[1m]\n"
-    assert "GITHUB_TOKEN" not in status["on_disk"]
-
-
 def test_a_key_for_another_region_takes_the_secrets_moved_before_along(in_aws, home):
     # Secrets moved earlier are only in AWS (VALUES), not on disk anymore: a new key that starts an empty secret
     # elsewhere must get them too, or the next start has no GITHUB_TOKEN.
     in_aws.secrets = {}
-    (home / ".env").write_text("CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat-claude\n")
+    (home / "data" / "secrets.json").write_text(json.dumps({"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat-claude"}))
 
     secret_vault.move(ACCESS_KEY_ID, SECRET_ACCESS_KEY, "us-east-1")
 

@@ -9,7 +9,7 @@ browser page, a test run and command evidence.
 
 Nothing here runs a command: the VM's answers are stand-ins, and records, the env file for all VMs, jobs and evidence are
 kept in pytest's temporary folder, never in DATA_DIR. work_tools.py is imported with tests/conftest.py's settings: the
-vault is never read and the search token is a placeholder."""
+vault and the tokens are never read."""
 
 import asyncio
 import copy

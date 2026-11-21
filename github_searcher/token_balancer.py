@@ -1,10 +1,10 @@
-"""Every GitHub request goes through here. It spreads them over all the GitHub tokens in .env,
+"""Every GitHub request goes through here. It spreads them over all the GitHub tokens in Settings → Secrets,
 paces them and waits out rate limits, so agents searching hard don't get errors back.
 
-Tokens: GITHUB_TOKEN, then GITHUB_TOKEN_2, GITHUB_TOKEN_3, ... in .env, or in AWS Secrets Manager once they are
-moved there (secret_vault.py puts them in os.environ when it is imported, before BALANCER reads them). Any number; empty
-ones are skipped. Each should come from a different GitHub account: GitHub counts every limit per
-account, so two tokens of one account share one quota and add nothing.
+Tokens: GITHUB_TOKEN, then GITHUB_TOKEN_2, GITHUB_TOKEN_3, ... (secret_vault.py keeps them and puts them in os.environ
+when it is imported, before BALANCER reads them; load() reads them again when Settings changes one). Any number; empty
+ones are skipped. With none, every request answers 401 (NO_TOKEN). Each should come from a different GitHub account:
+GitHub counts every limit per account, so two tokens of one account share one quota and add nothing.
 
 GitHub has two sorts of limits, each per account and per kind of request:
 - Quotas: core (REST, 5,000 an hour), graphql (5,000 points an hour), search (30 a minute) and
@@ -45,17 +45,11 @@ import os
 import threading
 import time
 from datetime import datetime
-from pathlib import Path
 
 import httpx
-from dotenv import load_dotenv
 
-# Imported for what it does at import: with AWS Secrets Manager, it puts the tokens in os.environ.
+# Imported for what it does at import: it puts the tokens in os.environ.
 from github_searcher import secret_vault  # noqa: F401
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-# override: the backend reloads itself on code changes, and .env changes should apply then too.
-load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 # Per kind of request and per token: how many may run at once, and the least seconds between two
 # starts. Search is 30 a minute (one every 2 s), code search 10 a minute (one every 6 s).
@@ -66,11 +60,24 @@ PAUSE = 60
 # A token GitHub answers 401 for is left out this long, then tried again.
 BAD_TOKEN_PAUSE = 60 * 60
 MAX_WAIT = 120
+NO_TOKEN = "No GitHub token: add one in Settings → Secrets."
 
 
 class TokenBalancer:
     def __init__(self):
-        # GITHUB_TOKEN first, then GITHUB_TOKEN_2, _3, ... in number order.
+        # Guards every token's counters. Waiting requests are woken when one ends.
+        self.condition = threading.Condition()
+        # Requests of each kind waiting for a token right now.
+        self.waiting = {kind: 0 for kind in RUNNING}
+        self.version = 0
+        # The Feedback page's list (problems.py), set by backend/shared.py: a token that stops working goes there.
+        self.problems = None
+        self.tokens = []
+        self.load()
+
+    def load(self) -> None:
+        """Read the tokens from os.environ: GITHUB_TOKEN first, then GITHUB_TOKEN_2, _3, ... in number order. A token
+        that is still there keeps its counters."""
         names = ["GITHUB_TOKEN"]
         numbers = []
         for key in os.environ:
@@ -79,25 +86,27 @@ class TokenBalancer:
         for number in sorted(numbers):
             names.append(f"GITHUB_TOKEN_{number}")
 
-        self.tokens = []
+        tokens = []
         for name in names:
             value = os.environ.get(name, "").strip()
             if not value:
+                continue
+            kept = None
+            for token in self.tokens:
+                if token["name"] == name and token["value"] == value:
+                    kept = token
+            if kept is not None:
+                tokens.append(kept)
                 continue
             kinds = {}
             for kind in RUNNING:
                 # remaining None: not known yet. Times are time.monotonic().
                 kinds[kind] = {"running": 0, "next_at": 0.0, "paused_until": 0.0, "remaining": None, "limit": None, "reset_at": 0.0}
-            self.tokens.append({"name": name, "value": value, "kinds": kinds})
-        if not self.tokens:
-            raise KeyError("GITHUB_TOKEN is not set in .env or in AWS Secrets Manager")
-        # Guards every token's counters. Waiting requests are woken when one ends.
-        self.condition = threading.Condition()
-        # Requests of each kind waiting for a token right now.
-        self.waiting = {kind: 0 for kind in RUNNING}
-        self.version = 0
-        # The Feedback page's list (problems.py), set by backend/shared.py: a token that stops working goes there.
-        self.problems = None
+            tokens.append({"name": name, "value": value, "kinds": kinds})
+        with self.condition:
+            self.tokens = tokens
+            self.version += 1
+            self.condition.notify_all()
 
     def slots(self, kind: str) -> int:
         """How many requests of this kind can run at once over all tokens."""
@@ -116,10 +125,15 @@ class TokenBalancer:
         elif "/search/" in url:
             kind = "search"
 
+        if not self.tokens:
+            return httpx.Response(401, json={"message": NO_TOKEN}, request=httpx.Request(method, url))
         deadline = time.monotonic() + MAX_WAIT
         while True:
             token = self.take(kind, deadline)
             if not isinstance(token, dict):
+                # The last token was removed in Settings meanwhile.
+                if not self.tokens:
+                    return httpx.Response(401, json={"message": NO_TOKEN}, request=httpx.Request(method, url))
                 free_at = datetime.fromtimestamp(token).strftime("%H:%M:%S")
                 message = (
                     f"GitHub rate limit: all {len(self.tokens)} tokens are paused for {kind} requests until {free_at}. "
@@ -185,6 +199,11 @@ class TokenBalancer:
                     self.waiting[kind] -= 1
                     self.version += 1
                     return best
+                # No token at all: request() says so.
+                if not busy and soonest is None:
+                    self.waiting[kind] -= 1
+                    self.version += 1
+                    return time.time()
                 if not busy and soonest > deadline:
                     self.waiting[kind] -= 1
                     self.version += 1

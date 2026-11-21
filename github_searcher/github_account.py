@@ -21,7 +21,7 @@ may read, or in AWS Secrets Manager once the secrets are there (secret_vault.py;
 (disconnect()) deletes it. The browser only ever gets status(): who you are signed in as, what the token may do and
 whether sign in is set up, never the token or the secret. Agents and the VMs never get them
 either; only the Inbox's Approve and Send to GitHub (backend/inbox_api.py) and the GitHub tab's buttons
-(backend/github_api.py) use the token. It is kept apart from the search tokens in .env (token_balancer.py), which only
+(backend/github_api.py) use the token. It is kept apart from the search tokens (token_balancer.py), which only
 read.
 
 send(draft_id) sends a PR, comment or edit draft once, as it was shown in the Inbox. A PR:

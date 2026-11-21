@@ -106,11 +106,30 @@ def test_names_without_a_number_are_not_tokens(monkeypatch):
     assert names == ["GITHUB_TOKEN"]
 
 
-def test_no_token_at_all_is_an_error(monkeypatch):
-    monkeypatch.setenv("GITHUB_TOKEN", "")
+def test_no_token_at_all_answers_401_and_sends_nothing(monkeypatch):
+    fake = FakeGitHub()
+    monkeypatch.setattr(token_balancer.httpx, "request", fake.request)
 
-    with pytest.raises(KeyError, match="GITHUB_TOKEN is not set"):
-        TokenBalancer()
+    response = TokenBalancer().request("GET", "https://api.github.com/search/issues")
+
+    assert response.status_code == 401
+    assert response.json()["message"] == token_balancer.NO_TOKEN
+    assert fake.sent == []
+
+
+def test_load_takes_new_tokens_and_keeps_the_counters_of_the_others(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "one")
+    monkeypatch.setenv("GITHUB_TOKEN_2", "two")
+    balancer = TokenBalancer()
+    balancer.tokens[0]["kinds"]["core"]["remaining"] = 42
+    monkeypatch.setenv("GITHUB_TOKEN_2", "two-new")
+    monkeypatch.setenv("GITHUB_TOKEN_3", "three")
+
+    balancer.load()
+
+    assert [token["value"] for token in balancer.tokens] == ["one", "two-new", "three"]
+    assert balancer.tokens[0]["kinds"]["core"]["remaining"] == 42
+    assert balancer.tokens[1]["kinds"]["core"]["remaining"] is None
 
 
 def test_slots_are_per_token(balancer):
