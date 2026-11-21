@@ -13,7 +13,7 @@ New image (NewImageDialog) only saves an image.yaml, the defaults with a system,
 is built and no agent runs. Such an image is listed below the built ones as "not built", with Build (its first
 build) and a menu: Edit image.yaml (the same editor, with Check, as an image's Definition), Rename and Delete.
 Names may have capitals; two names that differ only in capitals count as the same.
-Save a VM makes an image from that VM's disk as it is (a few
+A VM's Settings can save it as an image, its disk as it is (a few
 minutes). Build and Rebuild build image.yaml mechanically, with no agent; only what changed since the last build
 runs again. Several images can build at the same time, each in its own builder VM, as long as memory allows; one
 image has one task at a time. Tasks run in the background, shown above the list with their last log lines until the
@@ -21,14 +21,13 @@ image is listed; the whole log opens in a dialog, and a build also shows its ima
 live "images" topic.
 */
 
-import { FileText, Hammer, Loader2, MoreHorizontal, Pencil, Plus, Save, ScanSearch, ScrollText, Square, Star, Trash2, X } from "lucide-react";
+import { FileText, Hammer, Loader2, MoreHorizontal, Pencil, Plus, ScanSearch, ScrollText, Square, Star, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import ImageDefinition from "@/ImageDefinition";
 import ImageInventory from "@/ImageInventory";
 import NewImageDialog from "@/NewImageDialog";
-import SaveImageDialog from "@/SaveImageDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -61,7 +60,6 @@ export default function Images(props: { tabs: ReactNode }) {
   // Which dialog is open, and for which image or task.
   const [creating, setCreating] = useState(false);
   const [rebuilding, setRebuilding] = useState<Image | null>(null);
-  const [saving, setSaving] = useState(false);
   const [renaming, setRenaming] = useState<{ name: string } | null>(null);
   const [deleting, setDeleting] = useState<{ name: string } | null>(null);
   const [logOf, setLogOf] = useState<ImageTask | null>(null);
@@ -133,14 +131,9 @@ export default function Images(props: { tabs: ReactNode }) {
     <div className="flex h-full flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3 max-md:h-auto max-md:min-h-9 max-md:flex-wrap max-md:py-1">
         {props.tabs}
-        <div className="ml-auto flex items-center gap-1">
-          <Button size="sm" variant="outline" onClick={() => setSaving(true)}>
-            <Save /> Save a VM as image
-          </Button>
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus /> New image
-          </Button>
-        </div>
+        <Button size="sm" className="ml-auto" onClick={() => setCreating(true)}>
+          <Plus /> New image
+        </Button>
       </div>
 
       {data.tasks.length > 0 && (
@@ -328,7 +321,6 @@ export default function Images(props: { tabs: ReactNode }) {
       </div>
 
       {creating && <NewImageDialog onClose={() => setCreating(false)} />}
-      {saving && <SaveImageDialog vm={null} onClose={() => setSaving(false)} />}
       {renaming !== null && <RenameDialog key={renaming.name} image={renaming} onClose={() => setRenaming(null)} />}
       {logOf !== null && <LogDialog task={logOf} onClose={() => setLogOf(null)} />}
 
