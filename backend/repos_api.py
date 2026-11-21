@@ -1,6 +1,7 @@
 """The Repositories page's cards (frontend/src/RepositoryCards.tsx): the moves between Prioritized and Contributed, Add
-to Target, and Delete (Add to Removed for a repo with PRs of yours), and keeping the repos' signals fresh, and their
-record with us for the cards' test run time and rating (keep_repo_stats, github_searcher/repo_stats.py).
+to Target, Delete (Add to Removed for a repo with PRs of yours), Stop all on its issues in progress and Close all on its
+open PRs, and keeping the repos' signals fresh, and their record with us for the cards' test run time and rating
+(keep_repo_stats, github_searcher/repo_stats.py).
 
 The list reaches the browser through /api/live (topic "repos"). The Automation fills it (backend/automation_api.py,
 through Explore).
@@ -20,12 +21,15 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.issues_api import auto_remove_issues
-from backend.shared import agents, jobs, pr_tracking, repo_signals, repo_stats, repos
+from backend.shared import agents, github_account, issues, jobs, pr_tracking, repo_signals, repo_stats, repos
+from github_searcher.github_account import SendError
 from github_searcher.repo_signals import NEWCOMER_VERSION, NON_LATIN_SHARE, POLICY_VERSION
 from github_searcher.search import get_readme, get_repo_totals
 
 router = APIRouter(prefix="/api")
 
+# The job statuses of an issue in progress, as the page counts them (RepositoryCards.tsx OPEN_JOB).
+OPEN_JOB = ["queued", "working", "waiting_on_user", "waiting_on_maintainers"]
 SIGNALS_CHECK_SECONDS = 10
 REPO_STATS_SECONDS = 5 * 60
 SIGNALS_RETRY_SECONDS = 60 * 60
@@ -38,7 +42,7 @@ class MoveRequest(BaseModel):
     to: str
 
 
-class DeleteRequest(BaseModel):
+class RepoRequest(BaseModel):
     name: str
 
 
@@ -60,8 +64,60 @@ def move_repo(body: MoveRequest) -> dict:
     return {"prioritized": repos.prioritized(), "target": repos.target()}
 
 
+@router.post("/repos/stop_in_progress")
+async def stop_in_progress(body: RepoRequest) -> dict:
+    """Stop all, over a card's issues in progress on the Repositories page: every fix_issue job on the repo still open
+    with no PR of yours yet stops now (Agents.stop_jobs), and its issue leaves the Issues list for good (dismissed,
+    issue_list.py), so no agent takes it again."""
+    pr_jobs = [pr["job"] for pr in pr_tracking.summary()["items"] if pr["relation"] == "author"]
+    stopping = []
+    issue_ids = []
+    for job in jobs.list():
+        if job["kind"] != "fix_issue" or job["status"] not in OPEN_JOB or job["id"] in pr_jobs:
+            continue
+        if (job["repo"] or "").lower() != body.name.lower():
+            continue
+        stopping.append(job["id"])
+        if job["issue"] is not None:
+            issue_ids.append(job["issue"])
+    await agents.stop_jobs(stopping, f"Stop all on the issues in progress in {body.name}")
+    issues.dismiss(issue_ids)
+    return {"stopped": stopping}
+
+
+@router.post("/repos/close_prs")
+async def close_prs(body: RepoRequest) -> dict:
+    """Close all, over a card's open PRs on the Repositories page: every open PR of yours on the repo is closed on
+    GitHub, as you. Its agent is set to Off first, so nobody drafts about it, and the open jobs on it stop (the one that
+    made it and its follow-ups: Agents.stop_jobs). One GitHub didn't close stays open, and the answer is an error that
+    says which."""
+    open_prs = []
+    for pr in pr_tracking.summary()["items"]:
+        if pr["relation"] == "author" and pr["state"] == "open" and pr["repo"].lower() == body.name.lower():
+            open_prs.append(pr)
+    ids = [pr["id"].lower() for pr in open_prs]
+    pr_jobs = [pr["job"] for pr in open_prs]
+    stopping = [job["id"] for job in jobs.list() if (job["thread"] or "").lower() in ids or job["id"] in pr_jobs]
+    for pr in open_prs:
+        pr_tracking.set_agent(pr["id"], "off", None)
+    await agents.stop_jobs(stopping, f"Close all on the open pull requests in {body.name}")
+    closed = []
+    failed = []
+    for pr in open_prs:
+        try:
+            await asyncio.to_thread(github_account.manage, "close", pr["repo"], pr["number"])
+        except SendError as error:
+            failed.append(f"#{pr['number']}: {error}")
+            continue
+        closed.append(pr["id"])
+    pr_tracking.wanted = True
+    if failed:
+        raise HTTPException(status_code=502, detail=f"Not closed: {'; '.join(failed)}")
+    return {"closed": closed}
+
+
 @router.post("/repos/delete")
-async def delete_repo(body: DeleteRequest) -> dict:
+async def delete_repo(body: RepoRequest) -> dict:
     """Delete, or Add to Removed for a repo with pull requests of yours, in the ⋯ of a card on the Repositories page,
     at once, with no "are you sure?". Every agent working on the repo stops now (Agents.stop_repo). A repo with pull
     requests of yours (merged, closed or open) is kept: it moves to the page's Removed section, stopped, so no new work
