@@ -31,7 +31,7 @@ Under the top:
   repository and number only, opens it on GitHub), Step, VM time (how long its agent held a VM desktop for it: tests,
   builds and all it did there, counted since 11-20; jobs.py vm_seconds), Tokens (all its agent used, in millions: an
   agent is made per issue, and its pull request's follow-ups go to it), Agent (opens its chat), VM and desktop. The
-  header counts working and queued, and says Safe to shut down while no agent is busy (nothing otherwise).
+  header counts working and queued.
 - Virtual machines: every VM's band from the VMs tab (VMList in VMs.tsx) with only its CPU, Memory, Internet and Disk
   cards. The header counts the running ones.
 Charts keep fixed heights; a line breaks where there is no number. Lines are drawn back to front by their layer, each
@@ -938,7 +938,6 @@ export default function Dashboard() {
               <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                 {working.length} working · {queued} queued
               </span>
-              {busy === 0 && <span className="ml-auto shrink-0 text-xs font-medium text-ok">Safe to shut down</span>}
             </div>
             {working.length === 0 && <div className="p-3 text-muted-foreground">No agent is working.</div>}
             {working.length > 0 && (
