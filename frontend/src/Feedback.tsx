@@ -2,28 +2,77 @@
 Feedback (#/feedback): anything that went wrong or could go better, so Seraph gets better (github_searcher/problems.py,
 the live "problems" topic). The agents report it themselves (report_problem: the app's rules and tools, a maintainer
 who was unhappy with us, an issue that was already taken, a VM that ran out of memory, ...), and the app adds what it
-sees on its own, like a GitHub token that stopped working (From: Seraph). Fix problems in Settings works through the
-open ones every day and closes them.
+sees on its own, like a GitHub token that stopped working (From: Seraph).
 
-Two tabs (state= in the address): Open (the default) and Closed. A table, newest first: About (the issue or pull
-request, opens on GitHub), Feedback (its text, three lines until clicked), From (the agent, opens its chat), Reported,
-and Closed on the Closed tab. Only reads; nothing here changes anything.
+Fix all, at the right of the tabs, starts a run: Claude Code fixes all the open feedback at once in Seraph's own VM,
+the fixes that pass the tests are pushed and the app is released (github_searcher/problem_fixes.py). Nothing else
+starts one. While one runs the button waits, and the Runs tab links to the VM.
+
+Three tabs (state= in the address): Open (the default), Closed and Runs. Open and Closed are a table, newest first:
+About (the issue or pull request, opens on GitHub), Feedback (its text, three lines until clicked), From (the agent,
+opens its chat), Reported, and Closed on the Closed tab. Runs is Fix all's runs (FeedbackRuns.tsx).
+
+GET /api/problem_fixes when the page opens and every POLL_MS while it is open, for the button and the Runs tab.
 */
 
-import { useState } from "react";
+import { Loader2, Wrench } from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
-import { useLive } from "@/live";
+import FeedbackRuns, { type Run } from "@/FeedbackRuns";
+import { Button } from "@/components/ui/button";
+import { api, useLive } from "@/live";
 import { cn } from "@/lib/utils";
 
 // "Nov 18, 14:32"
 const TIME: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+// How often the runs are asked for while the page is open.
+const POLL_MS = 5000;
+
+type Status = { runs: Run[]; running: boolean; repo: string; vm: string };
 
 export default function Feedback(props: { state: string }) {
   const items = useLive("problems");
   const agents = useLive("agents");
   // The rows whose whole text shows, by id.
   const [expanded, setExpanded] = useState<string[]>([]);
+  const [status, setStatus] = useState<Status | null>(null);
+  // Goes up after Fix all, so the runs are asked for at once.
+  const [changed, setChanged] = useState(0);
+  const [starting, setStarting] = useState(false);
 
+  useEffect(() => {
+    let stopped = false;
+    function load() {
+      api<Status>("/api/problem_fixes")
+        .then((data) => {
+          if (!stopped) {
+            setStatus(data);
+          }
+        })
+        .catch(() => {});
+    }
+    load();
+    const timer = window.setInterval(load, POLL_MS);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [changed]);
+
+  async function fixAll() {
+    setStarting(true);
+    try {
+      await api("/api/problem_fixes/run", { method: "POST" });
+      window.location.hash = "#/feedback?state=runs";
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
+    setStarting(false);
+    setChanged(changed + 1);
+  }
+
+  const runs = props.state === "runs";
   const closed = props.state === "closed";
   const openItems = items.filter((item) => item.closed_at === null);
   const closedItems = items.filter((item) => item.closed_at !== null);
@@ -38,7 +87,7 @@ export default function Feedback(props: { state: string }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-9 shrink-0 items-center border-b px-1">
-        <a href="#/feedback" aria-current={!closed ? "page" : undefined} className={cn(tab, !closed && currentTab)}>
+        <a href="#/feedback" aria-current={!closed && !runs ? "page" : undefined} className={cn(tab, !closed && !runs && currentTab)}>
           Open
           <span className="text-muted-foreground tabular-nums">{openItems.length}</span>
         </a>
@@ -46,11 +95,18 @@ export default function Feedback(props: { state: string }) {
           Closed
           <span className="text-muted-foreground tabular-nums">{closedItems.length}</span>
         </a>
+        <a href="#/feedback?state=runs" aria-current={runs ? "page" : undefined} className={cn(tab, runs && currentTab)}>
+          Runs
+        </a>
+        <Button size="sm" variant="outline" className="mr-1 ml-auto" onClick={fixAll} disabled={starting || status === null || status.running}>
+          {starting || status?.running ? <Loader2 className="animate-spin" /> : <Wrench />} Fix all
+        </Button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {rows.length === 0 && <div className="p-3 text-muted-foreground">No feedback.</div>}
-        {rows.length > 0 && (
+        {runs && <FeedbackRuns runs={status?.runs ?? []} vm={status?.vm ?? ""} />}
+        {!runs && rows.length === 0 && <div className="p-3 text-muted-foreground">No feedback.</div>}
+        {!runs && rows.length > 0 && (
           <table className="w-full min-w-[860px] table-fixed">
             <thead>
               <tr>

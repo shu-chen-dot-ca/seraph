@@ -90,7 +90,7 @@ const WORK_NAMES: Record<string, string> = {
   explore: "Explore",
   explore_reader: "Explore readers",
   image: "Images",
-  fix_problems: "Fix problems",
+  fix_problems: "Fix all",
   agent: "Agents",
 };
 const WIDGET = "flex min-w-0 flex-col rounded-sm border bg-card";

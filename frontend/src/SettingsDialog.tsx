@@ -3,8 +3,7 @@ The Settings dialog, opened from the bottom of the left list (Sidebar.tsx), or o
 Sign in or your GitHub picture (App.tsx): the theme (Light, Dark or System), the accent color, Reset view, Account
 (Account.tsx: your GitHub account, Sign in and Sign out), the env vars for all VMs, Remote access (RemoteAccess.tsx: the
 address for your phone and any device, and the devices that may sign in there), Secrets (Secrets.tsx: on this computer
-or in AWS Secrets Manager) and Fix problems (ProblemFixes.tsx: the daily run that fixes the agents' problems and
-releases the app), then About (About.tsx: the version that runs, Check for updates and Previous version).
+or in AWS Secrets Manager), then About (About.tsx: the version that runs, Check for updates and Previous version).
 section "account" scrolls the dialog to Account when it opens.
 
 Reset view puts every panel and fold back to its default: it reloads the page (App's resetView). Theme, accent and the
@@ -30,7 +29,6 @@ import { toast } from "sonner";
 
 import About from "@/About";
 import Account from "@/Account";
-import ProblemFixes from "@/ProblemFixes";
 import RemoteAccess from "@/RemoteAccess";
 import Secrets from "@/Secrets";
 import { Button } from "@/components/ui/button";
@@ -320,7 +318,6 @@ export default function SettingsDialog(props: {
 
         <RemoteAccess open={props.open} />
         <Secrets open={props.open} />
-        <ProblemFixes open={props.open} />
         <About />
       </DialogContent>
     </Dialog>

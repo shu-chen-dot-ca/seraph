@@ -599,7 +599,7 @@ export type AutomationData = {
 export type TokensData = { slices: { at: string; model: string; work: string; tokens: number; cost_usd: number }[] };
 
 // The Feedback page (github_searcher/problems.py): what the agents reported, and what the app saw itself (agent
-// "seraph"), newest first. closed_at: once Fix problems fixed it or found nothing to change.
+// "seraph"), newest first. closed_at: once Fix all fixed it, found nothing to change or gave up on it.
 export type Feedback = {
   id: string;
   at: string;

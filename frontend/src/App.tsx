@@ -20,7 +20,7 @@ The page lives in the URL hash, so refresh and back/forward work and switching p
   #/repos (RepositoryCards.tsx; takes state=progress|open|merged|closed for the pull requests' tabs, PullRequests.tsx)
   #/blockers (Blockers.tsx)
   #/automation (Automation.tsx)
-  #/feedback (Feedback.tsx; takes state=open|closed)
+  #/feedback (Feedback.tsx; takes state=open|closed|runs)
   #/vms  #/vms?tab=images  #/vms?tab=defaults (VMs.tsx)  #/vms/<vm name>  #/vms/<vm name>?tab=notes (VMPage.tsx)
   #/agents/<agent id> (AgentChat.tsx, opened from the VM pages and their notes)
 Anything else (also no hash at all) opens the Dashboard. Links are plain <a href="#/..."> everywhere; App only reads the
