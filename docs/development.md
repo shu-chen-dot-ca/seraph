@@ -7,7 +7,6 @@ sandbox/            Incus VMs, desktops, the VM queue, images, in-VM tools
 backend/            FastAPI: one router per page, and the /api/live websocket
 frontend/           React 19, Vite, Tailwind, shadcn/ui
 deploy/             live copy install, switch, rollback
-remote_access/      Caddy and the SSH tunnel for phone access
 docs/               these pages
 data/               runtime state, not in git
 ```

@@ -51,9 +51,9 @@ Your own repositories, developed one small issue at a time: see [Workflow](workf
 
 ## Settings and phone
 
-- **Settings** holds the theme and accent color, environment variables for all VMs, [remote access](../remote_access/README.md), **Secrets** (on this computer or in [AWS Secrets Manager](security.md#secrets-in-aws-secrets-manager)), and **About**, which has **Check for updates** and **Previous version**.
+- **Settings** holds the theme and accent color, environment variables for all VMs, **Secrets** (on this computer or in [AWS Secrets Manager](security.md#secrets-in-aws-secrets-manager)), and **About**, which has **Check for updates** and **Previous version**.
 - **On a phone.** Below 768 px wide, one **Menu** drawer holds all four tabs. A VM page lets you take over a desktop, with an on-screen bar for Esc, Ctrl, Alt, Tab and the arrow keys.
 
 ## Sherpa
 
-The round button at the bottom right of every page opens **Sherpa**, a chat that does things in the app for you, many at once: "remove every issue opened more than 30 days ago" is one message instead of thirty clicks. It reads what the pages show and uses the same actions as the buttons, so list changes can be undone as usual. It never sends anything to GitHub (Approve, comments and PR actions stay yours), never touches your sign-in, remote access, updates or secrets, and asks in the chat before something that can't be undone.
+The round button at the bottom right of every page opens **Sherpa**, a chat that does things in the app for you, many at once: "remove every issue opened more than 30 days ago" is one message instead of thirty clicks. It reads what the pages show and uses the same actions as the buttons, so list changes can be undone as usual. It never sends anything to GitHub (Approve, comments and PR actions stay yours), never touches your sign-in, updates or secrets, and asks in the chat before something that can't be undone.

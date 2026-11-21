@@ -42,7 +42,6 @@ cp .env.example .env
 | `BACKEND_PORT` | `8001` | The backend's port, on 127.0.0.1 only |
 | `DATA_DIR` | `data` | Everything Seraph keeps |
 | `SERAPH_REPO` | | This repo on GitHub (owner/name), for updates and Fix all. `deploy/install.sh` sets it. |
-| `REMOTE_ACCESS_DOMAIN`, `REMOTE_ACCESS_SERVER` | | Optional: see [remote access](../remote_access/README.md) |
 
 The tokens can live in AWS Secrets Manager instead: see [Security](security.md#secrets-in-aws-secrets-manager).
 

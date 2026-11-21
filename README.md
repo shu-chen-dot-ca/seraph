@@ -98,7 +98,6 @@ A Python backend and a React web app run on the host computer. Anything download
 | [backend/](backend/) | FastAPI server: one file per page, and a WebSocket that pushes live updates (`app.py`) |
 | [frontend/](frontend/) | React and TypeScript web app: Dashboard, Pull requests, Repositories, Blockers, Virtual machines, Automation |
 | [deploy/](deploy/) | Installs each release to a separate live copy and rolls back one that fails |
-| [remote_access/](remote_access/) | Access from a phone through a passkey-protected address |
 | [tests/](tests/) | pytest suite, run by CI on every push |
 
 Seraph also maintains itself. Agents report problems with how the app made them work, and every evening Claude Code fixes them, each with a regression test. A fix that passes the tests and the build becomes a release, which first starts on a copy of the data and is rolled back if it fails in its first minutes.
@@ -111,7 +110,7 @@ Built with Python 3.14, FastAPI, React 19, TypeScript, Vite, Tailwind CSS, Incus
 - Tokens are kept in AWS Secrets Manager. They never reach the browser, an agent or a VM, and any secret that shows up in an agent's output is replaced with `[hidden]`.
 - What is sent is what was reviewed. The pull request is rebuilt from the reviewed diff, never pushed from the VM, and a diff that contains a secret is refused.
 - Text from GitHub is treated as data, not instructions. Judgments about it, such as the issue checks, run with no tools at all.
-- The app listens only on 127.0.0.1. From a phone, every request needs a passkey.
+- The app listens only on 127.0.0.1.
 
 ## Contribution rules
 
@@ -132,7 +131,7 @@ cp .env.example .env    # GITHUB_TOKEN, CLAUDE_CODE_OAUTH_TOKEN
 
 Then build an image and a VM under Virtual machines, sign in with GitHub under Settings → Account, and turn things on under Automation. Settings → Secrets moves the tokens from `.env` to AWS Secrets Manager.
 
-More: [Setup](docs/setup.md) · [How it works](docs/how-it-works.md) · [Sandbox VMs](docs/sandbox.md) · [Security](docs/security.md) · [Live copy](docs/live-copy.md) · [Development](docs/development.md) · [Remote access](remote_access/README.md)
+More: [Setup](docs/setup.md) · [How it works](docs/how-it-works.md) · [Sandbox VMs](docs/sandbox.md) · [Security](docs/security.md) · [Live copy](docs/live-copy.md) · [Development](docs/development.md)
 
 ---
 
