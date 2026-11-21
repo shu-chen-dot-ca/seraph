@@ -54,6 +54,8 @@ RESULT_CUT = 4000
 # The folder Claude Code runs in. It has no file tools, so this only decides where Claude Code keeps the
 # conversations: apart from the user's own Claude Code sessions for this repo.
 AGENT_HOME = PROJECT_ROOT / os.environ["DATA_DIR"] / "agent_home"
+# How large an agent's context gets (tokens) before Claude Code compacts it.
+AGENT_CONTEXT_CAP = "500000"
 
 
 class Agent:
@@ -133,7 +135,7 @@ class Agent:
                     "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
                     "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
                     "ANTHROPIC_DEFAULT_HAIKU_MODEL": SIDE_MODEL,
-                    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": os.environ["AGENT_CONTEXT_CAP"],
+                    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": AGENT_CONTEXT_CAP,
                 },
             )
         )
