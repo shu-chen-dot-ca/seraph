@@ -10,7 +10,10 @@ of the other scope don't count. Every run that ended by itself goes in TEST_RUNS
 ends (finish_tests), one line each:
 
     {"at", "repo", "job", "when": "before" | "after", "scope": "focused" | "full", "passed": bool,
-     "seconds": from its start to its end in the VM, "cpu_seconds": the CPU its commands used | null}
+     "seconds": from its start to its end in the VM, "exact": bool, "cpu_seconds": the CPU its commands used | null}
+
+exact false (or missing, on the first lines): a run started before its start and end were written, whose seconds count
+until the app noticed it ended; those don't count here.
 
 A repo's round is the median of those runs: seconds and cpu_seconds. Runs from before the log began are only on their
 jobs' timelines (their captions say the scope, before or after, and the time), with times that count until the app
@@ -120,7 +123,7 @@ class RepoStats:
                     continue
                 run = json.loads(line)
                 repo = run["repo"].lower()
-                if run["when"] != "after" or run["scope"] != scopes.get(repo, run["scope"]):
+                if not run.get("exact") or run["when"] != "after" or run["scope"] != scopes.get(repo, run["scope"]):
                     continue
                 seconds.setdefault(repo, []).append(run["seconds"])
                 if run["cpu_seconds"] is not None:
