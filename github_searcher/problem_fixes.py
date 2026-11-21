@@ -64,7 +64,7 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
-from github_searcher import token_usage
+from github_searcher import secret_vault, token_usage
 from github_searcher.claude_models import MODELS, SIDE_MODEL
 from github_searcher.projects import SECTIONS, SELF_REPO, TITLE
 from sandbox.agent.computer_use import DESKTOP_ENV
@@ -107,11 +107,14 @@ LOCKED = [
     "backend/updates_api.py",
     "github_searcher/crashes.py",
     "github_searcher/secret_vault.py",
+    "backend/secrets_api.py",
 ]
-# Left out of the data folder's copy in the VM: the VMs, every secret (the tokens, your sign-in, the sign-in app, where
-# the vault is) and the agents' homes.
+# Left out of the data folder's copy in the VM: the VMs and their env variables (the ones for all VMs may be secrets the
+# agents' projects need), every secret (the tokens, your sign-in, the sign-in app, where the vault is) and the agents'
+# homes.
 DATA_LEFT_OUT = [
     "vms",
+    "global_env.json",
     "secrets.json",
     "secret_vault.json",
     "github_account.json",
@@ -405,10 +408,11 @@ class ProblemFixes:
         git_env["GIT_CONFIG_VALUE_0"] = f"AUTHORIZATION: basic {basic}"
         # Everything else runs with none of your secrets.
         plain_env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "SHELL": os.environ.get("SHELL", "/bin/bash"), "LANG": os.environ.get("LANG", "C.UTF-8")}
-        # Your secrets, to make sure none of them goes out in a fix.
+        # Your secrets, to make sure none of them goes out in a fix: your sign-in, and every secret the app keeps (the
+        # tokens, and in AWS the sign-in app's too).
         secret_values = [account["token"]]
-        for name, value in os.environ.items():
-            if (name.startswith("GITHUB_TOKEN") or name.startswith("CLAUDE_CODE_OAUTH_TOKEN")) and value.strip() != "":
+        for value in secret_vault.VALUES.values():
+            if value.strip() != "":
                 secret_values.append(value)
 
         # 1. The clone, the same as main on GitHub, with CI's .env and its packages.
