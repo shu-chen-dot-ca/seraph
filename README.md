@@ -107,7 +107,7 @@ Built with Python 3.14, FastAPI, React 19, TypeScript, Vite, Tailwind CSS, Incus
 ## Safety
 
 - Agents never run code on the host. Every build, install and test happens in a VM that can reach the internet but not the local network.
-- Tokens are kept in AWS Secrets Manager. They never reach the browser, an agent or a VM, and any secret that shows up in an agent's output is replaced with `[hidden]`.
+- Tokens are set in Settings and kept in AWS Secrets Manager. They never reach the browser, an agent or a VM, and any secret that shows up in an agent's output is replaced with `[hidden]`.
 - What is sent is what was reviewed. The pull request is rebuilt from the reviewed diff, never pushed from the VM, and a diff that contains a secret is refused.
 - Text from GitHub is treated as data, not instructions. Judgments about it, such as the issue checks, run with no tools at all.
 - The app listens only on 127.0.0.1.
@@ -125,11 +125,11 @@ Built with Python 3.14, FastAPI, React 19, TypeScript, Vite, Tailwind CSS, Incus
 You need Linux with systemd, Incus with KVM, Python 3.14 with [uv](https://docs.astral.sh/uv/), Node.js 22+, a Claude Code token (`claude setup-token`) and a GitHub token that can read public repos. Set up the Incus network first: see [Setup](docs/setup.md).
 
 ```bash
-cp .env.example .env    # GITHUB_TOKEN, CLAUDE_CODE_OAUTH_TOKEN
+cp .env.example .env
 ./run.sh                # http://localhost:5173
 ```
 
-Then build an image and a VM under Virtual machines, sign in with GitHub under Settings → Account, and turn things on under Automation. Settings → Secrets moves the tokens from `.env` to AWS Secrets Manager.
+Then add the tokens under Settings → Secrets, build an image and a VM under Virtual machines, sign in with GitHub under Settings → Account, and turn things on under Automation.
 
 More: [Setup](docs/setup.md) · [How it works](docs/how-it-works.md) · [Sandbox VMs](docs/sandbox.md) · [Security](docs/security.md) · [Live copy](docs/live-copy.md) · [Development](docs/development.md)
 

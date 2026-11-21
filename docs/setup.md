@@ -36,14 +36,11 @@ cp .env.example .env
 
 | Variable | Default | |
 |---|---|---|
-| `GITHUB_TOKEN`, `GITHUB_TOKEN_2`, … | | Search tokens. Requests are spread over all of them. |
-| `CLAUDE_CODE_OAUTH_TOKEN` | | The agents' login |
-| `CLAUDE_CODE_OAUTH_TOKEN_VM` | | Fix all's login, in Seraph's own VM |
 | `BACKEND_PORT` | `8001` | The backend's port, on 127.0.0.1 only |
 | `DATA_DIR` | `data` | Everything Seraph keeps |
 | `SERAPH_REPO` | | This repo on GitHub (owner/name), for updates and Fix all. `deploy/install.sh` sets it. |
 
-The tokens can live in AWS Secrets Manager instead: see [Security](security.md#secrets-in-aws-secrets-manager).
+The tokens aren't in `.env`: add them in Seraph, under Settings → Secrets (step 4).
 
 ## 3. Run
 
@@ -53,8 +50,9 @@ The tokens can live in AWS Secrets Manager instead: see [Security](security.md#s
 
 ## 4. First steps
 
-1. **VMs → Images → New image → Save and build**, then **Make default**.
-2. **VMs → New VM.**
-3. **GitHub → Account → Sign in with GitHub.** The page walks you through registering an OAuth App once. Until you sign in, Approve works but nothing is sent.
-4. **Explore → Profile**, then **Start**. Approve the repos you like.
-5. **Issues → Assign.** Then watch the agent on the VM page or in its chat.
+1. **Settings → Secrets.** Add your GitHub tokens (more tokens, ideally from different accounts, make searches faster), the Claude Code token, and a second Claude Code token for Fix all.
+2. **VMs → Images → New image → Save and build**, then **Make default**.
+3. **VMs → New VM.**
+4. **GitHub → Account → Sign in with GitHub.** The page walks you through registering an OAuth App once. Until you sign in, Approve works but nothing is sent.
+5. **Explore → Profile**, then **Start**. Approve the repos you like.
+6. **Issues → Assign.** Then watch the agent on the VM page or in its chat.

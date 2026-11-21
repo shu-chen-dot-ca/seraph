@@ -29,6 +29,6 @@ cd frontend && npm run build    # type-check and build
 4. They must pass the same tests and build as CI, run on this computer, or they are dropped.
 5. They are pushed to `main`, the fixed items are closed, and `main` is released. The live copy installs the release by itself and takes it back if it goes wrong. With no open feedback, Fix all just releases what you pushed.
 
-Its Claude Code logs in with its own token, `CLAUDE_CODE_OAUTH_TOKEN_VM` (from `claude setup-token`, kept with the other secrets), handed only to that one process. The VM can't push; the run pushes from this computer. Pull before you push: the run pushes to `main` too.
+Its Claude Code logs in with its own token, `CLAUDE_CODE_OAUTH_TOKEN_VM` (from `claude setup-token`, set in Settings → Secrets), handed only to that one process. The VM can't push; the run pushes from this computer. Pull before you push: the run pushes to `main` too.
 
 **Commits** follow [Conventional Commits](https://www.conventionalcommits.org/): one line, `type(scope): summary`, and exactly one scope per commit. [`CLAUDE.md`](../CLAUDE.md) has the full conventions.

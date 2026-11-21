@@ -1,7 +1,7 @@
 # Security
 
 - **Agents have no host access.** They get no shell, no files and no web access on your computer. They only have Seraph's tools: reading GitHub, the lists, drafts, and their VM desktop. Everything they run, runs in a VM.
-- **Tokens live in [AWS Secrets Manager](#secrets-in-aws-secrets-manager)**, or on your computer (`.env`, and `data/github_account.json` with mode 600) until you move them. They never reach the browser, an agent or a VM. Seraph clones code on your computer and copies it into the VM.
+- **Tokens live in [AWS Secrets Manager](#secrets-in-aws-secrets-manager)**, or on your computer (`data/secrets.json` and `data/github_account.json`, mode 600) until you move them. You set them in Settings → Secrets, never in `.env`. They never reach the browser, an agent or a VM. Seraph clones code on your computer and copies it into the VM.
 - **What's sent is what you reviewed.** A pull request is rebuilt on your computer, from the reviewed diff and the project's files on GitHub. Diffs that contain a secret are refused.
 - **Secret values stay hidden from agents.** Environment variables you set for the VMs are written into them. Agents see only their names, and any value that shows up in an agent's output is replaced with `[hidden]`.
 - **Only you can reach the app.** The backend listens on 127.0.0.1 only, and checks the Host and Origin of every request.
@@ -25,4 +25,4 @@ The only key left on your computer is the AWS access key that reads the secret. 
 }
 ```
 
-To change a token, edit it in the AWS console (**Open in AWS** on Settings → Secrets), then restart Seraph. `./run.sh` and `./live.sh` each have their own `.env`, so run **Move secrets** from both.
+To add, replace or remove a token, use Settings → Secrets: it changes the secret in AWS.
