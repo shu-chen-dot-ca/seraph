@@ -4,11 +4,12 @@ Seraph runs (backend/github_api.py's keep_profile_readme()).
 
 update(your_repositories) searches GitHub, as you, for every pull request of yours merged into a public repository
 that isn't yours (is:pr is:merged is:public author:<you> -user:<you>), and writes how many there are and in how many
-repositories ("Seraph merged PRs: 12 in 8 repositories"), then a table: one row per repository with its stars, the
-most starred first, with a link to each pull request and, in a column of their own, its lines added (green) and
-removed (red). Pull requests of fewer than MIN_LINES lines (added and removed together) are left out, not counted or
-shown. The table stops after MAX_SHOWN pull requests, in its own order; below it, a line says how many more there are,
-with a link to them on GitHub. Only the part between START and END changes; everything else in README.md
+repositories ("Seraph has merged 12 PRs across 8 repositories", Seraph a link to SELF_REPO), then a table: one row per
+repository with its stars, the most starred first, with a link to each pull request and, in a column of their own, its
+lines added (green) and removed (red). Pull requests of fewer than MIN_LINES lines (added and removed together) are left
+out, not counted or shown. The table stops after MAX_SHOWN pull requests, in its own order; below it, a line says how
+many more there are, with a link to them on GitHub. Only the part between START and END changes; everything else in
+README.md
 stays as you wrote it. When nothing changed, nothing is committed. A README.md without both markers is left alone.
 Both are committed on the repository's default branch, as you: pull before you push Seraph's own.
 
@@ -78,7 +79,16 @@ def table(your_repositories, login: str) -> str:
         return "No merged pull requests yet."
     # Above the table, the totals of all of them, not only the ones shown. The empty line keeps the table from running
     # into it.
-    lines = [f"Seraph merged PRs: {len(nodes):,} in {len(repos):,} repositories", ""]
+    seraph = "Seraph"
+    if SELF_REPO != "":
+        seraph = f"[Seraph](https://github.com/{SELF_REPO})"
+    prs = f"{len(nodes):,} PRs"
+    if len(nodes) == 1:
+        prs = "1 PR"
+    repositories = f"{len(repos):,} repositories"
+    if len(repos) == 1:
+        repositories = "1 repository"
+    lines = [f"{seraph} has merged {prs} across {repositories}", ""]
     lines.append("| Repository 🚀 | Stars 🌟 | Merged PR | Lines changed |")
     lines.append("| --- | --- | --- | --- |")
     # The most starred first, until MAX_SHOWN pull requests are in the table.
