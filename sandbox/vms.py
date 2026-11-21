@@ -673,8 +673,13 @@ class VMRecord:
         They go in VM_ENV_FILE, which login shells read (the browser terminals, the agent).
         Terminals opened on the desktop are not login shells and only read ~/.bashrc,
         so ~/.bashrc gets a line that reads the file too (once), on every desktop.
+
+        Seraph's own VM (FIX_VM) gets only its own: the ones for all VMs are for the agents' projects (their keys and
+        logins), and its Claude Code may read anything in it.
         """
         env = dict(self.global_env)
+        if self.name == FIX_VM:
+            env = {}
         for key, value in self.env.items():
             if value or key not in env:
                 env[key] = value
