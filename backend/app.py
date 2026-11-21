@@ -151,7 +151,6 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(keep_alive(github_api.keep_profile_readme)),
         asyncio.create_task(keep_alive(github_api.keep_your_repositories)),
         asyncio.create_task(keep_alive(updates_api.keep_updates)),
-        asyncio.create_task(keep_alive(problem_fixes_api.keep_problem_fixes)),
         asyncio.create_task(keep_alive(agents_api.keep_token_usage)),
     ]
     yield

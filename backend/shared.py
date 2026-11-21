@@ -70,4 +70,4 @@ token_usage = TokenUsage()
 remote_access = RemoteAccess()
 updates = Updates(github_account, crashes)
 # Fix problems: the daily run that fixes the problems, pushes the fixes and releases the app (Settings).
-problem_fixes = ProblemFixes(problems, github_account, updates)
+problem_fixes = ProblemFixes(problems, github_account, updates, vms, images)

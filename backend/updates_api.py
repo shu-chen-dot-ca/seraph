@@ -12,7 +12,7 @@ the middle of a tool call, so none is cut off half-way through a command. An age
 off like on any restart, and the agent carries on after it (Agents.stop and start). VMs, and the runs in them, keep going.
 
 keep_updates(), which the app runs in the background, checks every CHECK_SECONDS, and at once when asked (Check for
-updates in Settings, or a release Fix problems made: github_searcher/problem_fixes.py). A newer release that is ready (it passed its
+updates in Settings, or a release Fix all made: github_searcher/problem_fixes.py). A newer release that is ready (it passed its
 check, updates.py) waits for Restart in the Update dialog; with AUTO_INSTALL it is installed by itself, the same way.
 The state reaches the browser through /api/live (topic "updates").
 """
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api")
 
 # The most the switch waits for agents to finish their tool calls.
 QUIET_SECONDS = 60
-# Install a ready release by itself (the user's choice, 2026-11-15: Fix problems releases every day, and switch.sh takes a
+# Install a ready release by itself (the user's choice, 2026-11-15: Fix all releases what it fixes, and switch.sh takes a
 # bad one back). Off: Update in the header does it.
 AUTO_INSTALL = True
 # The switch that waits for its moment: kept here, so it isn't dropped while it waits.

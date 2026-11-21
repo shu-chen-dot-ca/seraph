@@ -26,7 +26,7 @@ The kinds of work:
   requests need action, Explore's checks.
 - explore: Explore's look at a repository's issues and pull requests; explore_reader: the helpers it hands threads to
   (they only read and report back).
-- image: the image agent (sandbox/image_agent.py). fix_problems: the daily run that fixes the app (problem_fixes.py).
+- image: the image agent (sandbox/image_agent.py). fix_problems: Fix all, the run that fixes the app (problem_fixes.py).
 """
 
 FABLE = "claude-fable-5-2"

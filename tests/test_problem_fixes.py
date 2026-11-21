@@ -1,29 +1,17 @@
-"""Fix problems (github_searcher/problem_fixes.py): when the daily run is due, what a run keeps when it fails or is cut
-off, and the release it makes (the next version from the commit titles since the last release, and its notes).
+"""Fix all (github_searcher/problem_fixes.py): what a run keeps when it fails or is cut off, and the release it makes
+(the next version from the commit titles since the last release, and its notes).
 
-Nothing here clones, runs Claude Code or reaches GitHub: the clock is fixed, GitHub is an httpx.MockTransport, and
+Nothing here runs Claude Code, starts a VM or reaches GitHub: VMs are fakes, GitHub is an httpx.MockTransport, and
 everything is kept in pytest's temporary folder, never in DATA_DIR."""
 
 import json
-from datetime import datetime
 
 import httpx
 import pytest
 
 from github_searcher import problem_fixes
 from github_searcher.problem_fixes import FixError, ProblemFixes
-
-
-class At(datetime):
-    """datetime whose now() is MOMENT, a time on this computer's clock."""
-
-    moment = datetime(2026, 11, 15, 21, 0).astimezone()
-
-    @classmethod
-    def now(cls, tz=None):
-        if tz is None:
-            return cls.moment.replace(tzinfo=None)
-        return cls.moment.astimezone(tz)
+from sandbox.vms import FIX_VM, VMsError
 
 
 class FakeProblems:
@@ -43,77 +31,43 @@ class FakeUpdates:
     asked = False
 
 
+class FakeVMs:
+    """No VM at all; the ones asked to stop are kept in stopped."""
+
+    def __init__(self):
+        self.stopped = []
+
+    def get(self, name):
+        raise VMsError(f"There is no VM {name}")
+
+    def stop_in_background(self, name):
+        self.stopped.append(name)
+
+
+class FakeImages:
+    default = "dev-vm"
+
+
 @pytest.fixture
 def fixes(tmp_path, monkeypatch):
-    """Fix problems at 20:00, on, set two days ago, with no runs yet; it is 21:00 now."""
+    """Fix all with no runs yet."""
     monkeypatch.setattr(problem_fixes, "DATA_DIR", tmp_path)
     monkeypatch.setattr(problem_fixes, "SELF_REPO", "owner/seraph")
-    monkeypatch.setattr(problem_fixes, "datetime", At)
-    monkeypatch.setattr(At, "moment", datetime(2026, 11, 15, 21, 0).astimezone())
-    fixes = ProblemFixes(FakeProblems([]), None, FakeUpdates())
-    fixes.data = {"on": True, "hour": 20, "minute": 0, "changed_at": datetime(2026, 11, 13, 9, 0).astimezone().isoformat(), "runs": []}
-    return fixes
+    return ProblemFixes(FakeProblems([]), None, FakeUpdates(), FakeVMs(), FakeImages())
 
 
-def test_due_once_the_time_has_passed(fixes):
-    assert fixes.due() is True
-
-
-def test_off_is_never_due(fixes):
-    fixes.data["on"] = False
-
-    assert fixes.due() is False
-
-
-def test_not_due_before_the_time(fixes, monkeypatch):
-    monkeypatch.setattr(At, "moment", datetime(2026, 11, 15, 19, 59).astimezone())
-
-    assert fixes.due() is False
-
-
-def test_runs_once_a_day(fixes):
-    fixes.data["runs"] = [{"started_at": datetime(2026, 11, 15, 20, 0, 30).astimezone().isoformat(), "state": "done"}]
-
-    assert fixes.due() is False
-
-
-def test_a_day_the_computer_was_off_at_the_time_runs_when_the_app_starts(fixes, monkeypatch):
-    monkeypatch.setattr(At, "moment", datetime(2026, 11, 15, 23, 40).astimezone())
-    fixes.data["runs"] = [{"started_at": datetime(2026, 11, 14, 20, 0).astimezone().isoformat(), "state": "done"}]
-
-    assert fixes.due() is True
-
-
-def test_setting_a_time_that_has_passed_waits_for_tomorrow(fixes):
-    fixes.data["changed_at"] = datetime(2026, 11, 15, 20, 30).astimezone().isoformat()
-
-    assert fixes.due() is False
-
-
-@pytest.mark.parametrize("hour, minute", [(24, 0), (-1, 0), (20, 60)])
-def test_set_refuses_a_time_that_isnt_one(fixes, hour, minute):
-    with pytest.raises(ValueError):
-        fixes.set(True, hour, minute)
-
-
-def test_set_is_kept(fixes, tmp_path):
-    fixes.set(True, 8, 30)
-
-    kept = json.loads((tmp_path / "problem_fixes.json").read_text())
-    assert (kept["on"], kept["hour"], kept["minute"]) == (True, 8, 30)
-
-
-def test_a_run_the_restart_cut_off_is_failed_at_start(tmp_path, monkeypatch):
+def test_a_run_the_restart_cut_off_is_failed_at_start_and_the_vm_stopped(tmp_path, monkeypatch):
     monkeypatch.setattr(problem_fixes, "DATA_DIR", tmp_path)
-    run = {"started_at": "2026-11-15T01:00:00+00:00", "ended_at": None, "state": "running", "pid": None, "error": ""}
-    data = {"on": True, "hour": 20, "minute": 0, "changed_at": "2026-11-01T00:00:00+00:00", "runs": [run]}
-    (tmp_path / "problem_fixes.json").write_text(json.dumps(data))
+    run = {"started_at": "2026-11-15T01:00:00+00:00", "ended_at": None, "state": "running", "error": ""}
+    (tmp_path / "problem_fixes.json").write_text(json.dumps({"runs": [run]}))
+    vms = FakeVMs()
 
-    fixes = ProblemFixes(FakeProblems([]), None, FakeUpdates())
+    fixes = ProblemFixes(FakeProblems([]), None, FakeUpdates(), vms, FakeImages())
 
     assert fixes.data["runs"][0]["state"] == "failed"
     assert fixes.data["runs"][0]["error"] == "Cut off: the app restarted during the run."
     assert fixes.data["runs"][0]["ended_at"] is not None
+    assert vms.stopped == [FIX_VM]
 
 
 def test_a_failed_run_keeps_why_and_the_output(fixes):
