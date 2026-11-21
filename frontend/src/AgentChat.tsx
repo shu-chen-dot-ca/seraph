@@ -17,7 +17,7 @@ a message brings it back. An agent that made PRs can't be deleted, only archived
 The Desktop is the live screen of the agent's own desktop of the VM it holds or waits for (a VM has one or more, each
 with its own screen), else of desktop 1 of its target VM: only the screen, like the VMs page's
 picture, without noVNC's page and buttons around it (noVNC's own client draws it straight from the VM's VNC
-connection; LiveDesktop.tsx, through the backend when the page came through the remote access domain), so it moves as
+connection; LiveDesktop.tsx), so it moves as
 smoothly as the VM page's desktop. View-only: nothing reaches the VM from it. A click opens
 it big in a pop-up on this page (still view-only; the VM's name above it links to the VM page, where you can use it).
 Off, starting, not answering, or a terminal-only image say so instead.
@@ -104,7 +104,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import AgentArtifacts from "@/AgentArtifacts";
-import LiveDesktop, { REMOTE } from "@/LiveDesktop";
+import LiveDesktop from "@/LiveDesktop";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { JobProgressBar, JobSteps, currentJob, stuckFor, useNow } from "@/components/ui/job-progress";
@@ -478,13 +478,10 @@ export default function AgentChat(props: { agentId: string; compact?: boolean })
           return;
         }
         // answer.desktop is noVNC's page (http://<VM>:<port>/vnc.html?...); LiveDesktop takes the websocket that page
-        // itself uses, on the same address. Through the remote access domain it goes through the backend instead.
+        // itself uses, on the same address.
         let url: string | null = null;
         if (answer.desktop !== null) {
           url = `ws://${new URL(answer.desktop).host}/websockify`;
-        }
-        if (answer.desktop !== null && REMOTE) {
-          url = `wss://${window.location.host}/api/vms/${encodeURIComponent(name)}/vnc?desktop=${deskNumber}`;
         }
         setDeskUrl(url);
         setDeskTerminal(answer.desktop === null);

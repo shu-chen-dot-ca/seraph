@@ -249,7 +249,7 @@ class Updates:
         port = int(os.environ["BACKEND_PORT"]) + 2
         shutil.rmtree(data, ignore_errors=True)
         # Without the VMs: the check must never see, start or stop one.
-        shutil.copytree(Path(HOME) / "data", data, symlinks=True, ignore=shutil.ignore_patterns("vms", "remote_access"))
+        shutil.copytree(Path(HOME) / "data", data, symlinks=True, ignore=shutil.ignore_patterns("vms"))
         lines = []
         for line in (Path(HOME) / ".env").read_text().splitlines():
             if line.split("=")[0].strip() in ["DATA_DIR", "BACKEND_PORT", "SANDBOX_VM_PREFIX", "SERAPH_CHECK"]:

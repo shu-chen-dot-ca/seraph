@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs the live copy: the release installed in ~/seraph (deploy/install.sh), on your data, VMs and agents, at
-# http://localhost:8001 and your remote access address. It shows the app's log here; Ctrl+C stops it. Nothing starts
+# http://localhost:8001. It shows the app's log here; Ctrl+C stops it. Nothing starts
 # it otherwise, not even a reboot.
 #
 # It runs as the user service seraph (deploy/seraph.service), so Update in the app can switch it to a new release

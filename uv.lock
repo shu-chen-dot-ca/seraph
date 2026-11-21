@@ -1073,7 +1073,6 @@ source = { editable = "." }
 dependencies = [
     { name = "boto3" },
     { name = "claude-agent-sdk" },
-    { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pydantic" },
@@ -1091,7 +1090,6 @@ dev = [
 requires-dist = [
     { name = "boto3", specifier = ">=1.44.3" },
     { name = "claude-agent-sdk", specifier = ">=0.2.186" },
-    { name = "cryptography", specifier = ">=44" },
     { name = "fastapi", specifier = ">=0.143.1" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "pydantic", specifier = ">=2.7" },

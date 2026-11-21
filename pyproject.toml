@@ -8,8 +8,6 @@ dependencies = [
     "boto3>=1.44.3",
     # 0.2.186 and later: its Claude Code knows Fable 5.2, Sonnet 5.5 and Haiku 5.5 (github_searcher/claude_models.py).
     "claude-agent-sdk>=0.2.186",
-    # Checks passkey signatures for remote access (github_searcher/remote_access.py).
-    "cryptography>=44",
     "fastapi>=0.143.1",
     "httpx>=0.28",
     "pydantic>=2.7",

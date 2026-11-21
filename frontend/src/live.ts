@@ -6,8 +6,7 @@ One websocket to /api/live. On connect the server sends every topic, then only t
 Each message replaces that topic in the store, and components read it with useLive(topic), so the page never
 polls and never re-fetches lists. When the socket drops it reconnects after a second, and the server sends
 everything again. When the app that answers is another version than this page's (an update restarted it, see
-UpdateDialog.tsx), the page reloads into the new version, at the same place (the page is in the URL). Through the remote access address without a sign in, the server closes it with 4401 and the page
-opens the Sign in page instead (backend/app.py). The page sends nothing back.
+UpdateDialog.tsx), the page reloads into the new version, at the same place (the page is in the URL). The page sends nothing back.
 
 The types below mirror the records in the spec (data/*.json and the live summaries).
 */
@@ -713,12 +712,7 @@ function connect() {
   };
 
   // onclose also follows onerror, so this is the one place that reconnects.
-  socket.onclose = (event) => {
-    // Through the remote access address without a sign in (or this device was removed): the Sign in page instead.
-    if (event.code === 4401) {
-      window.location.href = "/api/remote_access/sign_in";
-      return;
-    }
+  socket.onclose = () => {
     if (store.connected) {
       store.connected = false;
       listeners.forEach((listener) => listener());
@@ -756,7 +750,6 @@ export function useConnected(): boolean {
 // api("/api/repos/plan", { method: "POST", body: {...} }), api<GithubAccountStatus>("/api/github_account").
 // Sends body as JSON. Returns the parsed JSON (or the text for non-JSON answers).
 // Throws Error(detail) on a non-2xx answer, with the backend's HTTPException detail as the message.
-// A 401 with sign_in: true (through the remote access address, signed out) opens the Sign in page.
 export async function api<T = unknown>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
   const init: RequestInit = { method: options.method ?? "GET" };
   if (options.body !== undefined) {
@@ -769,9 +762,6 @@ export async function api<T = unknown>(path: string, options: { method?: string;
     let detail = `${response.status} ${response.statusText}`;
     if (isJson) {
       const body = await response.json().catch(() => null);
-      if (response.status === 401 && body && body.sign_in === true) {
-        window.location.href = "/api/remote_access/sign_in";
-      }
       if (body && typeof body.detail === "string") {
         detail = body.detail;
       } else if (body && body.detail !== undefined) {

@@ -1,8 +1,7 @@
 /*
 The Settings dialog, opened from the bottom of the left list (Sidebar.tsx), or on its Account section from the header's
 Sign in or your GitHub picture (App.tsx): the theme (Light, Dark or System), the accent color, Reset view, Account
-(Account.tsx: your GitHub account, Sign in and Sign out), the env vars for all VMs, Remote access (RemoteAccess.tsx: the
-address for your phone and any device, and the devices that may sign in there), Secrets (Secrets.tsx: on this computer
+(Account.tsx: your GitHub account, Sign in and Sign out), the env vars for all VMs, Secrets (Secrets.tsx: on this computer
 or in AWS Secrets Manager), then About (About.tsx: the version that runs, Check for updates and Previous version).
 section "account" scrolls the dialog to Account when it opens.
 
@@ -29,7 +28,6 @@ import { toast } from "sonner";
 
 import About from "@/About";
 import Account from "@/Account";
-import RemoteAccess from "@/RemoteAccess";
 import Secrets from "@/Secrets";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -316,7 +314,6 @@ export default function SettingsDialog(props: {
           </p>
         </section>
 
-        <RemoteAccess open={props.open} />
         <Secrets open={props.open} />
         <About />
       </DialogContent>

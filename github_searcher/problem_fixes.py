@@ -10,7 +10,7 @@ A run:
    the tests never see a real token or your data) and its packages.
 2. With open feedback, Seraph's VM is made the first time (from the default image, with the default CPUs, memory and
    disk and one desktop) or started. It gets that clone (a git bundle, with no remote: it can't push), the same .env, a
-   copy of the data folder without the VMs, remote access and any secret (DATA_LEFT_OUT), and your Claude Code memory
+   copy of the data folder without the VMs and any secret (DATA_LEFT_OUT), and your Claude Code memory
    of this repo from your own sessions, where its Claude Code finds it (SET_UP). Then Claude Code (claude -p, its model
    in claude_models.py, at max effort, allowed everything in the VM) gets all the feedback at once (PROMPT). Its login
    is CLAUDE_CODE_OAUTH_TOKEN_VM, a token of its own (secret_vault.py), handed to that one process on its stdin and
@@ -108,12 +108,10 @@ LOCKED = [
     "github_searcher/crashes.py",
     "github_searcher/secret_vault.py",
 ]
-# Left out of the data folder's copy in the VM: the VMs, remote access, every secret (your sign-in, the sign-in app,
-# where the vault is) and the agents' homes.
+# Left out of the data folder's copy in the VM: the VMs, every secret (your sign-in, the sign-in app, where the vault
+# is) and the agents' homes.
 DATA_LEFT_OUT = [
     "vms",
-    "remote_access",
-    "remote_access.json",
     "secret_vault.json",
     "github_account.json",
     "github_app.json",

@@ -17,11 +17,6 @@ come from a page on localhost or 127.0.0.1 (the Vite dev server, on whatever
 port it picked). Pages from anywhere else, like a VM's desktop page (which the
 agent controls) or another website, get 403.
 
-The one exception is remote access (github_searcher/remote_access.py), once REMOTE_ACCESS_DOMAIN is set: pages at
-that domain may use the API too, but only signed in with a passkey. A request through the domain without a session
-gets 401 {"detail", "sign_in": true} (except the sign-in pages, remote_access_api.OPEN_PATHS), and the live
-websocket closes with 4401, also as soon as the device is removed or signed out. The page then opens the Sign in page.
-
 The page itself comes from Vite in the dev copy (./run.sh). The live copy (deploy/, SERAPH_HOME set) serves its own
 built page (frontend/dist) from here, at /, so it needs no Vite.
 
@@ -54,18 +49,16 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocketDisconnect, WebSocketDisconnected
 
-from backend import agents_api, artifacts_api, automation_api, errors_api, github_account_api, github_api, images_api, inbox_api, issues_api, problem_fixes_api, remote_access_api, repo_automation_api, repos_api, secrets_api, updates_api, vms_api
-from backend.shared import agents, crashes, explore, images, inbox, issue_tags, jobs, pr_tracking, problems, remote_access, repos, token_usage, updates, vms
-from github_searcher.remote_access import COOKIE, DOMAIN as REMOTE_DOMAIN
+from backend import agents_api, artifacts_api, automation_api, errors_api, github_account_api, github_api, images_api, inbox_api, issues_api, problem_fixes_api, repo_automation_api, repos_api, secrets_api, updates_api, vms_api
+from backend.shared import agents, crashes, explore, images, inbox, issue_tags, jobs, pr_tracking, problems, repos, token_usage, updates, vms
 from github_searcher.token_balancer import BALANCER
 from github_searcher.updates import HOME
 
 # override: the backend reloads itself on code changes, and .env changes should apply then too.
 load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
-LOCAL_HOSTS = ["localhost", "127.0.0.1"]
-# The hosts the API answers: this computer, and the remote access domain once it is set up.
-ALLOWED_HOSTS = LOCAL_HOSTS + ([REMOTE_DOMAIN] if REMOTE_DOMAIN != "" else [])
+# The hosts the API answers: this computer only.
+ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 THREADS = 64
 # The live feed ends for a browser that takes nothing for this long (feed).
 SEND_SECONDS = 30
@@ -163,7 +156,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-ROUTERS = [inbox_api.router, automation_api.router, github_api.router, github_account_api.router, repos_api.router, agents_api.router, vms_api.router, images_api.router, artifacts_api.router, remote_access_api.router, secrets_api.router, updates_api.router, problem_fixes_api.router, errors_api.router]
+ROUTERS = [inbox_api.router, automation_api.router, github_api.router, github_account_api.router, repos_api.router, agents_api.router, vms_api.router, images_api.router, artifacts_api.router, secrets_api.router, updates_api.router, problem_fixes_api.router, errors_api.router]
 for router in ROUTERS:
     app.include_router(router)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
@@ -171,14 +164,10 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 
 @app.middleware("http")
 async def check_origin(request: Request, call_next):
-    """Browsers send Origin with every POST, PUT and DELETE (also no-cors ones): only local pages (and the remote
-    access domain's) may call. Through the domain, every call needs a sign in, except the sign-in pages."""
+    """Browsers send Origin with every POST, PUT and DELETE (also no-cors ones): only local pages may call."""
     origin = request.headers.get("origin")
     if origin is not None and urlsplit(origin).hostname not in ALLOWED_HOSTS:
         return JSONResponse(status_code=403, content={"detail": "Only pages on this machine may use the API."})
-    if remote_access.from_outside(request.headers) and request.url.path not in remote_access_api.OPEN_PATHS:
-        if remote_access.device_for(request.cookies.get(COOKIE)) is None:
-            return JSONResponse(status_code=401, content={"detail": "Sign in first.", "sign_in": True})
     return await call_next(request)
 
 
@@ -207,11 +196,6 @@ async def live(websocket: WebSocket) -> None:
     origin = websocket.headers.get("origin")
     if origin is not None and urlsplit(origin).hostname not in ALLOWED_HOSTS:
         await websocket.close(code=1008)
-        return
-    # Through the remote access domain only signed in. Accepted first, so the page sees the 4401 and opens Sign in.
-    if remote_access.from_outside(websocket.headers) and remote_access.device_for(websocket.cookies.get(COOKIE)) is None:
-        await websocket.accept()
-        await websocket.close(code=4401)
         return
     await websocket.accept()
     await feed(websocket)
@@ -277,16 +261,10 @@ async def feed(websocket: WebSocket) -> None:
     sent = {"repos": None, "jobs": None, "inbox": None, "prs": None, "agents": None, "vms": None, "images": None, "updates": None, "automation": None, "tokens": None, "problems": None}
     # When each big topic last went (time.monotonic()): again only BIG_TOPIC_SECONDS later, with every change since.
     sent_at = {"repos": 0.0, "jobs": 0.0, "inbox": 0.0, "prs": 0.0, "agents": 0.0, "problems": 0.0}
-    outside = remote_access.from_outside(websocket.headers)
-    cookie = websocket.cookies.get(COOKIE)
     if CHECK:
         for topic in OLD_TOPICS:
             await websocket.send_json({"topic": topic, "data": None})
     while True:
-        # A device removed or signed out in the meantime (or its session over) stops getting the feed at once.
-        if outside and remote_access.device_for(cookie) is None:
-            await websocket.close(code=4401)
-            return
         # Each topic's version now. Images say which VMs were made from each, so they are sent again when the VM list
         # changes too; not on every usage sample though: only the number of VMs and their images matter.
         vm_images = [(record.name, record.image_fingerprint) for record in vms.list()]

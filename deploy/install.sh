@@ -4,7 +4,7 @@
 # in the app's header. Run it from this folder, with ./run.sh stopped. README.md (Live copy and updates) has what changes.
 #
 # After it:
-#   ~/seraph/current -> releases/$1    the live copy (./live.sh): http://localhost:$BACKEND_PORT (8001), and remote access
+#   ~/seraph/current -> releases/$1    the live copy (./live.sh): http://localhost:$BACKEND_PORT (8001)
 #   ~/seraph/data, ~/seraph/.env       data/ and .env moved there (DATA_DIR, SERAPH_REPO set)
 #   this folder                        ./run.sh, your working code, on the same data, VMs and port: .env is a link to
 #                                      ~/seraph/.env. One of the two runs at a time.
@@ -62,8 +62,7 @@ for FOLDER in "$HOME/.claude/projects/$OLD_NAME"-*; do
     cp -a "$FOLDER" "$HOME/.claude/projects/$NEW_NAME${FOLDER#"$HOME/.claude/projects/$OLD_NAME"}"
 done
 
-# The live copy's service: ./live.sh starts it; nothing else does. Remote access stays run from this folder, and shows
-# whichever copy runs.
+# The live copy's service: ./live.sh starts it; nothing else does.
 mkdir -p "$HOME/.config/systemd/user"
 cp deploy/seraph.service "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload

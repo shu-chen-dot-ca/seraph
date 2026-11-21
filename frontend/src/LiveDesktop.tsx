@@ -3,17 +3,11 @@ A VM's screen, live: noVNC's client (RFB) draws only the screen into the box, sc
 around it. A dropped connection tries again every 2 seconds. viewOnly keeps the mouse and keyboard out; it can change
 without connecting again (a lock comes and goes while the agent works).
 
-The agent page's Desktop (AgentChat.tsx) uses it view-only. Through the remote access domain (REMOTE) the VM page
-(VMPage.tsx) uses it too, instead of noVNC's page from the VM in an iframe:
-the phone can't reach the VM's address, and an https page can't load http. Its VNC connection then passes through
-the backend (the websocket /api/vms/{name}/vnc). rfbRef, when given, hands the caller the client.
+The agent page's Desktop (AgentChat.tsx) uses it view-only. rfbRef, when given, hands the caller the client.
 */
 
 import RFB from "@novnc/novnc";
 import { useEffect, useRef } from "react";
-
-// The page came through the remote access domain, not from this computer.
-export const REMOTE = window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1";
 
 export default function LiveDesktop(props: { url: string; viewOnly: boolean; className?: string; rfbRef?: { current: RFB | null } }) {
   const boxRef = useRef<HTMLDivElement>(null);
