@@ -44,7 +44,7 @@
   <path class="ln" d="M480 127 H524"/>
   <circle class="dot" cx="524" cy="127" r="3.5"/>
   <text class="t" x="540" y="122" font-size="15" font-weight="700">Search</text>
-  <text class="m" x="540" y="141" font-size="13.5">Explore searches with your profile; the agents search too.</text>
+  <text class="m" x="540" y="141" font-size="13.5">Projects above a minimum number of stars.</text>
 
   <path class="ln" d="M452 189 H524"/>
   <circle class="dot" cx="524" cy="189" r="3.5"/>
@@ -54,7 +54,7 @@
   <path class="ln" d="M424 251 H524"/>
   <circle class="dot" cx="524" cy="251" r="3.5"/>
   <text class="t" x="540" y="246" font-size="15" font-weight="700">Issues</text>
-  <text class="m" x="540" y="265" font-size="13.5">From the repos you keep, plus new ones from tracked repos.</text>
+  <text class="m" x="540" y="265" font-size="13.5">Every open issue in the repos it keeps.</text>
 
   <path class="ln" d="M396 313 H524"/>
   <circle class="dot" cx="524" cy="313" r="3.5"/>

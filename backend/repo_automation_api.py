@@ -483,7 +483,7 @@ async def pick_for_catalog() -> None:
                 f"The user's instructions for this repo, on top of the rules: {instructions}\n\n"
                 "Answer take true or false for every issue, by its number.\n\n" + "\n".join(lines)
             )
-            answer = await judge(prompt, SCHEMA, "medium")
+            answer = await judge(prompt, SCHEMA, "medium", "catalog_picks")
             take = [each["number"] for each in answer["issues"] if each["take"]]
             answered = [each["number"] for each in answer["issues"]]
             new = []

@@ -34,9 +34,11 @@ from pathlib import Path
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, SystemMessage, TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock, UserMessage, create_sdk_mcp_server
 from dotenv import load_dotenv
 
+from github_searcher import token_usage
 from github_searcher.agent.github_tools import GithubTools
 from github_searcher.agent.review_tools import ReviewTools
 from github_searcher.agent.work_tools import WorkTools
+from github_searcher.claude_models import MODELS, SIDE_MODEL
 from sandbox.agent.tools import ComputerTools
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -77,6 +79,12 @@ class Agent:
         # block, each with the reply's usage so far.
         self.reply_id = None
         self.reply_tokens = 0
+        # The same per part (input_tokens, ...), for the log (token_usage.py).
+        self.reply_parts = {}
+        # The model the next connection uses, and what the agent works on for the log: Agents.work sets both before
+        # each turn (claude_models.py). A changed model means a new connection.
+        self.model = MODELS["chat"]
+        self.work = {"work": "chat", "job": None, "repo": None}
         self.computer_tools = computer_tools
         self.work_tools = work_tools
         # Called after every message, so the live feed sends the agent list again.
@@ -106,7 +114,7 @@ class Agent:
 
         self.client = ClaudeSDKClient(
             ClaudeAgentOptions(
-                model=os.environ["CLAUDE_MODEL"],
+                model=self.model,
                 system_prompt=SYSTEM_PROMPT,
                 # The only built-in tool: a todo list, which touches nothing on this machine.
                 tools=["TodoWrite"],
@@ -124,6 +132,7 @@ class Agent:
                 env={
                     "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
                     "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+                    "ANTHROPIC_DEFAULT_HAIKU_MODEL": SIDE_MODEL,
                     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": os.environ["AGENT_CONTEXT_CAP"],
                 },
             )
@@ -200,8 +209,16 @@ class Agent:
                 if message.message_id != self.reply_id:
                     self.reply_id = message.message_id
                     self.reply_tokens = 0
+                    self.reply_parts = {}
                 self.tokens_used += self.context_used - self.reply_tokens
                 self.reply_tokens = self.context_used
+                # What grew since this reply's last message, in the log.
+                grown = {}
+                for key in ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"]:
+                    value = message.usage.get(key) or 0
+                    grown[key] = max(value - self.reply_parts.get(key, 0), 0)
+                    self.reply_parts[key] = max(value, self.reply_parts.get(key, 0))
+                token_usage.add(self.work["work"], message.model, grown, agent=self.id, job=self.work["job"], repo=self.work["repo"])
 
             if isinstance(message, ResultMessage):
                 self.session_id = message.session_id

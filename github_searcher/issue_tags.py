@@ -789,7 +789,7 @@ class IssueTags:
                 "names).\n\n"
                 "Answer for every issue, by its number.\n\n" + "\n\n".join(run)
             )
-            answer = await judge(prompt, SCHEMA, EFFORT)
+            answer = await judge(prompt, SCHEMA, EFFORT, "issue_tags")
             answered = {}
             for item in answer["issues"]:
                 # Only the issues asked about.

@@ -41,6 +41,8 @@ from pathlib import Path
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, SystemMessage, TextBlock, ToolResultBlock, ToolUseBlock, UserMessage, create_sdk_mcp_server, tool
 from dotenv import load_dotenv
 
+from github_searcher import token_usage
+from github_searcher.claude_models import MODELS, SIDE_MODEL
 from sandbox import image_build
 from sandbox.images import Images, ImagesError, load_inventory
 from sandbox.vm import VM
@@ -258,7 +260,7 @@ class ImageAgents:
         ]
         client = ClaudeSDKClient(
             ClaudeAgentOptions(
-                model=os.environ["CLAUDE_MODEL"],
+                model=MODELS["image"],
                 system_prompt=PROMPT.format(name=name),
                 # No built-in tools: nothing on this machine is in reach.
                 tools=[],
@@ -270,7 +272,7 @@ class ImageAgents:
                 resume=chat["session_id"],
                 cwd=str(AGENT_HOME),
                 # The backend runs in this repo: its CLAUDE.md and Claude Code's memory are not for this agent.
-                env={"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"},
+                env={"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1", "ANTHROPIC_DEFAULT_HAIKU_MODEL": SIDE_MODEL},
             )
         )
         running["client"] = client
@@ -285,6 +287,8 @@ class ImageAgents:
                     chat["session_id"] = message.data["session_id"]
 
                 if isinstance(message, ResultMessage):
+                    for model, usage in (message.model_usage or {}).items():
+                        token_usage.add("image", model, usage, name, "", usage.get("costUSD"), message.duration_ms / 1000)
                     chat["session_id"] = message.session_id
                     # Each turn has its own connection, so the connection's total is this turn's cost.
                     cost = message.total_cost_usd or 0.0

@@ -157,6 +157,7 @@ from dotenv import load_dotenv
 from github_searcher import search
 from github_searcher.agent.agent import AGENT_HOME, Agent
 from github_searcher.agent.work_tools import WorkTools
+from github_searcher.claude_models import BIG_REPO_MODEL, BIG_REPO_STARS, MODELS
 from sandbox.agent import long_runs
 from sandbox.agent.tools import ComputerTools
 from sandbox.vms import VMsError
@@ -501,6 +502,35 @@ class Agents:
             agent.busy = True
             agent.last_event_at = now
             self.version += 1
+            # The model (claude_models.py): by the job it works on, the one working, else the first still open. A reviewer
+            # reviews. With no job it talks with you and keeps the model it has: switching re-reads the whole
+            # conversation at full price, so the model only changes with a job.
+            current = None
+            for job in self.jobs.for_agent(agent.id):
+                if job["status"] == "working" or (current is None and job["status"] in ["queued", "waiting_on_user", "waiting_on_maintainers"]):
+                    current = job
+            work = "chat"
+            repo = None
+            model = agent.model
+            if current is not None:
+                work = current["kind"] if current["kind"] in MODELS else "task"
+                repo = current["repo"]
+                model = MODELS[work]
+            if agent.record["role"] == "reviewer":
+                work = "review"
+                repo = agent.record.get("reviews")
+                model = MODELS["review"]
+            # Fixing and following up in a big name's repository: the most capable model.
+            stars = 0
+            for item in self.repos.items():
+                if repo is not None and item["full_name"].lower() == repo.lower():
+                    stars = item["stars"]
+            if work in ["fix_issue", "follow_up"] and stars >= BIG_REPO_STARS:
+                model = BIG_REPO_MODEL
+            agent.work = {"work": work, "job": current["id"] if current is not None else None, "repo": repo}
+            if model != agent.model:
+                agent.model = model
+                await agent.stop()
             # Fresh GitHub answers every turn: an issue may have been taken or fixed since the last one.
             search.CACHE.clear()
             try:

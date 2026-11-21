@@ -103,7 +103,9 @@ from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, ResultMessage,
 from dotenv import load_dotenv
 
 from github_searcher.agent.github_tools import GithubTools
+from github_searcher import token_usage
 from github_searcher.claude_judge import AGENT_HOME, JudgeError, judge
+from github_searcher.claude_models import MODELS, SIDE_MODEL
 from github_searcher.search import get_readme, get_repository, search_repositories
 from github_searcher.token_balancer import BALANCER
 
@@ -501,7 +503,7 @@ class Explore:
             "those out."
         )
         try:
-            plan = await judge(prompt, PLAN_SCHEMA, "medium")
+            plan = await judge(prompt, PLAN_SCHEMA, "medium", "explore_plan")
         except JudgeError as error:
             raise ValueError(f"Claude could not plan the searches: {error}")
         for planned in plan["types"]:
@@ -547,7 +549,7 @@ class Explore:
             "ones or personal ones. "
             '"archived:false pushed:>(30 days ago)" is added to each, so leave those out.'
         )
-        answer = await judge(prompt, TYPE_SCHEMA, "medium")
+        answer = await judge(prompt, TYPE_SCHEMA, "medium", "explore_type")
         label = answer["name"].strip()
         queries = [each.strip() for each in answer["queries"] if each.strip() != ""][:8]
         if label == "" or not queries or label.lower() in [lane["label"].lower() for lane in lanes]:
@@ -977,9 +979,9 @@ class Explore:
             }
             # The fit, and the repo's AI policy and review atmosphere (unless a filter read them already), all at once.
             if judged:
-                verdict = await judge(prompt, schema, "medium")
+                verdict = await judge(prompt, schema, "medium", "explore_fit")
             else:
-                verdict, signals = await asyncio.gather(judge(prompt, schema, "medium"), self.repo_signals.complete(name, signals))
+                verdict, signals = await asyncio.gather(judge(prompt, schema, "medium", "explore_fit"), self.repo_signals.complete(name, signals))
             if not verdict["is_project"]:
                 reason = "Not a code project"
             elif not verdict["english"]:
@@ -1017,7 +1019,7 @@ class Explore:
                     description="Reads a batch of this project's issues or PRs on GitHub (give it their numbers, or what to search for) and reports back in a few lines.",
                     prompt=READER_PROMPT,
                     tools=allowed,
-                    model="inherit",
+                    model=MODELS["explore_reader"],
                     effort="low",
                     maxTurns=READER_TURNS,
                 )
@@ -1046,7 +1048,7 @@ class Explore:
                     "or doesn't, and what its issues and PRs showed. Plain words, no hype."
                 )
                 options = ClaudeAgentOptions(
-                    model=os.environ["CLAUDE_MODEL"],
+                    model=MODELS["explore"],
                     system_prompt=LOOK_SYSTEM_PROMPT,
                     # No built-in tools but Agent, for the readers; the GitHub tools only read.
                     tools=["Agent"],
@@ -1061,10 +1063,18 @@ class Explore:
                     max_turns=LOOK_TURNS,
                     output_format={"type": "json_schema", "schema": LOOK_SCHEMA},
                     extra_args={"no-session-persistence": None},
-                    env={"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"},
+                    env={"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1", "ANTHROPIC_DEFAULT_HAIKU_MODEL": SIDE_MODEL},
                 )
                 look = None
                 async for message in query(prompt=look_prompt, options=options):
+                    # What the lead and its readers used, per model, in the log: the readers' model is theirs (when it
+                    # is the lead's too, the lead's line has theirs).
+                    usages = {}
+                    if isinstance(message, ResultMessage) and message.model_usage:
+                        usages = message.model_usage
+                    for model, usage in usages.items():
+                        work = "explore" if model == MODELS["explore"] else "explore_reader"
+                        token_usage.add(work, model, usage, "explore_look", "medium", usage.get("costUSD"), message.duration_ms / 1000, repo=name)
                     if isinstance(message, ResultMessage) and not message.is_error:
                         look = message.structured_output
                 if isinstance(look, dict):

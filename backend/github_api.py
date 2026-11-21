@@ -725,7 +725,7 @@ async def judge_prs(due: list[dict], jobs: list[dict], failed_at: dict) -> None:
             "Answer for every pull request, by its id.\n\n" + "\n\n".join(texts)
         )
         try:
-            answer = await judge(prompt, JUDGE_SCHEMA, "medium")
+            answer = await judge(prompt, JUDGE_SCHEMA, "medium", "pr_needs_action")
         except Exception as error:
             # Any failure (no valid answer, an API error or a usage limit ending Claude Code): tried again later.
             print(f"[github] could not judge {', '.join(keys)}: {error}")

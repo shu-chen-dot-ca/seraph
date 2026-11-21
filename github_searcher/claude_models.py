@@ -7,10 +7,12 @@ in, out and cached read; writing to the cache costs twice the input for an hour.
     Fable 5.2   claude-fable-5-2   $8    $40    $0.20   the most capable
     Opus 5.5    claude-opus-5-5    $4    $20    $0.20
     Sonnet 5.5  claude-sonnet-5-5  $2    $10    $0.10
-    Haiku 5.5   claude-haiku-5-5   $0.10 $0.50  $0.01   five times that past 100K tokens of prompt
 
-All four hold 1M tokens. An agent keeps one conversation, and Claude's cache only serves the same model, so an agent's
-model is picked once per job (agents.py work), never per step: a switch re-reads the whole conversation at full price.
+All three hold 1M tokens. Haiku isn't used anywhere: Claude Code makes small side calls of its own on every run with
+its Haiku model, and those go to SIDE_MODEL instead (ANTHROPIC_DEFAULT_HAIKU_MODEL in each run's env).
+
+An agent keeps one conversation, and Claude's cache only serves the same model, so an agent's model is picked once per
+job (agents.py work), never per step: a switch re-reads the whole conversation at full price.
 
 The kinds of work:
 - fix_issue, follow_up: an agent fixing an issue, or following up on its pull request. In a repository with
@@ -18,7 +20,7 @@ The kinds of work:
 - review: the reviewer before a pull request goes out. chat: an agent with no job (talking with you). task: any other
   job.
 - judgment: one question answered as JSON with no tools (claude_judge.py): issue tags, repository checks, which pull
-  requests need action, Explore's checks. Opus until a sample of past judgments shows a cheaper model answers the same.
+  requests need action, Explore's checks.
 - explore: Explore's look at a repository's issues and pull requests; explore_reader: the helpers it hands threads to
   (they only read and report back).
 - image: the image agent (sandbox/image_agent.py). fix_problems: the daily run that fixes the app (problem_fixes.py).
@@ -27,7 +29,6 @@ The kinds of work:
 FABLE = "claude-fable-5-2"
 OPUS = "claude-opus-5-5"
 SONNET = "claude-sonnet-5-5"
-HAIKU = "claude-haiku-5-5"
 
 MODELS = {
     "fix_issue": OPUS,
@@ -35,7 +36,7 @@ MODELS = {
     "review": OPUS,
     "chat": OPUS,
     "task": OPUS,
-    "judgment": OPUS,
+    "judgment": SONNET,
     "explore": OPUS,
     "explore_reader": SONNET,
     "image": OPUS,
@@ -43,3 +44,4 @@ MODELS = {
 }
 BIG_REPO_STARS = 20000
 BIG_REPO_MODEL = FABLE
+SIDE_MODEL = SONNET

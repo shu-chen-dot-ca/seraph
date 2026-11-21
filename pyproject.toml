@@ -6,7 +6,8 @@ requires-python = ">=3.11"
 dependencies = [
     # Keeps the secrets in AWS Secrets Manager when you move them there (github_searcher/secret_vault.py).
     "boto3>=1.44.3",
-    "claude-agent-sdk>=0.2.160",
+    # 0.2.186 and later: its Claude Code knows Fable 5.2, Sonnet 5.5 and Haiku 5.5 (github_searcher/claude_models.py).
+    "claude-agent-sdk>=0.2.186",
     # Checks passkey signatures for remote access (github_searcher/remote_access.py).
     "cryptography>=44",
     "fastapi>=0.143.1",

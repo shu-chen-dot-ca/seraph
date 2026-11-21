@@ -8,7 +8,7 @@ A run works in its own clone of the app's repo (FIX_DIR, never your working copy
 sign-in):
 1. The clone is made the same as main on GitHub (SELF_REPO) and gets its packages. Its .env is CI's: .env.example with
    DATA_DIR=data and a placeholder GITHUB_TOKEN, so the tests never see a real token or your data.
-2. With open problems, Claude Code (claude -p, CLAUDE_MODEL at max effort) gets them all at once (PROMPT). It may only
+2. With open problems, Claude Code (claude -p, its model in claude_models.py, at max effort) gets them all at once (PROMPT). It may only
    read and edit files, run the tests and the frontend build, and commit (ALLOWED_TOOLS): no other commands, no web,
    and none of your secrets (its environment has only its own login). It answers which problems it fixed, which need
    no change in the app (closed at once, with why), and why the others weren't fixed (ANSWER).
@@ -52,6 +52,8 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
+from github_searcher import token_usage
+from github_searcher.claude_models import MODELS, SIDE_MODEL
 from github_searcher.projects import SECTIONS, SELF_REPO, TITLE
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -310,7 +312,7 @@ class ProblemFixes:
                 lines.append(f"- {item['id']} ({item['at'][:10]}, about {item['about'] or 'nothing in particular'}): {item['text']}")
             command = [
                 "claude", "-p",
-                "--model", os.environ["CLAUDE_MODEL"],
+                "--model", MODELS["fix_problems"],
                 "--effort", "max",
                 "--permission-mode", "dontAsk",
                 "--allowedTools", ",".join(ALLOWED_TOOLS),
@@ -322,7 +324,7 @@ class ProblemFixes:
                 "--setting-sources", "project",
                 "--strict-mcp-config",
             ]
-            claude_env = {**plain_env, "CLAUDE_CODE_OAUTH_TOKEN": os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")}
+            claude_env = {**plain_env, "CLAUDE_CODE_OAUTH_TOKEN": os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", ""), "ANTHROPIC_DEFAULT_HAIKU_MODEL": SIDE_MODEL}
             process = subprocess.Popen(command, cwd=FIX_DIR, env=claude_env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
             with self.lock:
                 run["pid"] = process.pid
@@ -339,6 +341,8 @@ class ProblemFixes:
             except ValueError:
                 pass
             run["cost_usd"] = result.get("total_cost_usd")
+            for model, usage in (result.get("modelUsage") or {}).items():
+                token_usage.add("fix_problems", model, usage, "", "max", usage.get("costUSD"), (result.get("duration_ms") or 0) / 1000)
             fixes_ok = process.returncode == 0 and not result.get("is_error") and isinstance(result.get("structured_output"), dict)
             if fixes_ok:
                 answer = result["structured_output"]

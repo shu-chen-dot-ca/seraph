@@ -8,8 +8,8 @@ agent is a Claude conversation driven by an asyncio task). The list of agents
 reaches the browser through /api/live; an agent's summary there has its
 history_length, and the browser fetches the new entries with /history?since=.
 
-keep_token_usage(), which the app runs in the background, reads the tokens the agents used from their conversations
-every TOKEN_USAGE_SECONDS (github_searcher/token_usage.py), for the Dashboard's Tokens chart.
+keep_token_usage(), which the app runs in the background, adds up the usage log of every Claude run every
+TOKEN_USAGE_SECONDS (github_searcher/token_usage.py), for the Dashboard's Tokens chart.
 """
 
 import asyncio
@@ -180,8 +180,8 @@ async def cancel_job(job_id: str) -> dict:
 
 
 async def keep_token_usage() -> None:
-    """Runs as long as the backend: reads what is new in the agents' conversations every TOKEN_USAGE_SECONDS. The first
-    read after a start goes through every file once, in a thread, so nothing waits for it."""
+    """Runs as long as the backend: reads what is new in the usage log (and the agents' conversations from before it)
+    every TOKEN_USAGE_SECONDS, in a thread, so nothing waits for it."""
     while True:
         await asyncio.to_thread(token_usage.read)
         await asyncio.sleep(TOKEN_USAGE_SECONDS)

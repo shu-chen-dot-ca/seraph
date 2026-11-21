@@ -4,33 +4,23 @@
 
 <h1>Seraph</h1>
 
-<p><b>Coding agents that fix open-source issues on real Linux desktops,<br>and open the pull request as you once you approve it.</b></p>
+<p><b>Coding agents that fix open-source issues on their own Linux desktops,<br>and see each pull request through to the merge.</b></p>
 
 <p>
 <a href="https://github.com/search?q=is%3Apr+is%3Amerged+is%3Apublic+author%3Ashu-chen-dot-ca+-user%3Ashu-chen-dot-ca&type=pullrequests"><img alt="Merged pull requests" src="https://img.shields.io/github/issues-search?query=is%3Apr%20is%3Amerged%20is%3Apublic%20author%3Ashu-chen-dot-ca%20-user%3Ashu-chen-dot-ca&label=merged%20PRs&color=1a7f37&logo=github"></a>
-<img alt="Python 3.14" src="https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white">
-<img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white">
-<img alt="React 19" src="https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white">
-<img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white">
-<img alt="Incus KVM VMs" src="https://img.shields.io/badge/Incus-KVM%20VMs-E95420?logo=linuxcontainers&logoColor=white">
-<img alt="Claude Agent SDK" src="https://img.shields.io/badge/Claude-Agent%20SDK-D97757?logo=claude&logoColor=white">
-</p>
-
-<p>
-<a href="#-merged-upstream">Merged PRs</a> ·
-<a href="#-how-it-works">How it works</a> ·
-<a href="#-architecture">Architecture</a> ·
-<a href="#-quick-start">Quick start</a> ·
-<a href="#-docs">Docs</a>
 </p>
 
 </div>
 
-Most AI-made pull requests get closed. Seraph is built the other way around: it only works where outside contributions get merged, picks issues a maintainer is likely to accept, proves every fix on a real desktop, and a person reads every change before it goes out.
+Seraph contributes to open-source projects on its own. It finds projects that merge outside contributions, picks issues their maintainers are likely to accept, and hands each one to a coding agent with its own Linux desktop in a virtual machine. The agent reproduces the problem, fixes it, proves the fix with the project's own tests and opens the pull request. When maintainers review it, the same agent answers and pushes the next version until it is merged.
 
-## 🏆 Merged upstream
+Its pull requests have been merged by projects including Kestra, Mozilla's neqo, AWS Labs' CLI Agent Orchestrator, Vimeo's Psalm and Unison.
 
-Pull requests that Seraph's agents wrote, a person approved, and each project's own maintainers merged. Most starred first.
+![From issue to merged pull request](docs/how-it-works.svg)
+
+## Merged pull requests
+
+Written by Seraph's agents and merged by each project's own maintainers. Most starred first.
 
 <!-- merged-prs:start -->
 Seraph merged PRs: 70 in 29 repositories
@@ -68,234 +58,72 @@ Seraph merged PRs: 70 in 29 repositories
 | [gdt050579/AppCUI-rs](https://github.com/gdt050579/AppCUI-rs) 🚀 | 408 🌟 | [#288](https://github.com/gdt050579/AppCUI-rs/pull/288) | $`\color{green}\textsf{+98}`$ $`\color{red}\textsf{-0}`$ |
 <!-- merged-prs:end -->
 
-## 🔄 How it works
+## How it works
 
-![From issue to merged pull request](docs/how-it-works.svg)
-
-1. **Find.** Explore searches GitHub for projects that merge outside work. Repos you track are checked for new issues every 10 minutes.
-2. **Pick.** Each issue gets six yes/no checks, and one fixed rule decides whether it is likely to be merged.
-3. **Fix.** An agent takes a desktop in a sandbox VM and works like a person would: understand, set up, reproduce, fix, test, draft. The proof is the project's own tests and real screenshots.
-4. **Review.** A reviewer agent checks the draft the way the maintainers will: every point the issue asked for, and the edge cases around it.
-5. **Approve.** The draft lands in your **Inbox** with an overview, a checklist, the diff and the PR message. Edit it, ask for a redraft, or approve it.
-6. **Follow up.** The PR is opened from your fork, as you. Its agent hears about every review, failing check and conflict, and comes back with the next version.
-
-Per repository, you choose what may go out without you (comments, pull requests, new issues). Everything else waits in the Inbox. [More on how it works →](docs/how-it-works.md)
-
-## ✨ What makes it different
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-**🔭 Goes where outside work gets merged**
-
-Every repo is judged on raw numbers: how many outside PRs get merged, how fast a person first replies, how newcomers are treated, and its AI policy. No made-up score.
-
-</td>
-<td width="50%" valign="top">
-
-**🎯 Picks issues that will be accepted**
-
-Already claimed, waiting on a decision, too big for a first PR, or impossible to prove in a VM? Skipped. Only issues likely to be merged get an agent.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**🖥️ Works on a real desktop**
-
-Each agent gets its own Linux user, screen and Firefox inside a VM. It clicks, types and runs commands, and never runs anything on your computer.
-
-</td>
-<td width="50%" valign="top">
-
-**🔍 Reviewed before you see it**
-
-A reviewer agent checks every draft first, against every point the issue or a reviewer asked for. Only then does it reach your Inbox.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**✅ What you read is what gets sent**
-
-Approve rebuilds the change on your computer from the reviewed diff and opens the PR from your fork. No token ever enters a VM.
-
-</td>
-<td width="50%" valign="top">
-
-**🔁 Sees it through to the merge**
-
-Every open PR has an agent that owns it. It answers maintainers, fixes failing checks and resolves conflicts, ahead of any new work.
-
-</td>
-</tr>
-</table>
-
-## 🎯 Choosing the work
+### Choosing the work
 
 ![How the agents choose what to work on](docs/explore.svg)
 
-<details>
-<summary><b>The repo signals</b></summary>
+Seraph only works on projects that merge pull requests from outsiders and whose AI policy welcomes AI or accepts it with disclosure. Each project is judged on raw numbers: how many outside pull requests get merged, how fast a maintainer first replies, and how newcomers are treated. Each open issue then gets six yes/no checks, and one fixed rule decides whether a fix is likely to be merged. Only those issues get an agent.
 
-<br>
+### Fixing it
 
-| Signal | What it measures |
-|---|---|
-| Outside merge rate | Merged ÷ (merged + closed) for PRs from outside the project, last 90 days |
-| First reply | Median days until a maintainer answers an outside PR |
-| Time to merge | Median days from opening to merge |
-| Stale outside PRs | Open over 30 days with no maintainer reply |
-| Newcomers | *welcomes*, *ok*, *few*, *left waiting* or *turned away* |
-| Active mergers | People who merged PRs in the last 30 days |
-| Activity | PRs, issues and commits per month, and the trend |
-| Review tone | *warm*, *neutral*, *strict* or *curt* |
-| AI policy | *welcome*, *disclose*, *no AI*, *unclear* or *none* |
+Every agent gets a desktop in an [Incus](https://linuxcontainers.org/incus/) KVM virtual machine, with its own Linux user, screen and Firefox. It sees screenshots and drives the mouse, keyboard and a shell. It reproduces the problem before changing anything, runs the project's own tests, and takes real screenshots when the change can be seen. Several agents share one VM, one per desktop, and wait in line when it is full.
 
-Bots and AI reviewers never count as maintainers.
+### Sending and following up
 
-</details>
+A second agent reviews every change against the issue and the project's contributing guide. Once it passes, Seraph rebuilds the change outside the VM from the reviewed diff and opens the pull request from the user's GitHub account. The Automation page sets how much goes out: pull requests per day, and open pull requests in total and per project.
 
-<details>
-<summary><b>The six issue checks and the Merge rule</b></summary>
+The agent that wrote a pull request stays with it. It answers maintainers, fixes failing checks and resolves conflicts until the pull request is merged or closed. The few things only a person can do, such as signing a contributor agreement, go to the Blockers page.
 
-<br>
-
-The agent answers yes or no: it belongs in this repo, it can be seen on Linux, it is free of politics, it is open to outside contributors, it is a modest change, and the fix can be proven in a VM. A fixed rule turns those answers, the issue's status and the repo's numbers into **Merge**, the first that holds:
-
-**Fixed** → **Out of scope** → **Claimed** → **Maintainers only** → **Waiting** → **No outside PRs** → **Large feature** → **Big change** → **Can't validate** → **Likely**
-
-Agents only pick issues whose Merge is **Likely**. [What each one means →](docs/how-it-works.md#issue-merge)
-
-</details>
-
-## 📦 Sandbox VMs
-
-![Sharing a VM](docs/vm-queue.svg)
-
-- **Agents never run code on your computer.** Every build, install and test happens in an [Incus](https://linuxcontainers.org/incus/) KVM virtual machine.
-- **One file per image.** An `image.yaml` lists the system (Ubuntu, Fedora or Debian), the desktop, and the packages. Builds are cached in three stages, so a change rebuilds in minutes.
-- **An agent per image.** Each image has a chat agent that edits its `image.yaml` and tries it in a throwaway VM.
-
-[VMs, desktops and images →](docs/sandbox.md)
-
-## 🧱 Architecture
+## How it's built
 
 ![Where everything runs](docs/architecture.svg)
 
-- **Agents have no access to your computer.** No shell, no files, no web: only Seraph's own tools and their VM desktop.
-- **Tokens live in AWS Secrets Manager**, read into memory at start, and never reach the browser, an agent or a VM. The only key on your computer is the AWS access key, in the system keyring. Secret values that show up in an agent's output are replaced with `[hidden]`.
-- **What is sent is what you reviewed.** The PR is rebuilt from the reviewed diff and the project's own files on GitHub, never from the VM. A diff that contains a secret is refused.
-- **Text from GitHub is never instructions.** One-shot judgments (issue checks, review tone, AI policy) run with no tools at all.
-- **Only you can reach the app.** The backend listens on 127.0.0.1 and checks the Host and Origin of every request. From a phone, every request needs a passkey.
-- **VMs can't reach your network.** Their bridge rejects every private address range, so they get the internet and nothing else.
+A Python backend and a React web app run on the host computer. Anything downloaded from the internet runs only inside a VM.
 
-[Security →](docs/security.md)
-
-## 🤝 Built to be welcome
-
-Maintainers are flooded with low-effort AI pull requests. Seraph's agents follow rules meant to make theirs the opposite:
-
-- **They respect AI policies.** Repos that say no AI, or allow it only as a person's helper, are never worked on.
-- **They never double up.** An issue that is assigned, has someone's open PR, a fix posted in a comment, or someone's stated plan to fix it, is left alone.
-- **They talk only when needed.** They answer maintainers and human reviewers, once per round, and never chase bots.
-- **They follow the contributing guide**, however long, and write the PR message to it.
-- **They prove it.** Every fix is reproduced first and checked with the project's own tests. Screenshots are real.
-- **They clean up.** Branches of merged PRs and forks nobody uses anymore are deleted.
-
-## 🧠 Engineering highlights
-
-| Problem | How Seraph handles it |
+| Folder | What it does |
 |---|---|
-| Agents need a real computer, but can't be trusted with yours | KVM VMs on an isolated bridge. Each desktop has its own Linux user, VNC screen and Firefox. Agents see screenshots and drive the mouse, keyboard and a shell. |
-| Many agents sharing one VM | One waiting line per VM, with priority. Agents add desktops up to a limit. A full VM takes nobody new; an overloaded one takes a desktop back without stopping any program. When memory runs out, agent commands end before desktops do. |
-| Posting exactly what was reviewed | The PR is rebuilt on your computer from the reviewed diff and the upstream files. The commits are replayed under your name and noreply email. |
-| Prompt injection from issues and comments | GitHub text is treated as data. Judgments about it run with no tools, and secrets are scrubbed from agent output. |
-| Thousands of judgments at a sane cost | Fixed rules settle the obvious cases. The model reads many items per run, never one run per item. |
-| Slow VM image builds | One declarative `image.yaml`, built in three cached stages with a snapshot after each. |
-| Fixing its own mistakes | Agents report what went wrong in how the app made them work. Every day at a set time, Claude Code fixes them all, each fix with a regression test. Only fixes that pass the tests and the build are pushed and released. |
-| Updating the app while you use it | Releases install to a live copy by themselves. A new release is first started on a copy of your data, and one that goes wrong in its first minutes is rolled back. |
-| Using it away from home | A passkey-protected address, over an SSH tunnel to a small forwarder. TLS ends on your own computer. |
+| [github_searcher/](github_searcher/) | The engine: finds and measures projects (`explore.py`, `repo_signals.py`), checks issues (`issue_tags.py`), runs jobs and agents (`jobs.py`, `agents.py`, `agent/`), keeps drafts and tracks pull requests (`inbox.py`, `pr_tracking.py`) |
+| [sandbox/](sandbox/) | The VMs: creates and runs them (`vms.py`, `vm.py`), shares desktops between agents (`vm_queue.py`), builds images from one `image.yaml` (`image_build.py`) |
+| [backend/](backend/) | FastAPI server: one file per page, and a WebSocket that pushes live updates (`app.py`) |
+| [frontend/](frontend/) | React and TypeScript web app: Dashboard, Pull requests, Repositories, Blockers, Virtual machines, Automation |
+| [deploy/](deploy/) | Installs each release to a separate live copy and rolls back one that fails |
+| [remote_access/](remote_access/) | Access from a phone through a passkey-protected address |
+| [tests/](tests/) | pytest suite, run by CI on every push |
 
-## 🧩 More in the app
+Seraph also maintains itself. Agents report problems with how the app made them work, and every evening Claude Code fixes them, each with a regression test. A fix that passes the tests and the build becomes a release, which first starts on a copy of the data and is rolled back if it fails in its first minutes.
 
-- **Dashboard.** Your pull requests, the Issues board (Open → Catalog → In progress → Review → Needs action → Waiting approval), repositories, agents, problems the agents reported, and automation.
-- **Your own repositories.** A chat agent turns what you ask for into issues, workers fix them, and a review agent advises **Merge** or **Don't merge**. Releases are versioned from the PR titles. [Own repositories →](docs/own-repositories.md) · [Workflow →](docs/workflow.md)
-- **Papers.** Give it a research paper: an agent rebuilds the method in a VM and checks every claim. [Papers →](docs/papers.md)
-- **Sherpa.** A chat button on every page that does things in the app for you: "remove every issue opened more than 30 days ago" is one message.
-- **Phone.** A phone layout, and remote access with a passkey. [Remote access →](remote_access/README.md)
-- **Profile README.** Keeps a merged PR table like the one above on your GitHub profile.
+Built with Python 3.14, FastAPI, React 19, TypeScript, Vite, Tailwind CSS, Incus, TigerVNC, noVNC and the Claude Agent SDK.
 
-## 🚀 Quick start
+## Safety
 
-You need Linux with systemd, [Incus](https://linuxcontainers.org/incus/) with KVM, Python 3.14 with [uv](https://docs.astral.sh/uv/), Node.js 22+, a Claude Code token (`claude setup-token`) and a GitHub token that can read public repos. The Incus network and profile come first: see [Setup](docs/setup.md#1-incus).
+- Agents never run code on the host. Every build, install and test happens in a VM that can reach the internet but not the local network.
+- Tokens are kept in AWS Secrets Manager. They never reach the browser, an agent or a VM, and any secret that shows up in an agent's output is replaced with `[hidden]`.
+- What is sent is what was reviewed. The pull request is rebuilt from the reviewed diff, never pushed from the VM, and a diff that contains a secret is refused.
+- Text from GitHub is treated as data, not instructions. Judgments about it, such as the issue checks, run with no tools at all.
+- The app listens only on 127.0.0.1. From a phone, every request needs a passkey.
+
+## Contribution rules
+
+- Works only where the AI policy welcomes AI or accepts it with disclosure.
+- Leaves an issue alone if someone else is assigned, has an open pull request, posted a fix or said they will send one.
+- Follows each project's contributing guide and pull request template, however long.
+- Replies only to maintainers and human reviewers, once per round.
+- Deletes branches of merged pull requests and forks it no longer uses.
+
+## Running it
+
+You need Linux with systemd, Incus with KVM, Python 3.14 with [uv](https://docs.astral.sh/uv/), Node.js 22+, a Claude Code token (`claude setup-token`) and a GitHub token that can read public repos. Set up the Incus network first: see [Setup](docs/setup.md).
 
 ```bash
 cp .env.example .env    # GITHUB_TOKEN, CLAUDE_CODE_OAUTH_TOKEN
 ./run.sh                # http://localhost:5173
 ```
 
-Then, in the app:
+Then build an image and a VM under Virtual machines, sign in with GitHub under Settings → Account, and turn things on under Automation. Settings → Secrets moves the tokens from `.env` to AWS Secrets Manager.
 
-1. **VMs → Images → New image → Save and build**, then **Make default**.
-2. **VMs → New VM**.
-3. **GitHub → Account → Sign in with GitHub**.
-4. **Explore → Profile**, then **Start**. Approve the repos you like.
-5. **Issues → Assign**, and watch the agent work on its desktop.
-
-To run an installed release instead of your working code:
-
-```bash
-deploy/install.sh v0.1.0    # once
-./live.sh                   # http://localhost:8001, same data and VMs
-```
-
-## 🧰 Tech stack
-
-| | |
-|---|---|
-| **Agents** | Claude Agent SDK (Claude Opus 5.5 by default) |
-| **Backend** | Python 3.14, FastAPI, Uvicorn, httpx, one WebSocket for live updates |
-| **Frontend** | React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui, noVNC |
-| **Sandbox** | Incus KVM VMs, TigerVNC, GNOME or KDE, Firefox |
-| **Operations** | systemd user services, Caddy, SSH tunnel, passkeys, GitHub Actions |
-
-## 📚 Docs
-
-| | |
-|---|---|
-| [Setup](docs/setup.md) | Requirements, the Incus network, `.env`, first steps |
-| [How it works](docs/how-it-works.md) | Repo signals, the Merge rule, the Inbox, automation |
-| [The app](docs/app.md) | Every page |
-| [Sandbox VMs](docs/sandbox.md) | Desktops, images, `image.yaml` |
-| [Security](docs/security.md) | What agents can and can't reach |
-| [Own repositories](docs/own-repositories.md) · [Workflow](docs/workflow.md) | Agents on your own projects |
-| [Papers](docs/papers.md) | Reproducing research papers |
-| [Live copy](docs/live-copy.md) | Releases, updates and rollback |
-| [Remote access](remote_access/README.md) | Using it from a phone |
-| [Development](docs/development.md) | Code layout, tests, commits |
-
-## 🔧 Development
-
-```text
-github_searcher/    search, signals, agents, jobs, Inbox, sending
-sandbox/            Incus VMs, desktops, the VM line, images
-backend/            FastAPI: one router per page, and the /api/live websocket
-frontend/           React 19, Vite, Tailwind, shadcn/ui
-deploy/             live copy install, switch, rollback
-remote_access/      Caddy and the SSH tunnel for phone access
-```
-
-```bash
-./run.sh                        # backend and frontend, both reloading
-uv run pytest                   # tests
-cd frontend && npm run build    # type-check and build
-```
-
-Commits follow [Conventional Commits](https://www.conventionalcommits.org/), one scope each. CI builds the frontend, compiles every Python file and runs the tests on every push to `main` and every pull request.
+More: [Setup](docs/setup.md) · [How it works](docs/how-it-works.md) · [Sandbox VMs](docs/sandbox.md) · [Security](docs/security.md) · [Live copy](docs/live-copy.md) · [Development](docs/development.md) · [Remote access](remote_access/README.md)
 
 ---
 

@@ -930,7 +930,7 @@ class RepoSignals:
                 },
                 "required": ["tag", "quote", "file"],
             }
-            asks.append(("policy", judge(prompt, schema, "low")))
+            asks.append(("policy", judge(prompt, schema, "low", "ai_policy")))
 
         atmosphere = signals["atmosphere"]
         if feedback is not None and notes < MIN_NOTES:
@@ -959,7 +959,7 @@ class RepoSignals:
                 },
                 "required": ["tone", "summary", "asks_for"],
             }
-            asks.append(("atmosphere", judge(prompt, schema, "low")))
+            asks.append(("atmosphere", judge(prompt, schema, "low", "atmosphere")))
 
         results = await asyncio.gather(*[ask for _, ask in asks], return_exceptions=True)
         for (which, _), result in zip(asks, results):
@@ -1021,7 +1021,7 @@ class RepoSignals:
             "required": ["verdict", "reason"],
         }
         try:
-            result = await judge(prompt, schema, "low")
+            result = await judge(prompt, schema, "low", "repo_signals")
             signals["newcomer_verdict"] = {"verdict": result["verdict"], "reason": result["reason"][:240], "version": NEWCOMER_VERSION, "judged_at": now}
         except Exception:
             # Claude is down or gave nothing usable: the one before (or none) stays, and the next fetch asks again.

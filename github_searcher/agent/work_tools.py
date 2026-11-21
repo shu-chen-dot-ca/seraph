@@ -1571,7 +1571,7 @@ class WorkTools:
             "required": ["belongs", "linux", "apolitical", "not_game", "reason"],
         }
         try:
-            scope = await judge(prompt, schema, "low")
+            scope = await judge(prompt, schema, "low", "issue_scope")
         except JudgeError as error:
             return {"content": [{"type": "text", "text": f"It wasn't opened: it couldn't be checked ({error}). Try again later."}], "is_error": True}
         if not (scope["belongs"] and scope["linux"] and scope["apolitical"] and scope["not_game"]):

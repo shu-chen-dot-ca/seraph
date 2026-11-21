@@ -18,8 +18,10 @@ Under the top:
   height is log(1 + count), so 0 sits at the bottom); and Merge rate: the 7-day average at the end of each period
   (merged of merged and closed in the 7 days before), dashed, on its own 0-100% axis on the right. Back to front:
   Merge rate, Open, Closed, Opened, Merged.
-- Tokens: the tokens agents used per period (input, cache written, cache read and output, as Claude Code's conversation
-  files have them: github_searcher/token_usage.py), a line per model, and Total in front of them.
+- Tokens: the tokens every Claude run used per period (input, cache written, cache read and output, from the usage log:
+  github_searcher/token_usage.py), a line per model (Model, the default) or per kind of work (Work), picked in its
+  header, and Total in front of them. Models by their names (Opus 5.5), kinds of work in plain words; Agents is the
+  agents' work from before the log, when its kind wasn't kept.
   These two share one time axis: hovering a period in one marks it in both, with its numbers.
 - In progress: the fix_issue and follow_up jobs working now, longest on its step first: Issue or pull request (opens it
   on GitHub), Step, On step, Agent (opens its chat), VM and desktop. The header counts working and queued, and says
@@ -58,9 +60,29 @@ const SHORT = new Intl.NumberFormat("en", { notation: "compact", maximumFraction
 const OPENED = "text-[oklch(62.7%_0.155_149.214)] dark:text-[oklch(72.3%_0.175_149.579)]";
 const MERGED = "text-[oklch(55.8%_0.23_302.321)] dark:text-[oklch(62.7%_0.212_303.9)]";
 const CLOSED = "text-[oklch(57.7%_0.196_27.325)] dark:text-[oklch(63.7%_0.19_25.331)]";
-// A color per running VM, in the VM list's order, and per model, in the order they first show up.
+// A color per running VM, in the VM list's order, and per model or kind of work, in the order they first show up.
 const VM_COLORS = ["text-sky-500", "text-violet-500", "text-teal-500", "text-orange-500", "text-pink-500", "text-lime-500"];
-const MODEL_COLORS = ["text-sky-500", "text-amber-500", "text-teal-500", "text-pink-500", "text-lime-500"];
+const TOKEN_COLORS = ["text-sky-500", "text-amber-500", "text-teal-500", "text-pink-500", "text-lime-500", "text-violet-500", "text-orange-500", "text-rose-500"];
+// The Tokens chart's names: models (others as they are) and kinds of work (github_searcher/claude_models.py).
+const MODEL_NAMES: Record<string, string> = {
+  "claude-fable-5-2": "Fable 5.2",
+  "claude-opus-5-5": "Opus 5.5",
+  "claude-sonnet-5-5": "Sonnet 5.5",
+  "claude-haiku-5-5": "Haiku 5.5",
+};
+const WORK_NAMES: Record<string, string> = {
+  fix_issue: "Fixing issues",
+  follow_up: "Follow-ups",
+  review: "Reviews",
+  chat: "Chat",
+  task: "Other jobs",
+  judgment: "Judgments",
+  explore: "Explore",
+  explore_reader: "Explore readers",
+  image: "Images",
+  fix_problems: "Fix problems",
+  agent: "Agents",
+};
 const WIDGET = "flex min-w-0 flex-col rounded-sm border bg-card";
 const WIDGET_HEADER = "flex h-9 shrink-0 items-center gap-3 border-b px-3";
 const TITLE = "truncate font-medium hover:underline";
@@ -81,6 +103,8 @@ export default function Dashboard() {
   const now = useNow();
   const [rangeKey, setRangeKey] = useState("7d");
   const [smooth, setSmooth] = useState(true);
+  // The Tokens chart's lines: per "model" or per "work".
+  const [tokensBy, setTokensBy] = useState("model");
   // What the mouse is on, and in which charts: a period ("prs") or a VM second ("vms").
   const [hovered, setHovered] = useState<{ group: string; index: number } | null>(null);
 
@@ -105,6 +129,7 @@ export default function Dashboard() {
     rate: number | null;
     tokens: number;
     byModel: Record<string, number>;
+    byWork: Record<string, number>;
   }[] = [];
   for (let index = 0; index < count; index++) {
     const at = start + index * range.period;
@@ -118,6 +143,7 @@ export default function Dashboard() {
       rate: null,
       tokens: 0,
       byModel: {},
+      byWork: {},
     });
   }
 
@@ -189,8 +215,10 @@ export default function Dashboard() {
     period.rate = mergedWeek + closedWeek > 0 ? (mergedWeek / (mergedWeek + closedWeek)) * 100 : null;
   }
 
-  // Tokens agents used, per model and stretch of time (at: its start): each stretch added to the period it starts in.
+  // Tokens Claude runs used, per model, kind of work and stretch of time (at: its start): each stretch added to the period
+  // it starts in.
   const models: string[] = [];
+  const works: string[] = [];
   let tokens = 0;
   let tokensBefore = 0;
   for (const each of usage) {
@@ -204,9 +232,13 @@ export default function Dashboard() {
     }
     periods[index].tokens += each.tokens;
     periods[index].byModel[each.model] = (periods[index].byModel[each.model] ?? 0) + each.tokens;
+    periods[index].byWork[each.work] = (periods[index].byWork[each.work] ?? 0) + each.tokens;
     tokens += each.tokens;
     if (!models.includes(each.model)) {
       models.push(each.model);
+    }
+    if (!works.includes(each.work)) {
+      works.push(each.work);
     }
   }
 
@@ -391,21 +423,35 @@ export default function Dashboard() {
       cpuLines.push({ title: vm.name, color: color, values: cpu, pieces: [], right: false, layer: 0 });
       memoryLines.push({ title: vm.name, color: color, values: memory, pieces: [], right: false, layer: 0 });
     });
-  // The tokens' lines: Total, then a line per model. None before the first tokens arrive.
+  // The tokens' lines: Total, then a line per model or per kind of work. None before the first tokens arrive.
   const tokenLines: Line[] = [];
   if (usage.length > 0) {
     tokenLines.push({ title: "Total", color: "text-foreground/70", values: periods.map((period) => period.tokens), pieces: [], right: false, layer: 1 });
   }
-  models.forEach((model, index) => {
-    tokenLines.push({
-      title: model,
-      color: MODEL_COLORS[index % MODEL_COLORS.length],
-      values: periods.map((period) => period.byModel[model] ?? 0),
-      pieces: [],
-      right: false,
-      layer: 0,
+  if (tokensBy === "model") {
+    models.forEach((model, index) => {
+      tokenLines.push({
+        title: MODEL_NAMES[model] ?? model,
+        color: TOKEN_COLORS[index % TOKEN_COLORS.length],
+        values: periods.map((period) => period.byModel[model] ?? 0),
+        pieces: [],
+        right: false,
+        layer: 0,
+      });
     });
-  });
+  }
+  if (tokensBy === "work") {
+    works.forEach((work, index) => {
+      tokenLines.push({
+        title: WORK_NAMES[work] ?? work,
+        color: TOKEN_COLORS[index % TOKEN_COLORS.length],
+        values: periods.map((period) => period.byWork[work] ?? 0),
+        pieces: [],
+        right: false,
+        layer: 0,
+      });
+    });
+  }
 
   const percentTicks = [0, 25, 50, 75, 100];
   // A chart: its lines on the left axis (top, ticks, unit; log: a log scale, log(1 + value)), and those marked right on
@@ -591,6 +637,26 @@ export default function Dashboard() {
               )}
               {chart.href === "" && <span className="truncate font-medium">{chart.title}</span>}
               <span className={DETAIL}>{chart.detail}</span>
+              {chart.key === "tokens" && (
+                <div className="flex shrink-0 overflow-hidden rounded-sm border">
+                  {[
+                    { key: "model", title: "Model" },
+                    { key: "work", title: "Work" },
+                  ].map((each) => (
+                    <button
+                      key={each.key}
+                      type="button"
+                      className={cn(
+                        "h-6 border-l px-2 text-xs font-medium text-muted-foreground first:border-l-0 hover:bg-accent hover:text-foreground",
+                        tokensBy === each.key && "bg-selected text-foreground hover:bg-selected",
+                      )}
+                      onClick={() => setTokensBy(each.key)}
+                    >
+                      {each.title}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="p-3">
               <div className="flex h-44 gap-2">
