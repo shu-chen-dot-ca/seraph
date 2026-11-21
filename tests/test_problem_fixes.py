@@ -1,16 +1,17 @@
-"""Fix all (github_searcher/problem_fixes.py): what a run keeps when it fails or is cut off, and the release it makes
-(the next version from the commit titles since the last release, and its notes).
+"""Fix all (github_searcher/problem_fixes.py): what a run keeps when it fails or is cut off, the scope its fixes must
+keep to, and the release it makes (the next version from the commit titles since the last release, and its notes).
 
-Nothing here runs Claude Code, starts a VM or reaches GitHub: VMs are fakes, GitHub is an httpx.MockTransport, and
-everything is kept in pytest's temporary folder, never in DATA_DIR."""
+Nothing here runs Claude Code, starts a VM or reaches GitHub: VMs are fakes, GitHub is an httpx.MockTransport, the scope
+is checked in a git repo made in pytest's temporary folder, and everything is kept there, never in DATA_DIR."""
 
 import json
+import subprocess
 
 import httpx
 import pytest
 
 from github_searcher import problem_fixes
-from github_searcher.problem_fixes import FixError, ProblemFixes
+from github_searcher.problem_fixes import LOCKED, PROMPT, FixError, ProblemFixes
 from sandbox.vms import FIX_VM, VMsError
 
 
@@ -114,6 +115,83 @@ def test_closed_problems_are_not_given_to_a_run(fixes):
 
     assert given == ["prb_open01"]
     assert fixes.data["runs"][0]["state"] == "done"
+
+
+def test_the_prompt_names_what_may_never_change():
+    text = PROMPT.format(locked=", ".join(LOCKED))
+
+    for path in LOCKED:
+        assert path in text
+
+
+def git(repo, *args):
+    done = subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", *args], cwd=repo, capture_output=True, text=True, check=True)
+    return done.stdout.strip()
+
+
+@pytest.fixture
+def clone(tmp_path, monkeypatch):
+    """The run's clone with one commit (its base): an app file, a locked file and a test file with two tests."""
+    repo = tmp_path / "clone"
+    (repo / "tests").mkdir(parents=True)
+    (repo / "github_searcher").mkdir()
+    (repo / "deploy").mkdir()
+    (repo / "github_searcher" / "agents.py").write_text("RULE = 1\n")
+    (repo / "deploy" / "switch.sh").write_text("echo switch\n")
+    (repo / "tests" / "test_agents.py").write_text("def test_one():\n    pass\n\n\ndef test_two():\n    pass\n")
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "chore(app): start")
+    monkeypatch.setattr(problem_fixes, "FIX_DIR", repo)
+    return repo
+
+
+def commit(repo):
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "fix(agents): change")
+
+
+def test_a_fix_with_its_test_keeps_to_the_scope(fixes, clone):
+    base = git(clone, "rev-parse", "HEAD")
+    (clone / "github_searcher" / "agents.py").write_text("RULE = 2\n")
+    (clone / "tests" / "test_agents.py").write_text("def test_one():\n    pass\n\n\ndef test_two():\n    pass\n\n\ndef test_pallets_click_812():\n    pass\n")
+    commit(clone)
+
+    assert fixes.out_of_scope(base, ["pallets/click#812"]) == ""
+
+
+def test_a_locked_file_changed_is_out_of_scope(fixes, clone):
+    base = git(clone, "rev-parse", "HEAD")
+    (clone / "deploy" / "switch.sh").write_text("echo never take back\n")
+    commit(clone)
+
+    assert fixes.out_of_scope(base, []) == "deploy/switch.sh may not be changed."
+
+
+def test_a_deleted_test_file_is_out_of_scope(fixes, clone):
+    base = git(clone, "rev-parse", "HEAD")
+    (clone / "tests" / "test_agents.py").unlink()
+    commit(clone)
+
+    assert fixes.out_of_scope(base, []) == "tests/test_agents.py was deleted: tests may not be."
+
+
+def test_fewer_tests_than_before_is_out_of_scope(fixes, clone):
+    base = git(clone, "rev-parse", "HEAD")
+    (clone / "tests" / "test_agents.py").write_text("def test_one():\n    pass\n")
+    commit(clone)
+
+    assert fixes.out_of_scope(base, []) == "there are fewer tests than before (2, now 1)."
+
+
+def test_a_fix_for_only_the_repo_of_the_report_is_out_of_scope(fixes, clone):
+    base = git(clone, "rev-parse", "HEAD")
+    (clone / "github_searcher" / "agents.py").write_text('RULE = 1\nif repo == "Pallets/Click":\n    RULE = 2\n')
+    commit(clone)
+
+    why = fixes.out_of_scope(base, ["pallets/click#812"])
+
+    assert why == "they name pallets/click outside tests/: a fix is for every case of its kind, not one repo."
 
 
 def github(latest, titles, made):

@@ -19,9 +19,10 @@ A run:
    it does (SHOW), to watch on the VM page. It answers which items it fixed, which need no change (closed at once, with
    why: a one-off, not a real problem) and why the others weren't fixed (ANSWER). Its commits come back here as a git
    bundle. The VM stops when the run ends, however it ends.
-3. The commits must go on top of the clone's main, be Conventional Commits, leave nothing uncommitted and hold none of
-   your secrets. Then they go on top of main as it is on GitHub now (you may have pushed meanwhile). One of these
-   broken: they are all dropped.
+3. The commits must go on top of the clone's main, be Conventional Commits, leave nothing uncommitted, hold none of your
+   secrets and keep to the scope (out_of_scope): nothing in LOCKED changed, no test deleted, no fewer tests, and no repo
+   a feedback item was about named outside tests/ (a fix is for every case of its kind, not one repo). Then they go on
+   top of main as it is on GitHub now (you may have pushed meanwhile). One of these broken: they are all dropped.
 4. The gate, run here and not by Claude: the whole test suite (uv run pytest) and the frontend build (npm run build), as
    CI runs them. When the fixes fail it they are dropped, and main alone goes through it.
 5. Passed with fixes: they are pushed to main and the items they fixed are closed. Passed: when main has commits since
@@ -84,6 +85,25 @@ CLAUDE_SECONDS = 4 * 60 * 60
 VM_SECONDS = 15 * 60
 # How much of a failing step's output is kept.
 OUTPUT_CHARS = 4000
+# What a run may never change (a file, or a folder ending in /; .env is every .env file): what runs, installs, watches
+# and takes back a release, what makes and checks these runs, CI, the secrets, the settings, the packages and CLAUDE.md.
+LOCKED = [
+    "deploy/",
+    "live.sh",
+    ".github/",
+    "CLAUDE.md",
+    ".env",
+    "pyproject.toml",
+    "uv.lock",
+    "frontend/package.json",
+    "frontend/package-lock.json",
+    "github_searcher/problem_fixes.py",
+    "backend/problem_fixes_api.py",
+    "github_searcher/updates.py",
+    "backend/updates_api.py",
+    "github_searcher/crashes.py",
+    "github_searcher/secret_vault.py",
+]
 # Left out of the data folder's copy in the VM: the VMs, remote access, every secret (your sign-in, the sign-in app,
 # where the vault is) and the agents' homes.
 DATA_LEFT_OUT = [
@@ -137,14 +157,20 @@ For every item, ask what Seraph could do differently so it doesn't happen again 
 how agents talk to maintainers, how VMs share memory, how repos are picked), then:
 1. Find the cause in the code (github_searcher/, sandbox/, backend/, frontend/; the agents' prompt is
    github_searcher/agent/prompt.md). Several items may share one cause, and one fix.
-2. Fix it the way CLAUDE.md asks: boring, simple code that reads like the code around it. Prefer a rule in code (a
-   check, a condition) over only more words in a prompt, so it can be tested.
+2. Fix the cause for every case of its kind, never only the one in the report: no repo, issue, pull request, maintainer
+   or person named in the app's code, prompts or rules (only a test may be named after its case). Fix it the way
+   CLAUDE.md asks: boring, simple code that reads like the code around it. Prefer a rule in code (a check, a condition)
+   over only more words in a prompt, so it can be tested.
 3. Add a regression test in tests/ that fails without the fix and passes with it, named after the case (the issue or
    PR the item was about). Copy the style of the tests there. When a fix can only be words in a prompt or a tool's
    description, the test checks those words are there. Tests never use the network or the real data folder.
 4. Commit each fix with its test: one Conventional Commit per fix and scope, `type(scope): short summary` (feat, fix,
    refactor, docs, style, test, chore or perf), imperative, lowercase, no period, under 72 characters, no body, no
    attribution. Never a "save" commit.
+
+What you may change: the app's code, the agents' prompt and rules, the frontend and the tests. What you may never change,
+add or delete: {locked}. No new packages and no new settings in .env. Never delete a test or make one pass by
+weakening it. Commits that break any of this are all dropped.
 
 At the end `uv run pytest` and `npm --prefix frontend run build` must pass, and nothing may be left uncommitted. An item
 where nothing in the app could do better (a one-off, not a real problem, a secret or a setting only the user can change,
@@ -436,7 +462,7 @@ class ProblemFixes:
             show = "(" + DESKTOP_ENV + "gnome-terminal --title 'Fix all' -- bash -c 'tail -n +1 -F ~/fix/claude.jsonl 2> /dev/null | python3 ~/fix/show.py') > /dev/null 2>&1 < /dev/null &"
             vm.exec(show, timeout=60)
 
-            lines = [PROMPT]
+            lines = [PROMPT.format(locked=", ".join(LOCKED))]
             for item in open_problems:
                 lines.append(f"- {item['id']} ({item['at'][:10]}, about {item['about'] or 'nothing in particular'}): {item['text']}")
             variables = f"model={shlex.quote(MODELS['fix_problems'])}; side_model={shlex.quote(SIDE_MODEL)}; schema={shlex.quote(json.dumps(ANSWER))}; "
@@ -495,7 +521,8 @@ class ProblemFixes:
                     run["error"] = "The fixes don't go on top of the clone's main, so they were dropped."
                     run["output"] = (done.stdout + done.stderr)[-OUTPUT_CHARS:]
 
-        # 3. Its commits: Conventional Commits, nothing left out, none of your secrets; then on top of main as it is now.
+        # 3. Its commits: Conventional Commits, nothing left out, none of your secrets, in scope; then on top of main as
+        # it is now.
         commits = subprocess.run(["git", "log", "--reverse", "--format=%H %s", f"{base}..HEAD"], cwd=FIX_DIR, capture_output=True, text=True).stdout.splitlines()
         diff = subprocess.run(["git", "diff", f"{base}..HEAD"], cwd=FIX_DIR, capture_output=True, text=True).stdout
         titles = [line.partition(" ")[2] for line in commits]
@@ -510,6 +537,12 @@ class ProblemFixes:
         if fixes_ok and any(value in diff for value in secret_values):
             fixes_ok = False
             run["error"] = "The fixes contain one of your secrets, so they were dropped."
+        why = ""
+        if fixes_ok:
+            why = self.out_of_scope(base, [item["about"] or "" for item in open_problems])
+        if why != "":
+            fixes_ok = False
+            run["error"] = f"The fixes broke the run's scope, so they were dropped: {why}"
         if fixes_ok and commits:
             # One line each (CLAUDE.md): a body or a Co-Authored-By trailer is dropped; the title and the author stay.
             subprocess.run(["git", "rebase", "--exec", 'git commit --amend --quiet -m "$(git log -1 --format=%s)"', base], cwd=FIX_DIR, capture_output=True, timeout=STEP_SECONDS)
@@ -559,6 +592,31 @@ class ProblemFixes:
             run["release"] = self.release(client)
         if run["release"] is not None:
             self.updates.asked = True
+
+    def out_of_scope(self, base: str, abouts: list[str]) -> str:
+        """Why the clone's commits since base break a run's scope, or "" when they don't: a file in LOCKED changed, a
+        test file deleted, fewer tests than before, or a repo a feedback item was about (abouts: "owner/name#n") named
+        outside tests/."""
+        changes = subprocess.run(["git", "diff", "--name-status", "--no-renames", f"{base}..HEAD"], cwd=FIX_DIR, capture_output=True, text=True).stdout
+        for line in changes.splitlines():
+            status, _, path = line.partition("\t")
+            if any(path.startswith(locked) for locked in LOCKED):
+                return f"{path} may not be changed."
+            if status == "D" and path.startswith("tests/"):
+                return f"{path} was deleted: tests may not be."
+        counts = []
+        for rev in [base, "HEAD"]:
+            found = subprocess.run(["git", "grep", "-c", "def test_", rev, "--", "tests/"], cwd=FIX_DIR, capture_output=True, text=True).stdout
+            counts.append(sum(int(line.rpartition(":")[2]) for line in found.splitlines()))
+        if counts[1] < counts[0]:
+            return f"there are fewer tests than before ({counts[0]}, now {counts[1]})."
+        diff = subprocess.run(["git", "diff", "-U0", f"{base}..HEAD", "--", ".", ":(exclude)tests/"], cwd=FIX_DIR, capture_output=True, text=True).stdout
+        added = "\n".join(line for line in diff.lower().splitlines() if line.startswith("+") and not line.startswith("+++"))
+        for about in abouts:
+            repo = about.partition("#")[0].strip().lower()
+            if "/" in repo and repo != SELF_REPO.lower() and repo in added:
+                return f"they name {repo} outside tests/: a fix is for every case of its kind, not one repo."
+        return ""
 
     def release(self, client: httpx.Client) -> str | None:
         """Releases main when it has commits since the latest release: the next version (feat in a commit title since
