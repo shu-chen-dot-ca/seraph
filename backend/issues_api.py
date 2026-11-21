@@ -55,8 +55,14 @@ you), with tags read within twice the board's Catalog refresh time (refresh_cata
 under its Open PRs at once (its open PRs of yours and its issues with an open job before a
 PR, from queued to waiting on you; backend/repo_automation_api.py): a repo at it is skipped and the next card of
 another repo goes. With the Dashboard's Automation on, the cards of the repos it ranks first go first (its labels: Fast,
-Normal, New, Slow, ...; then the most PRs merged a day: backend/automation_api.py), each in the board's order. The cards
-of a repo in the Repository page's Removed section (repo_list.py removed) wait, ours too. Only cards that are Catalog's own:
+Normal, New, Slow, ...; then the most PRs merged a day: backend/automation_api.py), each in the board's order. Over that,
+by the column its repo is in on the Repositories page (frontend/src/RepositoryCards.tsx, worked out here the same way):
+Target first (not one rejected there: a PR of yours closed without a merge after it went there, which is in that page's
+Catalog), then Prioritized, Contributed and last that page's Catalog (REPO_COLUMNS); ours stay first. The cards of a
+repo in its Removed column wait, ours too: the ones you deleted (repo_list.py removed), and the ones where every PR of
+yours was closed, none merged or open and no issue in progress, unless added to Target. So do the cards of a column
+whose switch is off on that page (take_from in the Automation's file, backend/automation_api.py), ours too; what is
+going there goes on. Only cards that are Catalog's own:
 no job (or only cancelled ones), not paused, open on GitHub, and, like Assign, with its Merge in and not fixed, out of
 scope or can't validate, and unlike Assign not claimed either: someone else is on it (assigned, or their open pull
 request closes it), so a second fix isn't wanted; nor maintainers only, waiting, no
@@ -153,6 +159,9 @@ DASHBOARD_AUTOMATION_FILE = DATA_DIR / "automation.json"
 # The repos (lower case) with Take issues on that are at their Open PRs at once now (take_from_catalog): their Open and
 # Catalog issues aren't read again until they have room.
 HELD = {"repos": []}
+# The Repositories page's columns agents take new issues from, in the order they take them (take_from_catalog); its
+# Removed column never.
+REPO_COLUMNS = ["target", "prioritized", "contributed", "catalog"]
 # The live "automation" topic's version (backend/app.py): up by one whenever the Dashboard's Automation
 # (backend/automation_api.py) or any level of automation changes (the board's here, a repo's or an issue's:
 # backend/repo_automation_api.py), so its Settings tab and the robot dialogs show the same at once. Here, as both those
@@ -577,9 +586,56 @@ def take_from_catalog() -> None:
     ranks = {name.lower(): (each["rank"], -(each.get("per_day") or 0)) for name, each in automation["labels"].items()}
     if automation["on"]:
         waiting.sort(key=lambda issue_id: (-1, 0) if issue_id.lower() in opened else ranks.get(issue_id.split("#")[0].lower(), (len(ranks), 0)))
-    # A removed repo's cards wait (repo_list.py), ours too.
+    # Each repo's column on the Repositories page, in lower case, worked out as the page does: from your PRs there
+    # (merged, closed, open, and when the last one closed without a merge) and its issues in progress (fix_issue jobs
+    # still open with no PR yet).
     removed = [name.lower() for name in repos.removed()]
-    waiting = [issue_id for issue_id in waiting if issue_id.split("#")[0].lower() not in removed]
+    prioritized = [name.lower() for name in repos.prioritized()]
+    target = {name.lower(): at for name, at in repos.target().items()}
+    mine = [pr for pr in pr_tracking.summary()["items"] if pr["relation"] == "author"]
+    pr_jobs = [pr["job"] for pr in mine]
+    counts = {}
+    last_closed = {}
+    for pr in mine:
+        repo = pr["repo"].lower()
+        counts.setdefault(repo, {"merged": 0, "closed": 0, "open": 0, "working": 0})
+        if pr["state"] in ["merged", "closed", "open"]:
+            counts[repo][pr["state"]] += 1
+        if pr["state"] == "closed" and pr["closed_at"] is not None and pr["closed_at"] > last_closed.get(repo, ""):
+            last_closed[repo] = pr["closed_at"]
+    for job in all_jobs:
+        if job["kind"] != "fix_issue" or job["status"] not in ["queued", "working", "waiting_on_user", "waiting_on_maintainers"]:
+            continue
+        if job["id"] in pr_jobs or job["repo"] is None:
+            continue
+        repo = job["repo"].lower()
+        counts.setdefault(repo, {"merged": 0, "closed": 0, "open": 0, "working": 0})
+        counts[repo]["working"] += 1
+    columns = {}
+    for issue_id in waiting:
+        repo = issue_id.split("#")[0].lower()
+        each = counts.get(repo, {"merged": 0, "closed": 0, "open": 0, "working": 0})
+        closed_only = each["merged"] == 0 and each["open"] == 0 and each["working"] == 0 and each["closed"] > 0
+        if repo in removed or (closed_only and repo not in target):
+            columns[repo] = "removed"
+        elif each["merged"] > 0 and repo in prioritized:
+            columns[repo] = "prioritized"
+        elif each["merged"] > 0:
+            columns[repo] = "contributed"
+        elif repo in target and last_closed.get(repo, "") <= target[repo]:
+            columns[repo] = "target"
+        else:
+            columns[repo] = "catalog"
+    # Removed's cards wait, ours too, and so do those of a column switched off on the page.
+    take_from = automation.get("take_from", {})
+    kept = []
+    for issue_id in waiting:
+        column = columns[issue_id.split("#")[0].lower()]
+        if column != "removed" and take_from.get(column, True):
+            kept.append(issue_id)
+    waiting = kept
+    # By column (REPO_COLUMNS), each in the order above; ours stay first.
+    waiting.sort(key=lambda issue_id: (0 if issue_id.lower() in opened else 1, REPO_COLUMNS.index(columns[issue_id.split("#")[0].lower()])))
 
     # Each repo's Open PRs at once (backend/repo_automation_api.py): its open PRs of yours and its issues with an open
     # job before a PR (queued to waiting on you) count, by repo in lower case; while they reach it, its cards wait.
