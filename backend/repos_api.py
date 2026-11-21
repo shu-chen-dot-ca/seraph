@@ -1,7 +1,7 @@
 """The Repositories page's cards (frontend/src/RepositoryCards.tsx): the moves between Prioritized and Contributed, Add
-to Target, Delete (Add to Removed for a repo with PRs of yours), Stop all on its issues in progress and Close all on its
-open PRs, and keeping the repos' signals fresh, and their record with us for the cards' test run time and rating
-(keep_repo_stats, github_searcher/repo_stats.py).
+to and Remove from Target, Delete (Add to Removed for a repo with PRs of yours), Stop all on its issues in progress and
+Close all on its open PRs, and keeping the repos' signals fresh, and their record with us for the cards' test run time
+and rating (keep_repo_stats, github_searcher/repo_stats.py).
 
 The list reaches the browser through /api/live (topic "repos"). The Automation fills it (backend/automation_api.py,
 through Explore).
@@ -48,19 +48,21 @@ class RepoRequest(BaseModel):
 
 @router.post("/repos/move")
 def move_repo(body: MoveRequest) -> dict:
-    """Move to Prioritized or Contributed (its ⋯, or a drag), or Add to Target, on the Repositories page: to
-    "prioritized" or "target" puts the repo in that list (repo_list.py; Target from now, also again for a rejected one), to
-    "contributed" takes it out of Prioritized. Nothing takes one out of Target: the page moves it on by its PRs (merged,
-    or closed without a merge). Any name, also a repo with PRs of yours that isn't in the list: the page has a card for
-    it too."""
+    """Move to Prioritized or Contributed (its ⋯, or a drag), or Add to or Remove from Target, on the Repositories page:
+    to "prioritized" or "target" puts the repo in that list (repo_list.py; Target from now, also again for a rejected
+    one), to "contributed" takes it out of Prioritized, to "catalog" out of Target. Besides, the page moves one on from
+    Target by its PRs (merged, or closed without a merge). Any name, also a repo with PRs of yours that isn't in the list:
+    the page has a card for it too."""
     if body.to == "prioritized":
         repos.set_prioritized([body.name], True)
     elif body.to == "contributed":
         repos.set_prioritized([body.name], False)
     elif body.to == "target":
         repos.set_target([body.name], True)
+    elif body.to == "catalog":
+        repos.set_target([body.name], False)
     else:
-        raise HTTPException(status_code=400, detail="A repo moves to prioritized, contributed or target.")
+        raise HTTPException(status_code=400, detail="A repo moves to prioritized, contributed, target or catalog.")
     return {"prioritized": repos.prioritized(), "target": repos.target()}
 
 
