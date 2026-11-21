@@ -591,6 +591,8 @@ export type AutomationData = {
   max_agents: number; // at least 1
   min_stars: number | null; // null: any
   ai_policies: string[]; // the AI policies whose repositories may be worked on: "welcome", "disclose", "none", "unclear"
+  // The Repositories page's column switches (PUT /api/automation/take_from): off, no new issues of its repos.
+  take_from: Record<"target" | "prioritized" | "contributed" | "catalog", boolean>;
 };
 
 // The tokens every Claude run used (github_searcher/token_usage.py), per model, kind of work (claude_models.py; "agent":
@@ -665,6 +667,7 @@ const store = {
       max_agents: 1,
       min_stars: null,
       ai_policies: [],
+      take_from: { target: true, prioritized: true, contributed: true, catalog: true },
     },
     tokens: { slices: [] },
     problems: [],

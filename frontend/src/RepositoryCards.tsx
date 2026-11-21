@@ -37,6 +37,10 @@ A card also moves by dragging it with the mouse between Prioritized and Contribu
 while it's dragged.
 A move or Add to Target (POST /api/repos/move) shows at once, before the live feed has it (the repos topic comes every
 few seconds).
+Every column but Removed has a switch in its header: on, agents take new issues of its repos; off, they don't, and what
+is going there goes on (PUT /api/automation/take_from, the live "automation" topic's take_from). Agents take new issues
+column by column: Target, Prioritized, Contributed, then Catalog (backend/issues_api.py take_from_catalog); Removed
+never.
 Your pull requests are the ones the app follows (github_searcher/pr_tracking.py), from the live "prs" topic, so the
 numbers update themselves.
 */
@@ -53,6 +57,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
 import PullRequests from "@/PullRequests";
 import { api, useLive, useLoaded } from "@/live";
 import { cn } from "@/lib/utils";
@@ -82,6 +87,7 @@ export default function RepositoryCards(props: { state: string }) {
   const repos = useLive("repos");
   const prs = useLive("prs");
   const jobs = useLive("jobs");
+  const automation = useLive("automation");
   const loaded = useLoaded("repos");
   // The card whose ⋯ menu is open: the mouse on the ⋯ opens it at once, and it closes once the mouse left both the ⋯
   // and the menu (closeTimer: a tenth of a second, to go from one to the other). A tap or a key opens and closes it as
@@ -93,11 +99,14 @@ export default function RepositoryCards(props: { state: string }) {
   const [sort, setSort] = useState<Sort>("stars");
   // The cards moved here, by name: the column each went to, until the live feed has it.
   const [moved, setMoved] = useState<Record<string, string>>({});
+  // The column switches flipped here, until the live feed has them.
+  const [switched, setSwitched] = useState<Record<string, boolean>>({});
   // The card being dragged, and the column it comes from.
   const [dragging, setDragging] = useState<{ name: string; from: string } | null>(null);
 
   // Once the live feed comes again, it has them.
   useEffect(() => setMoved({}), [repos]);
+  useEffect(() => setSwitched({}), [automation]);
 
   // Your pull requests in each repo, by its name in lower case: merged, closed without a merge (and when the last one
   // of those closed), and open.
@@ -252,13 +261,13 @@ export default function RepositoryCards(props: { state: string }) {
     }
     return b.repo.stars - a.repo.stars;
   });
-  // moveTo: the column a card here can move to (its ⋯ or a drag), and back.
+  // moveTo: the column a card here can move to (its ⋯ or a drag), and back. key: its switch in take_from ("" for none).
   const columns = [
-    { title: "Prioritized", contributed: true, removed: false, moveTo: "Contributed", cards: prioritized },
-    { title: "Contributed", contributed: true, removed: false, moveTo: "Prioritized", cards: contributed },
-    { title: "Target", contributed: false, removed: false, moveTo: "", cards: target },
-    { title: "Catalog", contributed: false, removed: false, moveTo: "", cards: catalog },
-    { title: "Removed", contributed: false, removed: true, moveTo: "", cards: removed },
+    { title: "Prioritized", key: "prioritized", contributed: true, removed: false, moveTo: "Contributed", cards: prioritized },
+    { title: "Contributed", key: "contributed", contributed: true, removed: false, moveTo: "Prioritized", cards: contributed },
+    { title: "Target", key: "target", contributed: false, removed: false, moveTo: "", cards: target },
+    { title: "Catalog", key: "catalog", contributed: false, removed: false, moveTo: "", cards: catalog },
+    { title: "Removed", key: "", contributed: false, removed: true, moveTo: "", cards: removed },
   ];
 
   // The tabs, each with its count. Like the header's tabs (App.tsx): quiet until hovered; the open one in full color
@@ -297,6 +306,16 @@ export default function RepositoryCards(props: { state: string }) {
         return next;
       });
       toast.error(`Could not move ${name}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  async function takeFrom(key: string, on: boolean) {
+    setSwitched((old) => ({ ...old, [key]: on }));
+    try {
+      await api("/api/automation/take_from", { method: "PUT", body: { column: key, on: on } });
+    } catch (err) {
+      setSwitched({});
+      toast.error(`Could not save: ${err instanceof Error ? err.message : err}`);
     }
   }
 
@@ -360,12 +379,13 @@ export default function RepositoryCards(props: { state: string }) {
                 <h2 className="mb-2 flex h-6 shrink-0 items-center gap-2 text-xs font-medium text-muted-foreground">
                   {column.title}
                   <span className="tabular-nums">{column.cards.length}</span>
+                  <span className="flex-1" />
                   {column.title === "Contributed" && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
                           type="button"
-                          className="ml-auto flex h-6 items-center gap-1 rounded-sm px-1.5 font-normal hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
+                          className="flex h-6 items-center gap-1 rounded-sm px-1.5 font-normal hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
                         >
                           {SORT_TITLE[sort]}
                           <ChevronDown className="size-3.5" />
@@ -381,6 +401,14 @@ export default function RepositoryCards(props: { state: string }) {
                         </DropdownMenuRadioGroup>
                       </DropdownMenuContent>
                     </DropdownMenu>
+                  )}
+                  {column.key !== "" && (
+                    <Switch
+                      checked={switched[column.key] ?? automation.take_from?.[column.key as keyof typeof automation.take_from] ?? true}
+                      onCheckedChange={(on) => takeFrom(column.key, on)}
+                      title="Take new issues"
+                      aria-label={`Take new issues from ${column.title}`}
+                    />
                   )}
                 </h2>
                 <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
