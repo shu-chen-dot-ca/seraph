@@ -23,8 +23,8 @@ Under the top:
   a dashed blue line at that count, and the axis goes up to it. Back to front: Open PR limit, Merge rate, Open, Closed,
   Opened, Merged.
 - Tokens and cost: the tokens every Claude run used per period (input, cache written, cache read and output, from the
-  usage log: github_searcher/token_usage.py), a line per model, no total; and Cost, what they all cost in USD, white
-  (black when light), in front on its own axis on the right. Models by their names (Opus 5.5).
+  usage log: github_searcher/token_usage.py), a line per model, no total; and Cost, what they all cost in USD, as gray
+  bars behind the lines on its own axis on the right. Models by their names (Opus 5.5).
   These two share one time axis: hovering a period in one marks it in both, with its numbers.
 - In progress: the fix_issue and follow_up jobs working now, the most VM time first: Issue or pull request (its
   repository and number only, opens it on GitHub), Step, VM time (how long its agent held a VM desktop for it: tests,
@@ -84,8 +84,9 @@ const TITLE = "truncate font-medium hover:underline";
 const DETAIL = "ml-auto shrink-0 text-xs text-muted-foreground tabular-nums";
 
 // A chart's line. pieces: its drawing (SVG paths), broken where a value is missing. right: on the chart's right axis.
-// stroke: dashed for a limit, dotted for a rate on the right axis. layer: lines are drawn by it, the highest in front.
-type Line = { title: string; color: string; values: (number | null)[]; pieces: string[]; right: boolean; stroke: "solid" | "dashed" | "dotted"; layer: number };
+// stroke: dashed for a limit, dotted for a rate on the right axis, bar for bars instead of a line (Cost), behind every
+// line. layer: lines are drawn by it, the highest in front.
+type Line = { title: string; color: string; values: (number | null)[]; pieces: string[]; right: boolean; stroke: "solid" | "dashed" | "dotted" | "bar"; layer: number };
 
 export default function Dashboard() {
   const prs = useLive("prs");
@@ -457,7 +458,7 @@ export default function Dashboard() {
     index: index,
     text: index === count - 1 ? "Now" : new Date(periods[index].start).toLocaleString("en", range.length <= DAY ? TIME : DATE),
   }));
-  // The tokens' lines: one per model, then Cost in front. None before the first tokens arrive.
+  // The tokens' lines: one per model, and Cost's bars behind them. None before the first tokens arrive.
   const tokenLines: Line[] = [];
   models.forEach((model, index) => {
     tokenLines.push({
@@ -467,18 +468,18 @@ export default function Dashboard() {
       pieces: [],
       right: false,
       stroke: "solid",
-      layer: 0,
+      layer: 1,
     });
   });
   if (usage.length > 0) {
     tokenLines.push({
       title: "Cost",
-      color: "text-foreground",
+      color: "text-foreground/25",
       values: periods.map((period) => period.cost),
       pieces: [],
       right: true,
-      stroke: "solid",
-      layer: 1,
+      stroke: "bar",
+      layer: 0,
     });
   }
   // The pull requests' lines, and the Open PR limit when there is one.
@@ -555,6 +556,10 @@ export default function Dashboard() {
   for (const chart of charts) {
     for (const line of chart.lines) {
       const top = line.right ? chart.rightTop : chart.top;
+      // Bars are boxes, not paths: drawn under the lines, below.
+      if (line.stroke === "bar") {
+        continue;
+      }
       const runs: { x: number; y: number }[][] = [];
       let run: { x: number; y: number }[] = [];
       line.values.forEach((value, index) => {
@@ -678,7 +683,26 @@ export default function Dashboard() {
                       style={{ bottom: `${(chart.log ? Math.log1p(value) / Math.log1p(chart.top) : value / chart.top) * 100}%` }}
                     />
                   ))}
-                  {[...chart.lines]
+                  {/* Bars, behind every line: one per period, the middle 90% of its column, rounded on top. */}
+                  {chart.lines
+                    .filter((line) => line.stroke === "bar")
+                    .map((line) => (
+                      <div key={line.title} className={cn("pointer-events-none absolute inset-0", line.color)}>
+                        {line.values.map((value, index) => (
+                          <div
+                            key={index}
+                            className="absolute bottom-0 rounded-t-[3px] bg-current"
+                            style={{
+                              left: `${((index + 0.05) / line.values.length) * 100}%`,
+                              width: `${(0.9 / line.values.length) * 100}%`,
+                              height: `${Math.min((value ?? 0) / (line.right ? chart.rightTop : chart.top), 1) * 100}%`,
+                            }}
+                          />
+                        ))}
+                      </div>
+                    ))}
+                  {chart.lines
+                    .filter((line) => line.stroke !== "bar")
                     .sort((a, b) => a.layer - b.layer)
                     .map((line) => (
                       <svg
@@ -776,7 +800,7 @@ export default function Dashboard() {
               <div className="mt-2 ml-11 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 {chart.lines.map((line) => (
                   <span key={line.title} className="flex items-center gap-1.5">
-                    <span className={cn("h-0.5 w-3 rounded-full bg-current", line.color, line.stroke === "dashed" && "h-0 rounded-none border-t-2 border-dashed border-current bg-transparent", line.stroke === "dotted" && "h-0 rounded-none border-t-2 border-dotted border-current bg-transparent")} />
+                    <span className={cn("h-0.5 w-3 rounded-full bg-current", line.color, line.stroke === "dashed" && "h-0 rounded-none border-t-2 border-dashed border-current bg-transparent", line.stroke === "dotted" && "h-0 rounded-none border-t-2 border-dotted border-current bg-transparent", line.stroke === "bar" && "h-2.5 w-2.5 rounded-[2px]")} />
                     {line.title}
                   </span>
                 ))}
