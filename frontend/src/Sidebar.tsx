@@ -88,9 +88,7 @@ export default function Sidebar(props: { page: string; id: string | null; onOpen
             >
               <StatusDot tone={VM_TONE[vm.status]} />
               <span className="truncate">{vm.name}</span>
-              <span className="ml-auto text-muted-foreground tabular-nums">
-                {vm.status !== "running" ? "off" : vm.desktops.every((desktop) => desktop.holder !== null) ? "busy" : "free"}
-              </span>
+              {vm.status !== "running" && <span className="ml-auto text-muted-foreground">off</span>}
             </a>
           ))}
 
