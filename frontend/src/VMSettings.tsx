@@ -63,6 +63,8 @@ export default function VMSettings(props: { name: string }) {
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [savingImage, setSavingImage] = useState(false);
+  // Graceful shutdown clicked, until the live feed shows it (then the VM's own flag says it).
+  const [scheduling, setScheduling] = useState(false);
   const imagesData = useLive("images");
 
   const vmName = props.name;
@@ -97,6 +99,13 @@ export default function VMSettings(props: { name: string }) {
       stopped = true;
     };
   }, [vmName, envNames, envEdited]);
+
+  const shutdownSet = vm?.graceful_shutdown ?? false;
+  useEffect(() => {
+    if (shutdownSet) {
+      setScheduling(false);
+    }
+  }, [shutdownSet]);
 
   if (vm === undefined) {
     return <div className="p-3 text-muted-foreground">No VM named {props.name}.</div>;
@@ -178,16 +187,17 @@ export default function VMSettings(props: { name: string }) {
     setBusy("");
   }
 
+  // Shows as scheduled at once, with no spinner; only an error puts the button back.
   async function gracefulShutdown() {
-    setBusy("shutdown");
+    setScheduling(true);
     setError("");
     try {
       await api(`/api/vms/${encodeURIComponent(vmName)}/graceful_shutdown`, { method: "POST" });
-      toast.success(`${vmName} shuts down once the agents on it are done.`);
+      toast.success(`Shutdown scheduled: ${vmName} shuts down once the agents on it are done.`);
     } catch (err) {
+      setScheduling(false);
       setError(err instanceof Error ? err.message : String(err));
     }
-    setBusy("");
   }
 
   async function saveEnv() {
@@ -476,14 +486,14 @@ export default function VMSettings(props: { name: string }) {
               variant="outline"
               size="sm"
               onClick={gracefulShutdown}
-              disabled={busy !== "" || vm.status !== "running" || vm.graceful_shutdown || vmName === FIX_VM}
+              disabled={vm.status !== "running" || vm.graceful_shutdown || scheduling || vmName === FIX_VM}
             >
-              {busy === "shutdown" ? <Loader2 className="animate-spin" /> : <Power />}
-              Graceful shutdown
+              <Power />
+              {vm.graceful_shutdown || scheduling ? "Shutdown scheduled" : "Graceful shutdown"}
             </Button>
             <span className="text-muted-foreground">
-              {vm.graceful_shutdown
-                ? "Shuts down once the agents on it are done. Restart cancels it."
+              {vm.graceful_shutdown || scheduling
+                ? "It shuts down once the agents on it are done. Restart cancels it."
                 : "No new agents get it. The ones on it finish, then it shuts down."}
             </span>
           </div>
