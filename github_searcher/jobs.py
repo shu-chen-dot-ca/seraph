@@ -61,7 +61,7 @@ and goes straight to the Inbox without a reviewer (work_tools.py draft_pr). It s
     "tests": {"before": Run | null, "after": Run | null}
     Run: {"command", "scope": "full" | "focused" (missing on old runs: full), "base", "exit_code",
           "passed", "diff_hash" (sha256 of the diff it ran on, "" for before), "evidence": "ev_..."
-          (its output), "seconds", "at"}
+          (its output), "seconds", "cpu_seconds" (None when not known: sandbox/agent/long_runs.py), "at"}
 
 Evidence is what the agent shows the user so they can decide on its drafts: screenshots, images
 from the VM (a plot, a render) and command runs (a failing test, then the same test passing).

@@ -174,6 +174,7 @@ from github_searcher.inbox import AUTOMATION_FILE
 from github_searcher.issue_tags import CHECKS, TAKEN_PR_DAYS
 from github_searcher.jobs import EVIDENCE_DIR
 from github_searcher.repo_signals import MAINTAINERS
+from github_searcher.repo_stats import TEST_RUNS_FILE
 from github_searcher.search import get_contents, get_issue_in_full, get_issue_status, get_merged_prs, get_pr_status, get_readme, get_repository, get_tree, search_issues
 from sandbox.agent import long_runs
 from sandbox.agent.computer_use import Computer, ComputerError
@@ -3806,8 +3807,23 @@ class WorkTools:
             "diff_hash": run["diff_hash"] if when == "after" else "",
             "evidence": evidence_id,
             "seconds": seconds,
+            "cpu_seconds": ended.get("cpu_seconds"),
             "at": datetime.now(UTC).isoformat(),
         }
+        # One round of the repo's tests, for the time on its card (repo_stats.py): a run that ended by itself.
+        if ended["ended"] == "exit" and job["repo"] is not None:
+            line = {
+                "at": tests_run["at"],
+                "repo": job["repo"],
+                "job": job["id"],
+                "when": when,
+                "scope": scope,
+                "passed": passed,
+                "seconds": seconds,
+                "cpu_seconds": ended.get("cpu_seconds"),
+            }
+            with TEST_RUNS_FILE.open("a") as file:
+                file.write(json.dumps(line) + "\n")
         tests = {"before": job["tests"]["before"], "after": job["tests"]["after"]}
         tests[when] = tests_run
         self.agents.jobs.update(job["id"], tests=tests)
