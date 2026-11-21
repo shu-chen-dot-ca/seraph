@@ -42,7 +42,7 @@ from sandbox.agent.computer_use import Computer, ComputerError
 from sandbox.file_transfer import FileTransferError
 from sandbox.images import ImagesError
 from sandbox.vm import VMError
-from sandbox.vms import MAX_DESKTOPS_DEFAULT, VMRecord, VMsError
+from sandbox.vms import FIX_VM, MAX_DESKTOPS_DEFAULT, VMRecord, VMsError
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
@@ -138,6 +138,8 @@ class RenameRequest(BaseModel):
 async def rename_vm(name: str, body: RenameRequest) -> dict:
     """Gives the VM another name, running or not. Agents aimed at it and the jobs on it follow."""
     new_name = body.name.strip()
+    if name == FIX_VM:
+        raise HTTPException(status_code=400, detail=f"{FIX_VM} is Seraph's own VM, for Fix all on the Feedback page: it keeps its name.")
     try:
         record = await asyncio.to_thread(vms.rename, name, new_name)
     except VMsError as error:
@@ -160,6 +162,8 @@ async def delete_vm(name: str) -> dict:
         record = vms.get(name)
     except VMsError as error:
         raise HTTPException(status_code=404, detail=str(error))
+    if name == FIX_VM:
+        raise HTTPException(status_code=400, detail=f"{FIX_VM} is Seraph's own VM, for Fix all on the Feedback page: it can't be deleted.")
     try:
         await asyncio.to_thread(vms.delete, name)
     except VMsError as error:

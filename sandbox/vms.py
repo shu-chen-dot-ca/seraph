@@ -115,6 +115,9 @@ DISK_GB_MAX = int(os.environ["SANDBOX_DISK_GB_MAX"])
 MAX_DESKTOPS_DEFAULT = int(os.environ["SANDBOX_MAX_DESKTOPS_DEFAULT"])
 MIN_FREE_RAM_GB = int(os.environ["SANDBOX_MIN_FREE_RAM_GB"])
 NAME_PATTERN = r"[a-z][a-z0-9-]{0,30}"
+# Seraph's own VM, where Fix all on the Feedback page fixes the app (github_searcher/problem_fixes.py makes it the first
+# time). Agents never get it (agents.py set_target_vm), and it can't be renamed or deleted (backend/vms_api.py).
+FIX_VM = "seraph"
 SCAN_SECONDS = 10
 SAMPLES_KEPT = 60
 # Disk use is read inside the VM (df), so not every second.

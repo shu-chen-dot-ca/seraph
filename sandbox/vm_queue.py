@@ -41,7 +41,7 @@ run after it is released (they may call back into this queue).
 import threading
 from datetime import UTC, datetime
 
-from sandbox.vms import VMs
+from sandbox.vms import FIX_VM, VMs
 
 
 class VMQueue:
@@ -86,8 +86,11 @@ class VMQueue:
         answer. desktop: the one it wants (where its folders are);
         None takes any. Which one it got: record.desktop_of(agent_id).
 
-        A desktop granted right here is not reported through on_grant: the caller learns it from the 0.
+        A desktop granted right here is not reported through on_grant: the caller learns it from the 0. Never Seraph's own
+        VM (FIX_VM): no agent gets it.
         """
+        if vm_name == FIX_VM:
+            raise ValueError(f"{FIX_VM} is Seraph's own VM, for fixing the app: pick another VM.")
         with self.lock:
             record = self.vms.get(vm_name)
             for line in record.desktops.values():
@@ -196,7 +199,10 @@ class VMQueue:
 
     def give_to(self, vm_name: str, agent_id: str, desktop: int) -> None:
         """A waiting agent holds the desktop now. An agent that held it goes
-        back to the front of the line, asking for it; if the user held it, the user's hold just ends."""
+        back to the front of the line, asking for it; if the user held it, the user's hold just ends. Never on Seraph's own
+        VM (FIX_VM)."""
+        if vm_name == FIX_VM:
+            raise ValueError(f"{FIX_VM} is Seraph's own VM, for fixing the app: no agent gets it.")
         kicked = None
         with self.lock:
             record = self.vms.get(vm_name)
