@@ -3,14 +3,15 @@ The Dashboard (#/), the page the app opens on, display only. On top, its name, L
 feed is down) with the time your pull requests were last read, and the range every pull request number and chart
 follows: 1 hour, 1 day, 7, 30 or 90 days (kept while the page is open). A range is cut into equal periods that start on
 the clock (5 minutes for an hour, an hour for a day, 6 hours for 7 days, else a day); the last one is the one now. Every
-widget has the same frame: a header with its title, which opens its page (Tokens has none), and on the right a detail.
+widget has the same frame: a header with its title, which opens its page (Tokens and cost has none), and on the right a
+detail.
 Smooth, left of the range (on at first, kept while the page is open), draws every line as a curve through its points
 instead of straight lines between them. Every point stays at its real value; between two points the curve never goes
 past either one's level (a monotone cubic curve, Steffen's), so it shows no peak or dip that isn't in the numbers.
 Under the top:
-- Opened, Merged, Closed, Merge rate, Time to merge (the median from opened to merged) and Tokens (all the agents used):
-  a big number, with the change from the previous range of the same length, green when it is good, red when it is bad
-  (Tokens' stays gray). The previous one on hover.
+- Opened, Merged, Closed, Merge rate, Time to merge (the median from opened to merged) and Tokens and cost (all the
+  agents used, the cost in USD above the tokens): a big number, with the change from the previous range of the same
+  length, green when it is good, red when it is bad (Tokens and cost's stay gray). The previous one on hover.
 - Limits: the Automation page's limits against what is used now, amber from 85%: pull requests opened today, open pull
   requests, the most open in one repository, agents working, and desktops in use of all the running VMs may have.
 - Pull requests: opened, merged and closed per period, as three lines in GitHub's colors; Open, the pull requests still
@@ -18,10 +19,11 @@ Under the top:
   height is log(1 + count), so 0 sits at the bottom); and Merge rate: the 7-day average at the end of each period
   (merged of merged and closed in the 7 days before), dashed, on its own 0-100% axis on the right. Back to front:
   Merge rate, Open, Closed, Opened, Merged.
-- Tokens: the tokens every Claude run used per period (input, cache written, cache read and output, from the usage log:
-  github_searcher/token_usage.py), a line per model (Model, the default) or per kind of work (Work), picked in its
-  header, and Total in front of them. Models by their names (Opus 5.5), kinds of work in plain words; Agents is the
-  agents' work from before the log, when its kind wasn't kept.
+- Tokens and cost: the tokens every Claude run used per period (input, cache written, cache read and output, from the
+  usage log: github_searcher/token_usage.py), a line per model (Model, the default) or per kind of work (Work), picked
+  in its header, no total; and Cost, what they all cost in USD, white (black when light), in front on its own axis on
+  the right. Models by their names (Opus 5.5), kinds of work in plain words; Agents is the agents' work from before the
+  log, when its kind wasn't kept.
   These two share one time axis: hovering a period in one marks it in both, with its numbers.
 - In progress: the fix_issue and follow_up jobs working now, longest on its step first: Issue or pull request (its
   repository and number only, opens it on GitHub), Step, On step, Tokens (all its agent used, in thousands: an agent is
@@ -30,7 +32,8 @@ Under the top:
 - Virtual machines: every VM's band from the VMs tab (VMList in VMs.tsx) with only its CPU, Memory, Internet and Disk
   cards. The header counts the running ones.
 Charts keep fixed heights; a line breaks where there is no number. Lines are drawn back to front by their layer, each
-with a thin edge in the card's color, so where two cross the one in front clearly covers the one behind. Big numbers are short: 1.2K, 3.4M.
+with a thin edge in the card's color, so where two cross the one in front clearly covers the one behind. Big numbers are short: 1.2K, 3.4M,
+and dollars $0.05, $412, $1.23K.
 */
 
 import { useState } from "react";
@@ -57,6 +60,8 @@ const TIME: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", h
 const CLOCK: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" };
 // 1234 → "1.2K", 3400000 → "3.4M"
 const SHORT = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+// 0.05 → "$0.05", 412.37 → "$412", 1234 → "$1.23K"
+const USD = new Intl.NumberFormat("en", { style: "currency", currency: "USD", notation: "compact", maximumSignificantDigits: 3 });
 // GitHub's open green, merged purple and closed red: Tailwind's 600 (500 when dark) with 20% less saturation.
 const OPENED = "text-[oklch(62.7%_0.155_149.214)] dark:text-[oklch(72.3%_0.175_149.579)]";
 const MERGED = "text-[oklch(55.8%_0.23_302.321)] dark:text-[oklch(62.7%_0.212_303.9)]";
@@ -127,7 +132,7 @@ export default function Dashboard() {
     closed: number;
     open: number;
     rate: number | null;
-    tokens: number;
+    cost: number;
     byModel: Record<string, number>;
     byWork: Record<string, number>;
   }[] = [];
@@ -141,7 +146,7 @@ export default function Dashboard() {
       closed: 0,
       open: 0,
       rate: null,
-      tokens: 0,
+      cost: 0,
       byModel: {},
       byWork: {},
     });
@@ -215,25 +220,29 @@ export default function Dashboard() {
     period.rate = mergedWeek + closedWeek > 0 ? (mergedWeek / (mergedWeek + closedWeek)) * 100 : null;
   }
 
-  // Tokens Claude runs used, per model, kind of work and stretch of time (at: its start): each stretch added to the period
-  // it starts in.
+  // Tokens Claude runs used and what they cost, per model, kind of work and stretch of time (at: its start): each stretch
+  // added to the period it starts in.
   const models: string[] = [];
   const works: string[] = [];
   let tokens = 0;
   let tokensBefore = 0;
+  let cost = 0;
+  let costBefore = 0;
   for (const each of usage) {
     const at = new Date(each.at).getTime();
     if (at >= previousStart && at < start) {
       tokensBefore += each.tokens;
+      costBefore += each.cost_usd;
     }
     const index = Math.floor((at - start) / range.period);
     if (index < 0 || index >= count) {
       continue;
     }
-    periods[index].tokens += each.tokens;
+    periods[index].cost += each.cost_usd;
     periods[index].byModel[each.model] = (periods[index].byModel[each.model] ?? 0) + each.tokens;
     periods[index].byWork[each.work] = (periods[index].byWork[each.work] ?? 0) + each.tokens;
     tokens += each.tokens;
+    cost += each.cost_usd;
     if (!models.includes(each.model)) {
       models.push(each.model);
     }
@@ -242,7 +251,6 @@ export default function Dashboard() {
     }
   }
 
-  // The numbers. change: from the previous range (null when either has no number); better: which way is good.
   const rate = merged + closed > 0 ? Math.round((merged / (merged + closed)) * 100) : null;
   const rateBefore = mergedBefore + closedBefore > 0 ? Math.round((mergedBefore / (mergedBefore + closedBefore)) * 100) : null;
   took.sort((a, b) => a - b);
@@ -268,60 +276,92 @@ export default function Dashboard() {
     medianBeforeText = medianBefore < 1 ? `${Math.round(medianBefore * 24)} h` : `${medianBefore.toFixed(1)} d`;
   }
   const medianChange = median !== null && medianBefore !== null ? Number((median - medianBefore).toFixed(1)) : null;
+  // The first row's cards: each one big number or more (Tokens and cost: the cost above the tokens). change: from the
+  // previous range (null when either has no number); better: which way is good ("": neither, it stays gray).
   const numbers = [
     {
       title: "Opened",
       href: "#/pulls?state=open",
-      value: `${opened}`,
-      change: opened - openedBefore,
-      changeText: `${Math.abs(opened - openedBefore)}`,
       better: "up",
-      was: `Previous ${range.title}: ${openedBefore}`,
+      rows: [
+        {
+          value: `${opened}`,
+          change: opened - openedBefore,
+          changeText: `${Math.abs(opened - openedBefore)}`,
+          was: `Previous ${range.title}: ${openedBefore}`,
+        },
+      ],
     },
     {
       title: "Merged",
       href: "#/pulls?state=merged",
-      value: `${merged}`,
-      change: merged - mergedBefore,
-      changeText: `${Math.abs(merged - mergedBefore)}`,
       better: "up",
-      was: `Previous ${range.title}: ${mergedBefore}`,
+      rows: [
+        {
+          value: `${merged}`,
+          change: merged - mergedBefore,
+          changeText: `${Math.abs(merged - mergedBefore)}`,
+          was: `Previous ${range.title}: ${mergedBefore}`,
+        },
+      ],
     },
     {
       title: "Closed",
       href: "#/pulls?state=closed",
-      value: `${closed}`,
-      change: closed - closedBefore,
-      changeText: `${Math.abs(closed - closedBefore)}`,
       better: "down",
-      was: `Previous ${range.title}: ${closedBefore}`,
+      rows: [
+        {
+          value: `${closed}`,
+          change: closed - closedBefore,
+          changeText: `${Math.abs(closed - closedBefore)}`,
+          was: `Previous ${range.title}: ${closedBefore}`,
+        },
+      ],
     },
     {
       title: "Merge rate",
       href: "#/pulls?state=closed",
-      value: rate === null ? "–" : `${rate}%`,
-      change: rate !== null && rateBefore !== null ? rate - rateBefore : null,
-      changeText: rate !== null && rateBefore !== null ? `${Math.abs(rate - rateBefore)}` : "",
       better: "up",
-      was: `Previous ${range.title}: ${rateBefore === null ? "–" : `${rateBefore}%`}`,
+      rows: [
+        {
+          value: rate === null ? "–" : `${rate}%`,
+          change: rate !== null && rateBefore !== null ? rate - rateBefore : null,
+          changeText: rate !== null && rateBefore !== null ? `${Math.abs(rate - rateBefore)}` : "",
+          was: `Previous ${range.title}: ${rateBefore === null ? "–" : `${rateBefore}%`}`,
+        },
+      ],
     },
     {
       title: "Time to merge",
       href: "#/pulls?state=merged",
-      value: medianText,
-      change: medianChange,
-      changeText: medianChange === null ? "" : `${Math.abs(medianChange).toFixed(1)} d`,
       better: "down",
-      was: `Previous ${range.title}: ${medianBeforeText}`,
+      rows: [
+        {
+          value: medianText,
+          change: medianChange,
+          changeText: medianChange === null ? "" : `${Math.abs(medianChange).toFixed(1)} d`,
+          was: `Previous ${range.title}: ${medianBeforeText}`,
+        },
+      ],
     },
     {
-      title: "Tokens",
+      title: "Tokens and cost",
       href: "",
-      value: SHORT.format(tokens),
-      change: tokens - tokensBefore,
-      changeText: SHORT.format(Math.abs(tokens - tokensBefore)),
       better: "",
-      was: `Previous ${range.title}: ${SHORT.format(tokensBefore)}`,
+      rows: [
+        {
+          value: USD.format(cost),
+          change: cost - costBefore,
+          changeText: USD.format(Math.abs(cost - costBefore)),
+          was: `Previous ${range.title}: ${USD.format(costBefore)}`,
+        },
+        {
+          value: SHORT.format(tokens),
+          change: tokens - tokensBefore,
+          changeText: SHORT.format(Math.abs(tokens - tokensBefore)),
+          was: `Previous ${range.title}: ${SHORT.format(tokensBefore)}`,
+        },
+      ],
     },
   ];
 
@@ -379,7 +419,8 @@ export default function Dashboard() {
   // most four equal steps.
   let tokenHighest = 1;
   for (const period of periods) {
-    tokenHighest = Math.max(tokenHighest, period.tokens);
+    const values = Object.values(tokensBy === "model" ? period.byModel : period.byWork);
+    tokenHighest = Math.max(tokenHighest, ...values);
   }
   const power = Math.pow(10, Math.max(0, Math.floor(Math.log10(tokenHighest / 4))));
   const step = [power, 2 * power, 5 * power, 10 * power].find((each) => each * 4 >= tokenHighest) ?? 10 * power;
@@ -388,16 +429,25 @@ export default function Dashboard() {
   for (let value = 0; value <= tokenTop; value += step) {
     tokenTicks.push(value);
   }
+  // The cost axis on its right: the same, counted in cents so the steps stay whole numbers.
+  let centsHighest = 1;
+  for (const period of periods) {
+    centsHighest = Math.max(centsHighest, Math.ceil(period.cost * 100));
+  }
+  const centsPower = Math.pow(10, Math.max(0, Math.floor(Math.log10(centsHighest / 4))));
+  const centsStep = [centsPower, 2 * centsPower, 5 * centsPower, 10 * centsPower].find((each) => each * 4 >= centsHighest) ?? 10 * centsPower;
+  const centsTop = Math.ceil(centsHighest / centsStep) * centsStep;
+  const costTicks: number[] = [];
+  for (let value = 0; value <= centsTop; value += centsStep) {
+    costTicks.push(value / 100);
+  }
   // The x axes: five labels evenly spread, the last one Now. Under a day, times only.
   const prAxis = [0, Math.round((count - 1) / 4), Math.round((count - 1) / 2), Math.round(((count - 1) * 3) / 4), count - 1].map((index) => ({
     index: index,
     text: index === count - 1 ? "Now" : new Date(periods[index].start).toLocaleString("en", range.length <= DAY ? TIME : DATE),
   }));
-  // The tokens' lines: Total, then a line per model or per kind of work. None before the first tokens arrive.
+  // The tokens' lines: one per model or per kind of work, then Cost in front. None before the first tokens arrive.
   const tokenLines: Line[] = [];
-  if (usage.length > 0) {
-    tokenLines.push({ title: "Total", color: "text-foreground/70", values: periods.map((period) => period.tokens), pieces: [], right: false, layer: 1 });
-  }
   if (tokensBy === "model") {
     models.forEach((model, index) => {
       tokenLines.push({
@@ -422,10 +472,20 @@ export default function Dashboard() {
       });
     });
   }
+  if (usage.length > 0) {
+    tokenLines.push({
+      title: "Cost",
+      color: "text-foreground",
+      values: periods.map((period) => period.cost),
+      pieces: [],
+      right: true,
+      layer: 1,
+    });
+  }
 
   const percentTicks = [0, 25, 50, 75, 100];
   // A chart: its lines on the left axis (top, ticks, unit; log: a log scale, log(1 + value)), and those marked right on
-  // the right axis (none without rightTicks). empty: what it says without lines.
+  // the right axis (none without rightTicks; rightFormat writes its numbers). empty: what it says without lines.
   const charts: {
     key: string;
     title: string;
@@ -437,7 +497,7 @@ export default function Dashboard() {
     log: boolean;
     rightTop: number;
     rightTicks: number[];
-    rightUnit: string;
+    rightFormat: (value: number) => string;
     labels: string[];
     axis: { index: number; text: string }[];
     lines: Line[];
@@ -454,7 +514,7 @@ export default function Dashboard() {
       log: true,
       rightTop: 100,
       rightTicks: percentTicks,
-      rightUnit: "%",
+      rightFormat: (value) => `${Math.round(value)}%`,
       labels: periods.map((period) => period.label),
       axis: prAxis,
       lines: [
@@ -468,16 +528,16 @@ export default function Dashboard() {
     },
     {
       key: "tokens",
-      title: "Tokens",
+      title: "Tokens and cost",
       href: "",
       detail: range.per,
       top: tokenTop,
       ticks: tokenTicks,
       unit: "",
       log: false,
-      rightTop: 100,
-      rightTicks: [],
-      rightUnit: "",
+      rightTop: centsTop / 100,
+      rightTicks: usage.length > 0 ? costTicks : [],
+      rightFormat: (value) => USD.format(value),
       labels: periods.map((period) => period.label),
       axis: prAxis,
       lines: tokenLines,
@@ -667,7 +727,9 @@ export default function Dashboard() {
                           <span className={cn("size-2 shrink-0 rounded-full bg-current", line.color)} />
                           <span className="truncate text-muted-foreground">{line.title}</span>
                           <span className="ml-auto font-mono tabular-nums">
-                            {line.values[hovered] === null ? "–" : `${SHORT.format(Math.round(line.values[hovered] ?? 0))}${line.right ? chart.rightUnit : chart.unit}`}
+                            {line.values[hovered] === null && "–"}
+                            {line.values[hovered] !== null && line.right && chart.rightFormat(line.values[hovered] ?? 0)}
+                            {line.values[hovered] !== null && !line.right && `${SHORT.format(Math.round(line.values[hovered] ?? 0))}${chart.unit}`}
                           </span>
                         </div>
                       ))}
@@ -675,18 +737,17 @@ export default function Dashboard() {
                   )}
                 </div>
                 {chart.rightTicks.length > 0 && (
-                  <div className="relative w-9 shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
+                  <div className="relative w-12 shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
                     {chart.rightTicks.map((value) => (
                       <span key={value} className="absolute left-0 translate-y-1/2" style={{ bottom: `${(value / chart.rightTop) * 100}%` }}>
-                        {value}
-                        {chart.rightUnit}
+                        {chart.rightFormat(value)}
                       </span>
                     ))}
                   </div>
                 )}
               </div>
               {/* Under each labeled column; the first and last kept inside the chart's edges. */}
-              <div className={cn("relative mt-1.5 ml-11 h-4 text-xs text-muted-foreground tabular-nums", chart.rightTicks.length > 0 && "mr-11")}>
+              <div className={cn("relative mt-1.5 ml-11 h-4 text-xs text-muted-foreground tabular-nums", chart.rightTicks.length > 0 && "mr-14")}>
                 {chart.axis.map((each) => (
                   <span
                     key={each.index}
@@ -769,24 +830,28 @@ export default function Dashboard() {
                   {number.href === "" && <span className="truncate font-medium">{number.title}</span>}
                   <span className={DETAIL}>{range.title}</span>
                 </div>
-                <div className="flex flex-1 flex-wrap items-end gap-x-3 px-3 pt-4 pb-3">
-                  <span className="font-mono text-3xl font-light tabular-nums">{number.value}</span>
-                  {number.change !== null && (
-                    <span
-                      title={number.was}
-                      className={cn(
-                        "mb-1 font-mono text-sm whitespace-nowrap tabular-nums",
-                        number.change === 0 || number.better === ""
-                          ? "text-muted-foreground"
-                          : (number.change > 0) === (number.better === "up")
-                            ? "text-ok"
-                            : "text-destructive",
+                <div className="flex flex-1 flex-col justify-end gap-2 px-3 pt-4 pb-3">
+                  {number.rows.map((row, index) => (
+                    <div key={index} className="flex flex-wrap items-end gap-x-3">
+                      <span className="font-mono text-3xl font-light tabular-nums">{row.value}</span>
+                      {row.change !== null && (
+                        <span
+                          title={row.was}
+                          className={cn(
+                            "mb-1 font-mono text-sm whitespace-nowrap tabular-nums",
+                            row.change === 0 || number.better === ""
+                              ? "text-muted-foreground"
+                              : (row.change > 0) === (number.better === "up")
+                                ? "text-ok"
+                                : "text-destructive",
+                          )}
+                        >
+                          {row.change > 0 ? "▲ " : row.change < 0 ? "▼ " : ""}
+                          {row.changeText}
+                        </span>
                       )}
-                    >
-                      {number.change > 0 ? "▲ " : number.change < 0 ? "▼ " : ""}
-                      {number.changeText}
-                    </span>
-                  )}
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}

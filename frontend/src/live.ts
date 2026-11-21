@@ -594,8 +594,8 @@ export type AutomationData = {
 
 // The tokens every Claude run used (github_searcher/token_usage.py), per model, kind of work (claude_models.py; "agent":
 // an agent's, from before the usage log) and stretch of time (at: its start). The stretches are 5 minutes for the last
-// two hours, an hour for the last 8 days, then a day from local midnight.
-export type TokensData = { slices: { at: string; model: string; work: string; tokens: number }[] };
+// two hours, an hour for the last 8 days, then a day from local midnight. cost_usd: what they cost.
+export type TokensData = { slices: { at: string; model: string; work: string; tokens: number; cost_usd: number }[] };
 
 // The Feedback page (github_searcher/problems.py): what the agents reported, and what the app saw itself (agent
 // "seraph"), newest first. closed_at: once Fix problems fixed it or found nothing to change.
