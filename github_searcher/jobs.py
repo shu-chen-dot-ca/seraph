@@ -32,6 +32,8 @@ Progress, which the agent sets with job_progress so the user can follow along wi
     "step": "test" | null          the step it is on; it may go back (from test to fix when tests fail)
     "step_at"                      when it got to that step
     "started_at"                   when the job first became "working"
+    "vm_seconds"                   how long its agent held a VM desktop while the job was working: tests, builds and
+                                   everything else it did there (Agents.count_vm_time adds to it, add_vm_seconds)
     "about"                        what the job is about, in everyday words
     "headline"                     where it stands right now, in everyday words
     "detail"                       the same, technical (files, tests), for a closer look
@@ -143,6 +145,8 @@ class Jobs:
             job.setdefault("timeline", [])
             # And from before Skip checks.
             job.setdefault("skip_checks", False)
+            # And from before VM time was counted: it counts from then on.
+            job.setdefault("vm_seconds", 0)
             self.jobs[job["id"]] = job
 
     def save(self, job: dict) -> None:
@@ -222,6 +226,7 @@ class Jobs:
                 "tests": {"before": None, "after": None},
                 "timeline": [{"at": now, "kind": "created", "text": created}],
                 "skip_checks": False,
+                "vm_seconds": 0,
             }
             self.jobs[job_id] = job
             self.save(job)
@@ -251,6 +256,15 @@ class Jobs:
             job["updated_at"] = now
             self.save(job)
             return copy.deepcopy(job)
+
+    def add_vm_seconds(self, job_id: str, seconds: int) -> None:
+        """More time its agent held a VM desktop for this job. updated_at stays: the job itself didn't change."""
+        with self.lock:
+            if job_id not in self.jobs:
+                return
+            job = self.jobs[job_id]
+            job["vm_seconds"] += seconds
+            self.save(job)
 
     def rename_vm(self, name: str, new_name: str) -> None:
         """A VM got another name: its jobs (done ones too) say the new one. updated_at stays: nothing happened to the jobs."""
