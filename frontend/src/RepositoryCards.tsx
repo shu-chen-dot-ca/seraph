@@ -24,7 +24,10 @@ Removed). Its stars aren't known (–), and its ⋯ has only the moves (none in 
 A card: the owner's picture as its logo, owner/name, and under it in color: its stars (yellow), then of your pull
 requests there how many it merged (purple), closed without a merge (red) and are still open (green), then the issues in
 progress there (yellow, a draft PR icon: fix_issue jobs still open with no pull request on GitHub yet, as the Pull
-requests page's In progress has them, from the live "jobs" topic); a count of 0 isn't shown.
+requests page's In progress has them, from the live "jobs" topic); a count of 0 isn't shown. The mouse on the open
+count opens a menu with Close all (every open PR of yours there closed on GitHub, POST /api/repos/close_prs), on the
+in-progress one Stop all (those jobs stopped and their issues dropped, POST /api/repos/stop_in_progress), as the ⋯
+opens.
 A click on a card's owner/name (the text itself, with no tooltip) opens the repo on GitHub in a new tab; elsewhere on a
 card it does nothing yet. A card has a ⋯, whose menu opens when the mouse is on it (a tap or click on a phone): Move to
 Contributed in Prioritized and back; in Catalog Add to Target, in Target Remove from Target; and outside Removed Delete, or Add to Removed for a repo
@@ -321,6 +324,22 @@ export default function RepositoryCards(props: { state: string }) {
     }
   }
 
+  async function stopInProgress(name: string) {
+    try {
+      await api("/api/repos/stop_in_progress", { method: "POST", body: { name: name } });
+    } catch (err) {
+      toast.error(`Could not stop ${name}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  async function closePRs(name: string) {
+    try {
+      await api("/api/repos/close_prs", { method: "POST", body: { name: name } });
+    } catch (err) {
+      toast.error(`Could not close ${name}'s pull requests: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
   async function deleteRepo(name: string) {
     setDeleted((old) => [...old, name]);
     try {
@@ -461,18 +480,74 @@ export default function RepositoryCards(props: { state: string }) {
                                 {card.closed}
                               </span>
                             )}
-                            {card.open > 0 && (
-                              <span className="flex items-center gap-0.5 text-ok" title="Your open PRs">
-                                <GitPullRequest className="size-3" />
-                                {card.open}
-                              </span>
-                            )}
-                            {card.working > 0 && (
-                              <span className="flex items-center gap-0.5 text-yellow-600 dark:text-yellow-400" title="In progress">
-                                <GitPullRequestDraft className="size-3" />
-                                {card.working}
-                              </span>
-                            )}
+                            {/* Open and in progress: the mouse on one opens its menu, Close all or Stop all, as the ⋯ does. */}
+                            {[
+                              { key: "open", count: card.open, icon: GitPullRequest, color: "text-ok", title: "Your open PRs", action: "Close all" },
+                              {
+                                key: "working",
+                                count: card.working,
+                                icon: GitPullRequestDraft,
+                                color: "text-yellow-600 dark:text-yellow-400",
+                                title: "In progress",
+                                action: "Stop all",
+                              },
+                            ]
+                              .filter((each) => each.count > 0)
+                              .map((each) => (
+                                <DropdownMenu
+                                  key={each.key}
+                                  modal={false}
+                                  open={menuOpen === `${card.repo.full_name}:${each.key}`}
+                                  onOpenChange={(open) => setMenuOpen(open ? `${card.repo.full_name}:${each.key}` : null)}
+                                >
+                                  <DropdownMenuTrigger asChild>
+                                    {/* title="": its menu shows instead of a tooltip. */}
+                                    <button
+                                      type="button"
+                                      title=""
+                                      className={cn("-mx-0.5 flex items-center gap-0.5 rounded-sm px-0.5 hover:bg-accent data-[state=open]:bg-accent", each.color)}
+                                      aria-label={each.title}
+                                      onPointerEnter={(event) => {
+                                        if (event.pointerType === "mouse") {
+                                          window.clearTimeout(closeTimer.current);
+                                          setMenuOpen(`${card.repo.full_name}:${each.key}`);
+                                        }
+                                      }}
+                                      onPointerLeave={(event) => {
+                                        if (event.pointerType === "mouse") {
+                                          closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
+                                        }
+                                      }}
+                                      onPointerDown={(event) => {
+                                        if (event.pointerType === "mouse") {
+                                          event.preventDefault();
+                                        }
+                                      }}
+                                    >
+                                      <each.icon className="size-3" />
+                                      {each.count}
+                                    </button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent
+                                    align="start"
+                                    sideOffset={0}
+                                    style={{ animation: "none" }}
+                                    onPointerEnter={() => window.clearTimeout(closeTimer.current)}
+                                    onPointerLeave={(event) => {
+                                      if (event.pointerType === "mouse") {
+                                        closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
+                                      }
+                                    }}
+                                  >
+                                    <DropdownMenuItem
+                                      variant="destructive"
+                                      onSelect={() => (each.key === "open" ? closePRs(card.repo.full_name) : stopInProgress(card.repo.full_name))}
+                                    >
+                                      {each.action}
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              ))}
                           </div>
                         </div>
                         {menu && (
