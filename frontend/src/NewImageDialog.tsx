@@ -1,5 +1,5 @@
 /*
-New image: saves a new image's image.yaml, nothing more. It is the defaults (the VMs page's Defaults tab) with the
+New image: saves a new image's image.yaml, nothing more. It is the defaults (GET /api/image-defaults) with the
 system and desktop picked here (GNOME by default, KDE Plasma, or none: terminal only; Firefox and what the app needs
 come with every desktop), and the description, if one is written here, as its description field. No agent runs.
 
@@ -100,7 +100,7 @@ export default function NewImageDialog(props: { onClose: () => void }) {
         <DialogHeader>
           <DialogTitle>New image</DialogTitle>
           <DialogDescription>
-            Saves an image.yaml: the defaults (the Defaults tab) on this system and desktop. Change it from the image's row, then build
+            Saves an image.yaml: the defaults on this system and desktop. Change it from the image's row, then build
             it from official sources.
           </DialogDescription>
         </DialogHeader>

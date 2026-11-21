@@ -18,14 +18,12 @@ so the numbers move on their own. Whether a running VM has a desktop is asked on
 The bands are VMList; the Dashboard shows them too, with only CPU, Memory, Internet and Disk, and a ⋯ on each that
 opens the VM's settings (VMSettings, as on its page's Settings tab) in a dialog.
 New VM opens NewVMDialog. The Images tab (#/vms?tab=images) manages the
-images VMs start from (Images.tsx), which puts its own buttons in this same header row, right of the tabs. The
-Defaults tab (#/vms?tab=defaults) is the YAML that goes under every image's image.yaml (Defaults.tsx).
+images VMs start from (Images.tsx), which puts its own buttons in this same header row, right of the tabs.
 */
 
 import { MoreHorizontal, Plus, SquareTerminal } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import Defaults from "@/Defaults";
 import Images from "@/Images";
 import NewVMDialog from "@/NewVMDialog";
 import VMSettings from "@/VMSettings";
@@ -62,7 +60,7 @@ function formatBytes(bytes: number): string {
   return `${Math.round(bytes)} B`;
 }
 
-export default function VMs(props: { tab: "vms" | "images" | "defaults" }) {
+export default function VMs(props: { tab: "vms" | "images" }) {
   const vms = useLive("vms");
   const imagesData = useLive("images");
   const loaded = useLoaded("vms");
@@ -83,9 +81,6 @@ export default function VMs(props: { tab: "vms" | "images" | "defaults" }) {
           <TabsTrigger value="images" className="px-2.5">
             Images
             <span className="text-xs text-muted-foreground tabular-nums">{imagesData.images.length}</span>
-          </TabsTrigger>
-          <TabsTrigger value="defaults" className="px-2.5">
-            Defaults
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -109,9 +104,6 @@ export default function VMs(props: { tab: "vms" | "images" | "defaults" }) {
 
   if (props.tab === "images") {
     return <Images tabs={tabs} />;
-  }
-  if (props.tab === "defaults") {
-    return <Defaults tabs={tabs} />;
   }
 
   return (

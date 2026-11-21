@@ -21,7 +21,7 @@ The page lives in the URL hash, so refresh and back/forward work and switching p
   #/blockers (Blockers.tsx)
   #/automation (Automation.tsx)
   #/feedback (Feedback.tsx; takes state=open|closed|runs)
-  #/vms  #/vms?tab=images  #/vms?tab=defaults (VMs.tsx)  #/vms/<vm name>  #/vms/<vm name>?tab=notes (VMPage.tsx)
+  #/vms  #/vms?tab=images (VMs.tsx)  #/vms/<vm name>  #/vms/<vm name>?tab=notes (VMPage.tsx)
   #/agents/<agent id> (AgentChat.tsx, opened from the VM pages and their notes)
 Anything else (also no hash at all) opens the Dashboard. Links are plain <a href="#/..."> everywhere; App only reads the
 hash.
@@ -307,7 +307,7 @@ export default function App() {
             {page === "feedback" && <Feedback state={query.get("state") ?? "open"} />}
             {page === "agents" && id !== null && <AgentChat key={id} agentId={id} />}
             {page === "vms" && id === null && (
-              <VMs tab={query.get("tab") === "images" ? "images" : query.get("tab") === "defaults" ? "defaults" : "vms"} />
+              <VMs tab={query.get("tab") === "images" ? "images" : "vms"} />
             )}
             {mountedVMs.map((name) => (
               <div key={name} className={name === openVM ? "h-full" : "hidden"}>
