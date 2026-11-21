@@ -17,7 +17,9 @@ Its settings and what it did, in AUTOMATION_FILE (DATA_DIR/automation.json):
      "send_prs", "send_comments": bool,             Create pull requests, Reply to reviews and comments
      "max_prs_per_day", "max_open_prs", "max_open_per_repo": int | None,    the limits (None: no limit)
      "min_stars": int | None,                       Minimum stars of a repo it adds (None: Explore's own minimum)
-     "ai_policies": ["welcome", ...]}               the AI policies whose repos may be worked on (never no_ai)
+     "ai_policies": ["welcome", ...],               the AI policies whose repos may be worked on (never no_ai)
+     "take_from": {"target", "prioritized", "contributed", "catalog": bool}}
+                                                    the Repositories page's column switches (below)
 
     Label = {"label", "rank", "why", "merged", "closed", "open", "days", "idle", "per_day"}
 
@@ -70,6 +72,10 @@ Take new issues off (take_new False, on or off): agents take no new issues from 
 (backend/issues_api.py take_from_catalog), not even ours; the cards wait there until it is on again. Everything else goes
 on: the jobs already started, follow-ups on our PRs, tagging, Explore, the labels and the archiving.
 
+The Repositories page's column switches (take_from, one per column but Removed): off, agents take no new issues of the
+repos in that column, ours too (backend/issues_api.py take_from_catalog); what is going there goes on. PUT
+/api/automation/take_from sets one.
+
 The page's settings, and where each is obeyed:
 - Manage repositories (on): everything above that adds, archives and closes.
 - Add repositories (add_repos): above.
@@ -98,7 +104,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.issues_api import AUTO_REMOVE_FILE, AUTO_REMOVE_OFF, AUTOMATION_VERSION, auto_remove_issues
+from backend.issues_api import AUTO_REMOVE_FILE, AUTO_REMOVE_OFF, AUTOMATION_VERSION, REPO_COLUMNS, auto_remove_issues
 from backend.repo_automation_api import DEFAULTS, SETTINGS_FILE
 from backend.shared import agents, explore, github_account, inbox, issues, jobs, pr_tracking, repo_signals, repos
 from github_searcher.explore import MIN_CLOSED_PRS, MIN_CONTRIBUTORS, MIN_OPEN_ISSUES, MIN_STARS
@@ -133,6 +139,7 @@ SETTINGS = {
     "max_open_per_repo": None,
     "min_stars": None,
     "ai_policies": list(POLICY_ORDER),
+    "take_from": {column: True for column in REPO_COLUMNS},
 }
 EMPTY = {"on": False, "active_repos": MAX_ACTIVE, "take_new": True, "rules": RULES, "new_repos": AUTO_SETTINGS, "archived": {}, "closed": [], "run": None, "log": [], "labels": {}, **SETTINGS}
 
@@ -156,6 +163,11 @@ class AutomationRequest(BaseModel):
     max_agents: int
     min_stars: int | None
     ai_policies: list[str]
+
+
+class TakeFromRequest(BaseModel):
+    column: str
+    on: bool
 
 
 def summary() -> dict:
@@ -203,6 +215,17 @@ async def put_automation(body: AutomationRequest) -> dict:
         board.update(json.loads(AUTO_REMOVE_FILE.read_text()))
     board["max_agents"] = body.max_agents
     AUTO_REMOVE_FILE.write_text(json.dumps(board, indent=2))
+    AUTOMATION_VERSION["version"] += 1
+    return summary()
+
+
+@router.put("/automation/take_from")
+async def put_take_from(body: TakeFromRequest) -> dict:
+    """A column's switch on the Repositories page: whether agents take new issues of its repos."""
+    if body.column not in REPO_COLUMNS:
+        raise HTTPException(status_code=400, detail=f"The columns are {', '.join(REPO_COLUMNS)}.")
+    automation["take_from"][body.column] = body.on
+    AUTOMATION_FILE.write_text(json.dumps(automation, indent=2))
     AUTOMATION_VERSION["version"] += 1
     return summary()
 
