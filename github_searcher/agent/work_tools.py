@@ -3936,6 +3936,53 @@ class WorkTools:
         # A desktop it asked for that was taken away (its notes may still name it): another one, with the project set up
         # there again. Not one the app took back from it in a full VM: it waits in line for that one.
         wanted = args.get("desktop") or None
+
+        # Its target VM is gone, off, full or has every desktop taken at its max, and nothing of its jobs is set up there
+        # (no agent's note there names one of their repos): it goes to a running VM with a desktop free and nobody
+        # waiting, since it sets its project up from nothing either way. Not when it asked for a desktop (its project is
+        # there), or already waits or holds one.
+        moved = ""
+        queued_vm, place = self.agents.queue.place(self.agent_id)
+        target = None
+        for each in self.agents.vms.list():
+            if each.name == vm_name:
+                target = each
+        why = "it is gone"
+        set_up = False
+        if target is not None:
+            free = [number for number, line in target.desktops.items() if line["holder"] is None]
+            why = ""
+            if not free and len(target.desktops) >= target.max_desktops:
+                why = "every desktop is taken"
+            if vm_name in self.agents.queue.full:
+                why = f"it is full: {self.agents.queue.full[vm_name]}"
+            if target.status != "running":
+                why = f"it is {target.status}"
+            repos = set(job["repo"].lower() for job in self.agents.jobs.for_agent(self.agent_id) if job["status"] in OPEN_STATUSES and job["repo"])
+            for note in target.notes:
+                named = set(name.rstrip(".") for name in re.findall(r"[\w.-]+/[\w.-]+", note["text"].lower()))
+                if note["by"] != "user" and named & repos:
+                    set_up = True
+        other = None
+        if wanted is None and place is None and why and not set_up:
+            for each in self.agents.vms.list():
+                free = [number for number, line in each.desktops.items() if line["holder"] is None]
+                if each.name == FIX_VM or each.name == vm_name:
+                    continue
+                if other is None and each.status == "running" and each.name not in self.agents.queue.full and not each.queue and free:
+                    other = each
+        if other is not None:
+            try:
+                self.agents.set_target_vm(self.agent_id, other.name, by_agent=True)
+            except (ValueError, VMsError) as error:
+                return {"content": [{"type": "text", "text": str(error)}], "is_error": True}
+            moved = (
+                f"Your target VM {vm_name} had no desktop for you ({why}) and nothing of your jobs is set up there, so the app "
+                f"moved you to {other.name}, which had one free; your open jobs moved with you. If {other.name} lacks what a "
+                "job needs, release_vm and pick another with choose_vm.\n"
+            )
+            vm_name = other.name
+
         try:
             vm_record = self.agents.vms.get(vm_name)
         except VMsError:
@@ -3967,7 +4014,7 @@ class WorkTools:
                 pass
         if place > 0:
             which = f"desktop {desktop}" if desktop is not None else "the first desktop that frees up"
-            text = f"You are number {place} in {vm_name}'s queue, for {which}. End your turn; you'll get a message when it's yours."
+            text = moved + f"You are number {place} in {vm_name}'s queue, for {which}. End your turn; you'll get a message when it's yours."
             if vm_name in self.agents.queue.full:
                 text += f" {vm_name} is full right now ({self.agents.queue.full.get(vm_name)}): nobody new gets a desktop until there is room."
             if following:
@@ -3975,7 +4022,7 @@ class WorkTools:
             return {"content": [{"type": "text", "text": text}]}
         jobs = [job for job in self.agents.jobs.for_agent(self.agent_id) if job["status"] in OPEN_STATUSES and job["vm"] == vm_name]
         titles = ", ".join(f"{job['id']} ({job['title']})" for job in jobs) or "none"
-        text = f"Desktop {desktop} of {vm_name} is yours now. Your open jobs for it: {titles}. Do them all, then release_vm."
+        text = moved + f"Desktop {desktop} of {vm_name} is yours now. Your open jobs for it: {titles}. Do them all, then release_vm."
         if vm_record.status != "running":
             text += f" {vm_name} is {vm_record.status}: start it with vm_start."
         # Commits are made as the user, the way they go out (github_account.py), as Agents.on_grant says when the VM comes

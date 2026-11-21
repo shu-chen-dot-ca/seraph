@@ -59,6 +59,10 @@ disk). Full (the load of the last minute at its number of CPUs or more, less tha
 or less than ROOM_DISK_GB of its disk free), it takes nobody new (VMQueue.full, with why): agents wait in its line instead
 of getting a free desktop or adding one, and are told why. When its disk runs low, the agents holding its desktops are
 told once to free what they can in their own homes (the folders of jobs that are over, caches); nobody else can.
+An agent is never stuck on one VM: one waiting in a VM's line for any desktop, with nothing of its jobs set up there,
+goes to another running VM with a desktop free and nobody waiting (watch_room; queue_for_vm does the same when it
+queues for a VM that is off, gone, full or has every desktop taken). One whose project is set up there stays: setting it
+up again costs downloads and builds.
 Overloaded (the load of the last 5 minutes at OVERLOAD_TIMES its CPUs, or less than OVERLOAD_MEMORY_PERCENT free), it
 also takes one desktop back from its agent, at most every STEP_DOWN_SECONDS, and removes that desktop
 (VMQueue.step_down): the agent goes to the front of the line asking for it (behind the work that goes first, below),
@@ -2036,6 +2040,45 @@ class Agents:
                 except VMsError:
                     # The VM is busy: the desktop stays, free, until its agent gets it back.
                     pass
+
+            # An agent waiting in a VM's line for any desktop, with nothing of its jobs set up there (no agent's note there
+            # names one of their repos), goes to another running VM with a desktop free and nobody waiting: it sets its
+            # project up from nothing either way. One that asked for a desktop (its project is there) waits for it.
+            for vm_record in self.vms.list():
+                named = set()
+                for note in vm_record.notes:
+                    if note["by"] != "user":
+                        named.update(name.rstrip(".") for name in re.findall(r"[\w.-]+/[\w.-]+", note["text"].lower()))
+                for agent_id in list(vm_record.queue):
+                    if agent_id not in self.agents or agent_id in vm_record.wants:
+                        continue
+                    repos = set(job["repo"].lower() for job in self.jobs.for_agent(agent_id) if job["status"] in OPEN_STATUSES and job["repo"])
+                    if named & repos:
+                        continue
+                    other = None
+                    for each in self.vms.list():
+                        free = [number for number, line in each.desktops.items() if line["holder"] is None]
+                        if each.name == FIX_VM or each.name == vm_record.name:
+                            continue
+                        if other is None and each.status == "running" and each.name not in self.queue.full and not each.queue and free:
+                            other = each
+                    if other is None:
+                        continue
+                    self.queue.leave_all(agent_id)
+                    try:
+                        self.set_target_vm(agent_id, other.name, by_agent=True)
+                        place = self.queue.join(other.name, agent_id)
+                    except (ValueError, VMsError):
+                        continue
+                    self.notify(
+                        agent_id,
+                        f"You waited in {vm_record.name}'s queue and nothing of your jobs is set up there, so the app moved you "
+                        f"to {other.name}, which had a desktop free. Your target VM is {other.name} now and your open jobs moved "
+                        "with it.",
+                    )
+                    # A desktop given right in join isn't reported by the queue: its message comes from here.
+                    if place == 0:
+                        self.on_grant(other.name, agent_id)
 
     async def watch_runs(self) -> None:
         """Every RUN_CHECK_SECONDS: the runs no tool call waits for. One that ended goes to its agent (run_ended).
