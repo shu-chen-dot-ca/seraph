@@ -21,11 +21,10 @@ In every column an owner's repos are together, where its first one comes (in Cat
 Every repo with a pull request of yours has a card, also one that isn't in the Repos list (a PR you opened by hand, a
 repo taken out of the list): made from its pull requests, so it goes to its column like any other (only closed ones:
 Removed). Its stars aren't known (–), and its ⋯ has only the moves (none in Catalog or Removed: no ⋯ there).
-A card: the owner's picture as its logo, owner/name, and under it in GitHub's colors: its stars (yellow), then of your
-pull requests there how many it merged (purple), closed without a merge (red) and are still open (green). Gray instead:
-a closed count of 0, and outside Contributed the stars and every count of 0. Last, only when there are any, the issues
-in progress there (yellow, a draft PR icon): fix_issue jobs still open with no pull request on GitHub yet, as the Pull
-requests page's In progress has them (from the live "jobs" topic).
+A card: the owner's picture as its logo, owner/name, and under it in color: its stars (yellow), then of your pull
+requests there how many it merged (purple), closed without a merge (red) and are still open (green), then the issues in
+progress there (yellow, a draft PR icon: fix_issue jobs still open with no pull request on GitHub yet, as the Pull
+requests page's In progress has them, from the live "jobs" topic); a count of 0 isn't shown.
 A click on a card's owner/name (the text itself, with no tooltip) opens the repo on GitHub in a new tab; elsewhere on a
 card it does nothing yet. A card has a ⋯, whose menu opens when the mouse is on it (a tap or click on a phone): Move to
 Contributed in Prioritized and back; in Catalog Add to Target, in Target Remove from Target; and outside Removed Delete, or Add to Removed for a repo
@@ -446,22 +445,28 @@ export default function RepositoryCards(props: { state: string }) {
                             </a>
                           </div>
                           <div className="flex items-center gap-2.5 text-xs text-muted-foreground tabular-nums">
-                            <span className={cn("flex items-center gap-0.5", column.contributed && "text-yellow-600 dark:text-yellow-400")} title="Stars">
+                            <span className="flex items-center gap-0.5 text-yellow-600 dark:text-yellow-400" title="Stars">
                               <Star className="size-3" />
                               {card.listed ? card.repo.stars.toLocaleString("en", { notation: "compact" }) : "–"}
                             </span>
-                            <span className={cn("flex items-center gap-0.5", card.merged > 0 && "text-violet-500")} title="Your PRs merged">
-                              <GitMerge className="size-3" />
-                              {card.merged}
-                            </span>
-                            <span className={cn("flex items-center gap-0.5", card.closed > 0 && "text-destructive")} title="Your PRs closed without a merge">
-                              <GitPullRequestClosed className="size-3" />
-                              {card.closed}
-                            </span>
-                            <span className={cn("flex items-center gap-0.5", (column.contributed || card.open > 0) && "text-ok")} title="Your open PRs">
-                              <GitPullRequest className="size-3" />
-                              {card.open}
-                            </span>
+                            {card.merged > 0 && (
+                              <span className="flex items-center gap-0.5 text-violet-500" title="Your PRs merged">
+                                <GitMerge className="size-3" />
+                                {card.merged}
+                              </span>
+                            )}
+                            {card.closed > 0 && (
+                              <span className="flex items-center gap-0.5 text-destructive" title="Your PRs closed without a merge">
+                                <GitPullRequestClosed className="size-3" />
+                                {card.closed}
+                              </span>
+                            )}
+                            {card.open > 0 && (
+                              <span className="flex items-center gap-0.5 text-ok" title="Your open PRs">
+                                <GitPullRequest className="size-3" />
+                                {card.open}
+                              </span>
+                            )}
                             {card.working > 0 && (
                               <span className="flex items-center gap-0.5 text-yellow-600 dark:text-yellow-400" title="In progress">
                                 <GitPullRequestDraft className="size-3" />
