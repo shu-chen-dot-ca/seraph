@@ -6,8 +6,8 @@ goes wrong. Nothing but the button starts a run. backend/problem_fixes_api.py ru
 
 A run:
 1. Its clone of the app's repo here (FIX_DIR, never your working copy) is made the same as main on GitHub, acting on
-   GitHub as you (your sign-in). It gets CI's .env (.env.example with DATA_DIR=data and a placeholder GITHUB_TOKEN, so
-   the tests never see a real token or your data) and its packages.
+   GitHub as you (your sign-in). It gets CI's .env (.env.example with DATA_DIR=data, so the tests never
+   see your data) and its packages.
 2. With open feedback, Seraph's VM is made the first time (from the default image, with the default CPUs, memory and
    disk and one desktop) or started. It gets that clone (a git bundle, with no remote: it can't push), the same .env, a
    copy of the data folder without the VMs and any secret (DATA_LEFT_OUT), and your Claude Code memory
@@ -108,10 +108,11 @@ LOCKED = [
     "github_searcher/crashes.py",
     "github_searcher/secret_vault.py",
 ]
-# Left out of the data folder's copy in the VM: the VMs, every secret (your sign-in, the sign-in app, where the vault
-# is) and the agents' homes.
+# Left out of the data folder's copy in the VM: the VMs, every secret (the tokens, your sign-in, the sign-in app, where
+# the vault is) and the agents' homes.
 DATA_LEFT_OUT = [
     "vms",
+    "secrets.json",
     "secret_vault.json",
     "github_account.json",
     "github_app.json",
@@ -394,8 +395,8 @@ class ProblemFixes:
         token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN_VM", "").strip()
         if open_problems and token == "":
             raise FixError(
-                "Claude Code in Seraph's VM has no login: add CLAUDE_CODE_OAUTH_TOKEN_VM (a token from claude setup-token) "
-                "to the secret in AWS (Settings, Secrets), then restart the app."
+                "Claude Code in Seraph's VM has no login: add Claude Code token (Fix all), a token from claude setup-token, "
+                "in Settings → Secrets."
             )
         # git acts as you on github.com (the token goes in an environment variable, never in a command line or a file).
         basic = base64.b64encode(f"x-access-token:{account['token']}".encode()).decode()
@@ -422,8 +423,6 @@ class ProblemFixes:
                 raise FixError(f"{' '.join(command)} failed in the clone.", done.stdout + done.stderr)
         env_lines = []
         for line in (FIX_DIR / ".env.example").read_text().splitlines():
-            if line.startswith("GITHUB_TOKEN="):
-                line = "GITHUB_TOKEN=placeholder"
             if line.startswith("DATA_DIR="):
                 line = "DATA_DIR=data"
             env_lines.append(line)
