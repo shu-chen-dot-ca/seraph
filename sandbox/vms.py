@@ -1,7 +1,7 @@
 """All VMs: create, delete, rename, start, stop, their settings, and how much they use.
 
 A VM is a resource, not tied to a repo or an agent. Each one is an Incus VM named
-<SANDBOX_VM_PREFIX><name> (e.g. sandbox-vm1) plus a record on disk:
+<VM_PREFIX><name> (e.g. sandbox-vm1) plus a record on disk:
 
     DATA_DIR/vms/<name>.json   {"name", "incus_name", "image", "image_fingerprint", "cpus", "memory_gb",
                                 "disk_gb", "internet", "env", "secrets_in_vm", "autostart", "status",
@@ -95,7 +95,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from sandbox.vm import MAX_DESKTOPS, VM
+from sandbox.vm import MAX_DESKTOPS, PROFILE, VM
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # override: the backend reloads itself on code changes, and .env changes should apply then too.
@@ -103,21 +103,23 @@ load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 VMS_DIR = PROJECT_ROOT / os.environ["DATA_DIR"] / "vms"
 GLOBAL_ENV_PATH = PROJECT_ROOT / os.environ["DATA_DIR"] / "global_env.json"
-VM_PREFIX = os.environ["SANDBOX_VM_PREFIX"]
+# The update check's copy of the app sets check- in its .env (github_searcher/updates.py), so its VMs are apart.
+VM_PREFIX = os.environ.get("SANDBOX_VM_PREFIX", "sandbox-")
 # The VM that builds the image may have the same prefix but is not one of ours.
-BUILD_VM = os.environ["SANDBOX_BUILD_VM"]
-PROFILE = os.environ["SANDBOX_PROFILE"]
-OFFLINE_ACL = os.environ["SANDBOX_OFFLINE_ACL"]
-VM_ENV_FILE = os.environ["SANDBOX_VM_ENV_FILE"]
-CPUS_DEFAULT = int(os.environ["SANDBOX_CPUS_DEFAULT"])
-CPUS_ALLOWED = [int(cpus) for cpus in os.environ["SANDBOX_CPUS_ALLOWED"].split(",")]
-MEMORY_GB_DEFAULT = int(os.environ["SANDBOX_MEMORY_GB_DEFAULT"])
-MEMORY_GB_ALLOWED = [int(gb) for gb in os.environ["SANDBOX_MEMORY_GB_ALLOWED"].split(",")]
-DISK_GB_DEFAULT = int(os.environ["SANDBOX_DISK_GB_DEFAULT"])
-DISK_GB_MIN = int(os.environ["SANDBOX_DISK_GB_MIN"])
-DISK_GB_MAX = int(os.environ["SANDBOX_DISK_GB_MAX"])
-MAX_DESKTOPS_DEFAULT = int(os.environ["SANDBOX_MAX_DESKTOPS_DEFAULT"])
-MIN_FREE_RAM_GB = int(os.environ["SANDBOX_MIN_FREE_RAM_GB"])
+BUILD_VM = "session-image-build"
+OFFLINE_ACL = "sandbox-offline"
+VM_ENV_FILE = "/etc/profile.d/sandbox-env.sh"
+# A new VM's size, what New VM offers, and the memory this computer always keeps free.
+CPUS_DEFAULT = 8
+CPUS_ALLOWED = [2, 4, 8, 12, 16]
+MEMORY_GB_DEFAULT = 8
+MEMORY_GB_ALLOWED = [4, 8, 16, 32, 40, 48]
+DISK_GB_DEFAULT = 128
+# The image's own disk is 48GB (image_build.py BUILD_DISK), so less won't fit.
+DISK_GB_MIN = 48
+DISK_GB_MAX = 512
+MAX_DESKTOPS_DEFAULT = 5
+MIN_FREE_RAM_GB = 8
 NAME_PATTERN = r"[a-z][a-z0-9-]{0,30}"
 # Seraph's own VM, where Fix all on the Feedback page fixes the app (github_searcher/problem_fixes.py makes it the first
 # time). Agents never get it (agents.py set_target_vm), and it can't be renamed or deleted (backend/vms_api.py).

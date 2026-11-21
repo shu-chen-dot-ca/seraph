@@ -62,7 +62,7 @@ FIND_LIMIT = 80
 OUTPUT_LIMIT = 20_000
 # The throwaway VM of image <name>, for trying things. Not named like the app's VMs, so the VM list never picks it up.
 TRY_PREFIX = "image-try-"
-SETTINGS_TEXT = ", ".join(f"{key} (now {os.environ[key]})" for key in image_build.SCRIPT_SETTINGS)
+SETTINGS_TEXT = ", ".join(f"{key} (now {value})" for key, value in image_build.SCRIPT_SETTINGS.items())
 SYSTEMS_TEXT = "; ".join(f"{system['id']} ({', '.join(system['sources'])})" for system in image_build.SYSTEMS)
 
 PROMPT = f"""You look after one VM image, {{name}}, in an app where AI agents work on GitHub issues inside VMs made from

@@ -23,7 +23,7 @@ How images come and change. Builds, saves and inspects run in the background, as
   what changed since the last build runs again: its builder VM keeps snapshots between builds. The new build
   replaces the image; VMs made from the old one keep their own disk. Before it starts, image.yaml is checked
   online (image_build.check_definition): a Docker image that can't be pulled stops it right away. Several images build at once, each in its own
-  builder VM, as long as memory allows (each takes SANDBOX_BUILD_MEMORY; MIN_FREE_RAM_GB stays free).
+  builder VM, as long as memory allows (each takes image_build.py's BUILD_MEMORY; MIN_FREE_RAM_GB stays free).
 - The user changes image.yaml in Details > Definition, or asks the image's agent to. Every change is checked first
   (image_build.check_definition). Nothing changes in the image until it is rebuilt: definition_changed (in the live
   feed) says image.yaml differs from what the image was built from, and the Images tab shows a dot. Changing the
@@ -45,7 +45,7 @@ backend restart (it reloads on code changes) doesn't stop it: the task is follow
 a time per image. Tasks that worked are dropped once the image shows up; failed ones stay until the user dismisses
 them.
 
-The default image (what New VM picks first) is saved in DATA_DIR/images/settings.json. Until one is picked the default is SANDBOX_IMAGE from .env. Deleting the default
+The default image (what New VM picks first) is saved in DATA_DIR/images/settings.json. Until one is picked the default is DEFAULT_IMAGE. Deleting the default
 leaves no default ("") until the user makes another one the default.
 
 Images.version goes up on every change, so the live feed (backend /api/live) sends the list again.
@@ -69,14 +69,14 @@ from dotenv import load_dotenv
 
 from sandbox import image_build
 from sandbox.vm import VM
-from sandbox.vms import VMs, VMsError
+from sandbox.vms import MIN_FREE_RAM_GB, VMs, VMsError
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # override: the backend reloads itself on code changes, and .env changes should apply then too.
 load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 IMAGES_DIR = PROJECT_ROOT / os.environ["DATA_DIR"] / "images"
-DEFAULT_IMAGE = os.environ["SANDBOX_IMAGE"]
+DEFAULT_IMAGE = "base-image"
 INSPECT_SCRIPT = PROJECT_ROOT / "sandbox" / "image" / "inspect.sh"
 INVENTORY_DIR = IMAGES_DIR / "inventory"
 DEFINITIONS_DIR = IMAGES_DIR / "definitions"
@@ -84,9 +84,8 @@ DEFINITIONS_DIR = IMAGES_DIR / "definitions"
 DESKTOPS = list(image_build.DESKTOPS.values())
 # Capitals too. Two names that differ only in case are the same name (name_taken): they would be mixed up.
 NAME_PATTERN = r"[A-Za-z][A-Za-z0-9-]{0,40}"
-# Each build's VM takes this much memory (GiB), and this much must stay free for this machine (as for VMs).
-BUILD_MEMORY_GB = int(os.environ["SANDBOX_BUILD_MEMORY"].removesuffix("GiB"))
-MIN_FREE_RAM_GB = int(os.environ["SANDBOX_MIN_FREE_RAM_GB"])
+# Each build's VM takes this much memory (GiB), and MIN_FREE_RAM_GB must stay free for this machine (as for VMs).
+BUILD_MEMORY_GB = int(image_build.BUILD_MEMORY.removesuffix("GiB"))
 # Tasks are checked this often; Incus's image list is read again every REFRESH_SECONDS.
 CHECK_SECONDS = 2
 REFRESH_SECONDS = 10

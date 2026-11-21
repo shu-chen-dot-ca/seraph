@@ -7,9 +7,9 @@ An image is defined by one file, image.yaml (see images.py), for example:
     description: Rust and Go    # optional: what the image is for and needs, in plain words (no build effect)
     packages: [git, ripgrep]    # the system's own packages (apt on Ubuntu and Debian, dnf on Fedora); may be split
                                 # into apt: and dnf: lists, and the build takes the system's
-    python:                     # Python, uv and the shared venv SANDBOX_VM_PY_VENV
+    python:                     # Python, uv and the shared venv PY_VENV
       packages: [pydantic]
-    node:                       # Node.js from nodejs.org, its major version (SANDBOX_VM_NODE_MAJOR when left out)
+    node:                       # Node.js from nodejs.org, its major version (NODE_MAJOR when left out)
       version: 24
       packages: [pnpm, yarn]    # global npm packages
     docker:                     # Docker with Compose, from Docker's own repository
@@ -71,7 +71,7 @@ import yaml
 from dotenv import load_dotenv
 
 from sandbox.agent.computer_use import Computer
-from sandbox.vm import NO_DESKTOP_FILE, VM, VMError
+from sandbox.vm import NO_DESKTOP_FILE, NOVNC_PORT, PROFILE, TERMINAL_PORT, VM, VMError, VNC_PORT
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # override: the backend reloads itself on code changes, and .env changes should apply then too.
@@ -81,7 +81,7 @@ BASE_LAYER = PROJECT_ROOT / "sandbox" / "image" / "base_layer.sh"
 BUILT_DIR = PROJECT_ROOT / os.environ["DATA_DIR"] / "images" / "built"
 # What every new image.yaml starts as (without system and desktop): the user's, built in the Defaults tab.
 DEFAULTS_FILE = PROJECT_ROOT / os.environ["DATA_DIR"] / "images" / "defaults.yaml"
-# The builder VM of image <name> is BUILDER_PREFIX + name. Not named like the app's VMs (SANDBOX_VM_PREFIX), so the
+# The builder VM of image <name> is BUILDER_PREFIX + name. Not named like the app's VMs (sandbox/vms.py VM_PREFIX), so the
 # VM list never picks it up.
 BUILDER_PREFIX = "image-build-"
 
@@ -101,28 +101,25 @@ SYSTEMS = [
 KEYS = ["system", "desktop", "description", "packages", "python", "node", "docker", "steps"]
 # The defaults have the same keys, without the ones only an image has.
 DEFAULTS_KEYS = ["packages", "python", "node", "docker", "steps"]
-NODE_MAJOR = int(os.environ["SANDBOX_VM_NODE_MAJOR"])
+NODE_MAJOR = 24
 # The builder VM.
-PROFILE = os.environ["SANDBOX_PROFILE"]
-BUILD_CPUS = os.environ["SANDBOX_BUILD_CPUS"]
-BUILD_MEMORY = os.environ["SANDBOX_BUILD_MEMORY"]
-BUILD_DISK = os.environ["SANDBOX_BUILD_DISK"]
+BUILD_CPUS = 8
+BUILD_MEMORY = "8GiB"
+BUILD_DISK = "48GiB"
+DEMO_DIR = "/opt/demo"
+PY_VENV = "/opt/py"
 # What every stage's scripts get in their environment, so they use the app's ports and paths instead of writing them out.
-SCRIPT_SETTINGS = [
-    "SANDBOX_VM_FALLBACK_USER",
-    "SANDBOX_VM_VNC_PORT",
-    "SANDBOX_VM_NOVNC_PORT",
-    "SANDBOX_VM_TERMINAL_PORT",
-    "SANDBOX_VM_DEMO_DIR",
-    "SANDBOX_VM_PY_VENV",
-    "SANDBOX_VM_PLAYWRIGHT_DIR",
-    "SANDBOX_VM_RUST_DIR",
-]
-VNC_PORT = os.environ["SANDBOX_VM_VNC_PORT"]
-NOVNC_PORT = os.environ["SANDBOX_VM_NOVNC_PORT"]
-TERMINAL_PORT = os.environ["SANDBOX_VM_TERMINAL_PORT"]
-DEMO_DIR = os.environ["SANDBOX_VM_DEMO_DIR"]
-PY_VENV = os.environ["SANDBOX_VM_PY_VENV"]
+# The values are part of every build's cache key: a change rebuilds the images from the start.
+SCRIPT_SETTINGS = {
+    "SANDBOX_VM_FALLBACK_USER": "dev",
+    "SANDBOX_VM_VNC_PORT": str(VNC_PORT),
+    "SANDBOX_VM_NOVNC_PORT": str(NOVNC_PORT),
+    "SANDBOX_VM_TERMINAL_PORT": str(TERMINAL_PORT),
+    "SANDBOX_VM_DEMO_DIR": DEMO_DIR,
+    "SANDBOX_VM_PY_VENV": PY_VENV,
+    "SANDBOX_VM_PLAYWRIGHT_DIR": "/opt/playwright",
+    "SANDBOX_VM_RUST_DIR": "/opt/rust",
+}
 # Each script (the base layer, a step, a list) may run this long. Builds are meant to take minutes, not hours.
 SCRIPT_TIMEOUT = 1800
 # What a registry may answer for an image's manifest (one platform or several).
@@ -435,7 +432,7 @@ def run_script(vm: VM, script: str, family: str, desktop: str) -> int:
     """Run one stage's script as root in the VM, with SCRIPT_SETTINGS (and the system's family and desktop) in its
     environment. Its output goes to this process's output (the task's log). Its exit code. Raises TimeoutExpired."""
     vm.write_file("/root/build-step.sh", SCRIPT_HEADER + script, "0755")
-    settings = [f"{key}={shlex.quote(os.environ[key])}" for key in SCRIPT_SETTINGS]
+    settings = [f"{key}={shlex.quote(value)}" for key, value in SCRIPT_SETTINGS.items()]
     settings += [f"SANDBOX_FAMILY={family}", f"SANDBOX_DESKTOP={desktop}", f"SANDBOX_NO_DESKTOP_FILE={NO_DESKTOP_FILE}"]
     command = ["incus", "exec", vm.name, "--", "bash", "-c", f"cd /root && env {' '.join(settings)} bash /root/build-step.sh"]
     result = subprocess.run(command, stdout=sys.stdout, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, timeout=SCRIPT_TIMEOUT)
@@ -526,7 +523,7 @@ def main() -> None:
     system = [system for system in SYSTEMS if system["id"] == definition["system"]][0]
     source = system["sources"][definition["desktop"]]
     scripts = stages(definition)
-    settings = [os.environ[key] for key in SCRIPT_SETTINGS]
+    settings = list(SCRIPT_SETTINGS.values())
     key_a = hashlib.sha256(json.dumps([source, definition["desktop"], settings, scripts[0]]).encode()).hexdigest()[:16]
     key_b = hashlib.sha256(json.dumps([key_a, scripts[1]]).encode()).hexdigest()[:16]
     snapshot_names = [f"a-{key_a}", f"b-{key_b}", None]

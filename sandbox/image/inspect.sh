@@ -10,14 +10,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# Read only the SANDBOX_* lines of .env, never the rest of it.
-source <(grep -E '^SANDBOX_[A-Z_]+=' ../../.env)
-
 IMAGE=$1
 OUT_DIR=$2
 FINGERPRINT=$(incus query "/1.0/images/aliases/$IMAGE" | python3 -c 'import json, sys; print(json.load(sys.stdin)["target"])')
 CREATED=$(incus query "/1.0/images/$FINGERPRINT" | python3 -c 'import json, sys; print(json.load(sys.stdin)["created_at"])')
-# Not named like the app's VMs (SANDBOX_VM_PREFIX), so the VM list never picks it up.
+# Not named like the app's VMs (sandbox/vms.py VM_PREFIX), so the VM list never picks it up.
 VM="image-inspect-${FINGERPRINT:0:12}"
 
 # Whatever happens, don't leave the throwaway VM behind.
@@ -25,10 +22,10 @@ trap 'incus delete --force "$VM" >/dev/null 2>&1 || true' EXIT
 
 echo "==> Starting a throwaway VM from $IMAGE"
 incus delete --force "$VM" >/dev/null 2>&1 || true
-incus launch "$FINGERPRINT" "$VM" --vm --profile "$SANDBOX_PROFILE" \
+incus launch "$FINGERPRINT" "$VM" --vm --profile sandbox \
     --config limits.cpu=2 \
     --config limits.memory=4GiB \
-    --device root,size="${SANDBOX_DISK_GB_MIN}GiB"
+    --device root,size=48GiB
 
 echo "==> Waiting for it"
 for i in $(seq 180); do

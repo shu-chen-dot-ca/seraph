@@ -23,13 +23,10 @@ left going in the VM (sandbox/agent/long_runs.py); its agent is told the user st
 """
 
 import asyncio
-import os
 import subprocess
-from pathlib import Path
 from urllib.parse import urlsplit
 
 import websockets
-from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, Response, WebSocket
 from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect, WebSocketState
@@ -41,13 +38,9 @@ from sandbox.agent import long_runs
 from sandbox.agent.computer_use import Computer, ComputerError
 from sandbox.file_transfer import FileTransferError
 from sandbox.images import ImagesError
-from sandbox.vm import VMError
+from sandbox.vm import NOVNC_PORT, TERMINAL_PORT, VMError
 from sandbox.vms import FIX_VM, MAX_DESKTOPS_DEFAULT, VMRecord, VMsError
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
-
-NOVNC_PORT = os.environ["SANDBOX_VM_NOVNC_PORT"]
-TERMINAL_PORT = os.environ["SANDBOX_VM_TERMINAL_PORT"]
 # The hosts whose pages may open the VNC websocket, like backend/app.py's ALLOWED_HOSTS.
 ALLOWED_HOSTS = ["localhost", "127.0.0.1"] + ([REMOTE_DOMAIN] if REMOTE_DOMAIN != "" else [])
 
@@ -100,7 +93,7 @@ class NoteRequest(BaseModel):
 
 @router.get("/vms/options")
 def vm_options() -> dict:
-    """CPU, memory, disk and max desktops choices for the New VM dialog (from .env), and the first free name."""
+    """CPU, memory, disk and max desktops choices for the New VM dialog (sandbox/vms.py), and the first free name."""
     return vms.options()
 
 

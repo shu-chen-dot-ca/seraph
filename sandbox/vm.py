@@ -33,15 +33,12 @@ import time
 import urllib.request
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-# override: the backend reloads itself on code changes, and .env changes should apply then too.
-load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
-
-NETWORK = os.environ["SANDBOX_NETWORK"]
-NOVNC_PORT = int(os.environ["SANDBOX_VM_NOVNC_PORT"])
-VNC_PORT = int(os.environ["SANDBOX_VM_VNC_PORT"])
-TERMINAL_PORT = int(os.environ["SANDBOX_VM_TERMINAL_PORT"])
+# The Incus bridge and profile every VM uses (docs/setup.md).
+NETWORK = "sandboxbr0"
+PROFILE = "sandbox"
+NOVNC_PORT = 6080
+VNC_PORT = 5900
+TERMINAL_PORT = 7681
 # In an image without a desktop (terminal only): no noVNC or VNC server, its terminals (ttyd) are the way in.
 NO_DESKTOP_FILE = "/etc/sandbox-no-desktop"
 # A VM whose agent doesn't answer this long after it was started hung while booting (wait_agent).
