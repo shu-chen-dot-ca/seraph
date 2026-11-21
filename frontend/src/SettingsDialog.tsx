@@ -1,8 +1,8 @@
 /*
 The Settings dialog, opened from the bottom of the left list (Sidebar.tsx), or on its Account section from the header's
 Sign in or your GitHub picture (App.tsx): the theme (Light, Dark or System), the accent color, Reset view, Account
-(Account.tsx: your GitHub account, Sign in and Sign out), the env vars for all VMs, Secrets (Secrets.tsx: on this computer
-or in AWS Secrets Manager), then About (About.tsx: the version that runs, Check for updates and Previous version).
+(Account.tsx: your GitHub account, Sign in and Sign out), the env vars for all VMs, Secrets (Secrets.tsx: the GitHub and
+Claude Code tokens, on this computer or in AWS Secrets Manager), then About (About.tsx: the version that runs, Check for updates and Previous version).
 section "account" scrolls the dialog to Account when it opens.
 
 Reset view puts every panel and fold back to its default: it reloads the page (App's resetView). Theme, accent and the
