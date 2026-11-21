@@ -17,8 +17,7 @@ the same as on a computer.
 
 The page lives in the URL hash, so refresh and back/forward work and switching pages never reloads:
   #/ (Dashboard.tsx)
-  #/pulls (PullRequests.tsx; takes state=progress|open|merged|closed)
-  #/repos (RepositoryCards.tsx)
+  #/repos (RepositoryCards.tsx; takes state=progress|open|merged|closed for the pull requests' tabs, PullRequests.tsx)
   #/blockers (Blockers.tsx)
   #/automation (Automation.tsx)
   #/feedback (Feedback.tsx; takes state=open|closed)
@@ -40,7 +39,6 @@ import Automation from "@/Automation";
 import Blockers from "@/Blockers";
 import Dashboard from "@/Dashboard";
 import Feedback from "@/Feedback";
-import PullRequests from "@/PullRequests";
 import RepositoryCards from "@/RepositoryCards";
 import SettingsDialog, { type ThemeMode } from "@/SettingsDialog";
 import Sidebar from "@/Sidebar";
@@ -54,11 +52,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { api, useConnected, useLive, useLiveValue, useLoaded, type GithubAccountStatus } from "@/live";
 import { cn } from "@/lib/utils";
 
-const PAGES = ["pulls", "repos", "blockers", "automation", "feedback", "vms", "agents"];
+const PAGES = ["repos", "blockers", "automation", "feedback", "vms", "agents"];
 // The open page's name in phone mode's header, where there is no left list to show it.
 const PAGE_NAMES: Record<string, string> = {
   dashboard: "Dashboard",
-  pulls: "Pull requests",
   repos: "Repositories",
   blockers: "Blockers",
   vms: "Virtual machines",
@@ -304,8 +301,7 @@ export default function App() {
           </div>
           <main className="relative min-w-0 flex-1 overflow-hidden">
             {page === "dashboard" && <Dashboard />}
-            {page === "pulls" && <PullRequests state={query.get("state") ?? "open"} />}
-            {page === "repos" && <RepositoryCards />}
+            {page === "repos" && <RepositoryCards state={query.get("state") ?? ""} />}
             {page === "blockers" && <Blockers />}
             {page === "automation" && <Automation />}
             {page === "feedback" && <Feedback state={query.get("state") ?? "open"} />}

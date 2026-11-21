@@ -1,7 +1,9 @@
 /*
-The Repositories page (#/repos): the repos in the repo list (repo_list.py) as cards, in four columns side by side,
-each a list from top to bottom that scrolls on its own (on a narrow window the columns keep their width and the page
-scrolls sideways):
+The Repositories page (#/repos). On top, its tabs, each with its count: Repositories (the cards below), then your pull
+requests' In progress, Open, Merged and Closed (#/repos?state=progress|open|merged|closed), which show those tables
+instead (PullRequests.tsx, under these same tabs).
+Repositories: the repos in the repo list (repo_list.py) as cards, in four columns side by side, each a list from top to
+bottom that scrolls on its own (on a narrow window the columns keep their width and the page scrolls sideways):
 - Contributed: repos that merged a pull request of yours. By stars, most first, or by the pick in the column's sort
   menu (Sort by stars, merged PRs, open PRs, closed PRs or in-progress PRs, always the most first; then by stars).
 - Planned: repos you want to contribute to, none of yours merged yet: the ones you picked (Add to Planned, kept in the
@@ -38,12 +40,21 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import PullRequests from "@/PullRequests";
 import { api, useLive, useLoaded } from "@/live";
 import { cn } from "@/lib/utils";
 
 type Sort = "stars" | "merged" | "open" | "closed" | "working";
 
 const OPEN_JOB = ["queued", "working", "waiting_on_user", "waiting_on_maintainers"];
+// The page's tabs: the cards (state "") and the pull requests' tables.
+const TABS = [
+  { state: "", title: "Repositories" },
+  { state: "progress", title: "In progress" },
+  { state: "open", title: "Open" },
+  { state: "merged", title: "Merged" },
+  { state: "closed", title: "Closed" },
+];
 
 // The Contributed column's sort menu.
 const SORT_TITLE: Record<Sort, string> = {
@@ -54,7 +65,7 @@ const SORT_TITLE: Record<Sort, string> = {
   working: "Sort by in-progress PRs",
 };
 
-export default function RepositoryCards() {
+export default function RepositoryCards(props: { state: string }) {
   const repos = useLive("repos");
   const prs = useLive("prs");
   const jobs = useLive("jobs");
@@ -85,13 +96,15 @@ export default function RepositoryCards() {
     }
   }
 
-  // The issues in progress in each repo: fix_issue jobs still open with no pull request yet.
+  // The issues in progress, in all and in each repo: fix_issue jobs still open with no pull request yet.
   const prJobs = prs.items.filter((pr) => pr.relation === "author").map((pr) => pr.job);
   const working: Record<string, number> = {};
+  let inProgress = 0;
   for (const job of jobs) {
     if (job.kind !== "fix_issue" || !OPEN_JOB.includes(job.status) || prJobs.includes(job.id)) {
       continue;
     }
+    inProgress += 1;
     if (job.repo === null) {
       continue;
     }
@@ -161,6 +174,31 @@ export default function RepositoryCards() {
     { title: "Removed", contributed: false, removed: true, cards: removed },
   ];
 
+  // The tabs, each with its count. Like the header's tabs (App.tsx): quiet until hovered; the open one in full color
+  // with the accent under it.
+  const state = TABS.some((each) => each.state === props.state) ? props.state : "";
+  const mine = prs.items.filter((pr) => pr.relation === "author");
+  const counts: Record<string, number> = {
+    "": shown.length,
+    progress: inProgress,
+    open: mine.filter((pr) => pr.state === "open").length,
+    merged: mine.filter((pr) => pr.state === "merged").length,
+    closed: mine.filter((pr) => pr.state === "closed").length,
+  };
+  const tab = "relative flex h-full items-center gap-1.5 px-2 font-medium whitespace-nowrap text-muted-foreground hover:text-foreground";
+  const currentTab = "text-foreground after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-primary";
+  const tabs = TABS.map((each) => (
+    <a
+      key={each.state}
+      href={each.state === "" ? "#/repos" : `#/repos?state=${each.state}`}
+      aria-current={each.state === state ? "page" : undefined}
+      className={cn(tab, each.state === state && currentTab)}
+    >
+      {each.title}
+      <span className="text-muted-foreground tabular-nums">{counts[each.state]}</span>
+    </a>
+  ));
+
   async function plan(name: string, value: boolean) {
     try {
       await api("/api/repos/plan", { method: "POST", body: { names: [name], planned: value } });
@@ -179,11 +217,13 @@ export default function RepositoryCards() {
     }
   }
 
+  if (state !== "") {
+    return <PullRequests state={state} tabs={tabs} />;
+  }
+
   return (
     <div className="flex h-full flex-col">
-      <div className="flex min-h-9 shrink-0 items-center border-b px-3 py-1 text-muted-foreground tabular-nums">
-        {shown.length} {shown.length === 1 ? "repository" : "repositories"}
-      </div>
+      <div className="flex h-9 shrink-0 items-center border-b px-1">{tabs}</div>
 
       {loaded && shown.length === 0 && <div className="p-3 text-muted-foreground">No repositories yet.</div>}
       {shown.length > 0 && (

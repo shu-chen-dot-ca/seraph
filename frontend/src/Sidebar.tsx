@@ -1,8 +1,8 @@
 /*
 The left list (App.tsx): one place for the whole app. Every line is a link to a page; the open one is marked:
 - Dashboard (#/, Dashboard.tsx): numbers, limits, charts and tables.
-- Pull requests (#/pulls, PullRequests.tsx), with how many of yours are open.
-- Repositories (#/repos): the repositories as cards (RepositoryCards.tsx), with how many.
+- Repositories (#/repos): the repositories as cards and your pull requests (RepositoryCards.tsx), with how many
+  repositories.
 - Blockers (#/blockers, Blockers.tsx), with how many wait for you.
 - Virtual machines: the VMs page (#/vms) and one child per VM (#/vms/<name>), which folds.
 - Automation (#/automation, Automation.tsx).
@@ -10,7 +10,7 @@ Feedback (#/feedback, Feedback.tsx), with how many are open, and Settings stay p
 SettingsDialog, which App owns.
 */
 
-import { BookMarked, ChevronRight, Gauge, GitPullRequest, LayoutDashboard, MessageSquareWarning, Monitor, OctagonAlert, Settings } from "lucide-react";
+import { BookMarked, ChevronRight, Gauge, LayoutDashboard, MessageSquareWarning, Monitor, OctagonAlert, Settings } from "lucide-react";
 import { useState } from "react";
 
 import { StatusDot, VM_TONE } from "@/components/ui/status-dot";
@@ -21,11 +21,9 @@ export default function Sidebar(props: { page: string; id: string | null; onOpen
   const [vmsOpen, setVMsOpen] = useState(true);
   const repos = useLive("repos");
   const vms = useLive("vms");
-  const prs = useLive("prs");
   const inbox = useLive("inbox");
   const feedback = useLive("problems");
   const running = vms.filter((vm) => vm.status === "running").length;
-  const openPRs = prs.items.filter((pr) => pr.relation === "author" && pr.state === "open").length;
   const blockers = inbox.filter((draft) => draft.kind === "approval" && draft.status === "pending").length;
 
   const row = "flex h-8 items-center gap-2 rounded-md px-2 font-medium hover:bg-sidebar-accent hover:text-foreground";
@@ -37,12 +35,6 @@ export default function Sidebar(props: { page: string; id: string | null; onOpen
         <a href="#/" className={cn(row, "pl-6", props.page === "dashboard" && selected)}>
           <LayoutDashboard className="size-4 text-muted-foreground" />
           Dashboard
-        </a>
-
-        <a href="#/pulls" className={cn(row, "pl-6", props.page === "pulls" && selected)}>
-          <GitPullRequest className="size-4 text-muted-foreground" />
-          Pull requests
-          <span className="ml-auto text-muted-foreground tabular-nums">{openPRs}</span>
         </a>
 
         <a href="#/repos" className={cn(row, "pl-6", props.page === "repos" && selected)}>

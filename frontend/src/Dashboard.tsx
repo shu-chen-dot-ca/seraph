@@ -312,7 +312,7 @@ export default function Dashboard() {
   const numbers = [
     {
       title: "Opened",
-      href: "#/pulls?state=open",
+      href: "#/repos?state=open",
       better: "up",
       rows: [
         {
@@ -325,7 +325,7 @@ export default function Dashboard() {
     },
     {
       title: "Merged",
-      href: "#/pulls?state=merged",
+      href: "#/repos?state=merged",
       better: "up",
       rows: [
         {
@@ -338,7 +338,7 @@ export default function Dashboard() {
     },
     {
       title: "Closed",
-      href: "#/pulls?state=closed",
+      href: "#/repos?state=closed",
       better: "down",
       rows: [
         {
@@ -351,7 +351,7 @@ export default function Dashboard() {
     },
     {
       title: "Merge rate",
-      href: "#/pulls?state=closed",
+      href: "#/repos?state=closed",
       better: "up",
       rows: [
         {
@@ -364,7 +364,7 @@ export default function Dashboard() {
     },
     {
       title: "Time to merge",
-      href: "#/pulls?state=merged",
+      href: "#/repos?state=merged",
       better: "down",
       rows: [
         {
@@ -555,7 +555,7 @@ export default function Dashboard() {
     {
       key: "prs",
       title: "Pull requests",
-      href: "#/pulls",
+      href: "#/repos?state=open",
       detail: range.per,
       top: prTop,
       ticks: prTicks,
@@ -956,7 +956,7 @@ export default function Dashboard() {
 
           <div className={WIDGET}>
             <div className={WIDGET_HEADER}>
-              <a href="#/pulls?state=progress" className={TITLE}>
+              <a href="#/repos?state=progress" className={TITLE}>
                 In progress
               </a>
               <span className="shrink-0 text-xs text-muted-foreground tabular-nums">

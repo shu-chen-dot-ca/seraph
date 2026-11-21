@@ -1,6 +1,8 @@
 /*
-Pull requests (#/pulls): four tabs (state= in the address), each a table grouped by repository. A repository's row
-(its picture, name and count) folds and unfolds its rows; Expand all and Collapse all do every group of the open tab.
+Pull requests, a part of the Repositories page (RepositoryCards.tsx): its tabs In progress, Open, Merged and Closed
+(#/repos?state=progress|open|merged|closed), each a table grouped by repository. The tab row is the Repositories page's
+(tabs), with Expand all and Collapse all on its right. A repository's row (its picture, name and count) folds and
+unfolds its rows; Expand all and Collapse all do every group of the open tab.
 Groups come in the order of their newest row; folds are kept while the app is open.
 - In progress (state=progress): fix_issue jobs still open that have no pull request yet. Issue (opens it on GitHub),
   Step, Status, Updated.
@@ -22,12 +24,6 @@ import { api, useLive } from "@/live";
 import { cn } from "@/lib/utils";
 
 const OPEN_JOB = ["queued", "working", "waiting_on_user", "waiting_on_maintainers"];
-const TABS = [
-  { state: "progress", title: "In progress" },
-  { state: "open", title: "Open" },
-  { state: "merged", title: "Merged" },
-  { state: "closed", title: "Closed" },
-];
 // "Nov 18, 14:32"
 const TIME: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
 const CLOSED_BY_KEY = "pulls-closed-by";
@@ -43,13 +39,13 @@ try {
 // The folded groups, "<state>:<owner/name>", kept while the app is open.
 let foldedKept: string[] = [];
 
-export default function PullRequests(props: { state: string }) {
+export default function PullRequests(props: { state: string; tabs: ReactNode }) {
   const prs = useLive("prs");
   const jobs = useLive("jobs");
   const [closedBy, setClosedBy] = useState<Record<string, string>>(closedByCache);
   const [folded, setFolded] = useState<string[]>(foldedKept);
 
-  const state = TABS.some((tab) => tab.state === props.state) ? props.state : "open";
+  const state = props.state;
   const mine = prs.items.filter((pr) => pr.relation === "author");
   const prJobs = mine.map((pr) => pr.job);
   const inProgress = jobs.filter((job) => job.kind === "fix_issue" && OPEN_JOB.includes(job.status) && !prJobs.includes(job.id));
@@ -60,7 +56,6 @@ export default function PullRequests(props: { state: string }) {
   merged.sort((a, b) => (b.closed_at ?? "").localeCompare(a.closed_at ?? ""));
   const closed = mine.filter((pr) => pr.state === "closed");
   closed.sort((a, b) => (b.closed_at ?? "").localeCompare(a.closed_at ?? ""));
-  const counts: Record<string, number> = { progress: inProgress.length, open: open.length, merged: merged.length, closed: closed.length };
   const closedIds = closed.map((pr) => pr.id).join(" ");
 
   // Read who closed each closed pull request not read yet, one at a time, newest first.
@@ -215,26 +210,13 @@ export default function PullRequests(props: { state: string }) {
   }
   const keys = repos.map((repo) => `${state}:${repo}`);
 
-  // Like the header's tabs (App.tsx): quiet until hovered; the open one in full color with the accent under it.
-  const tab = "relative flex h-full items-center gap-1.5 px-2 font-medium text-muted-foreground hover:text-foreground";
-  const currentTab = "text-foreground after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-primary";
   const th = "sticky top-0 z-10 h-8 border-b bg-background px-3 text-left text-xs font-medium text-muted-foreground";
   const td = "h-9 border-b px-3 whitespace-nowrap";
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-9 shrink-0 items-center border-b px-1">
-        {TABS.map((each) => (
-          <a
-            key={each.state}
-            href={`#/pulls?state=${each.state}`}
-            aria-current={each.state === state ? "page" : undefined}
-            className={cn(tab, each.state === state && currentTab)}
-          >
-            {each.title}
-            <span className="text-muted-foreground tabular-nums">{counts[each.state]}</span>
-          </a>
-        ))}
+        {props.tabs}
         {repos.length > 0 && (
           <div className="ml-auto flex gap-1 pr-2">
             <Button size="xs" variant="ghost" onClick={() => changeFolded(folded.filter((key) => !keys.includes(key)))}>
