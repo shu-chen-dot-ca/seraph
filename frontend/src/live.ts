@@ -613,8 +613,8 @@ export type Feedback = {
 // ---- The live store ----
 
 export type Topics = {
-  // archived, planned, removed: the Repositories page (repo_list.py).
-  repos: ListData<RepoItem> & { archived: string[]; planned: string[]; removed: string[] };
+  // archived, removed, prioritized, target (by name: when it went there): the Repositories page (repo_list.py).
+  repos: ListData<RepoItem> & { archived: string[]; removed: string[]; prioritized: string[]; target: Record<string, string> };
   jobs: Job[];
   inbox: Draft[]; // only the approval requests still waiting: the Blockers page
   prs: PRsData;
@@ -631,7 +631,7 @@ export type Topics = {
 // `loaded` says which topics have arrived, for the few places that must tell "empty" from "not yet".
 const store = {
   topics: {
-    repos: { items: [], can_undo: false, can_redo: false, archived: [], planned: [], removed: [] },
+    repos: { items: [], can_undo: false, can_redo: false, archived: [], removed: [], prioritized: [], target: {} },
     jobs: [],
     inbox: [],
     prs: { items: [], issues: [], checked_at: null, error: null, refreshing: false },
