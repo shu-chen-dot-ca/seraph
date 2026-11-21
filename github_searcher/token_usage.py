@@ -24,12 +24,18 @@ Both are added up per model and kind of work in SLICE_SECONDS slices of time, ke
 far each file was read, so a start reads only what is new (the very first read goes through every file once):
 
     {"log_offset": bytes of the log read, "log_start": the log's first time (ISO) or null,
-     "files": {"<session>.jsonl": {"offset": bytes read, "reply": the last reply's id, "counted": its tokens so far}},
-     "slices": {"<slice start, ISO in UTC>": {"<model>": {"<work>": tokens}}}}
+     "files": {"<session>.jsonl": {"offset": bytes read, "reply": the last reply's id, "counted": its tokens so far,
+               "cost": its cost so far}},
+     "slices": {"<slice start, ISO in UTC>": {"<model>": {"<work>": tokens}}},
+     "costs": the same, in USD}
+
+The cost of a run is Claude Code's own (cost_usd) when the log has it; otherwise (an agent's reply, and the conversation
+files) its tokens at the model's price (claude_models.py PRICES, which gives the same as Claude Code), 0 for a model it
+doesn't list. A saved file from before costs were kept is read again from the start, to add them up.
 
 A line still being written (no newline yet) waits for the next read. Slices older than KEEP_DAYS are dropped.
 
-summary() is the topic: the slices as the page adds them up, coarser the further back so the topic stays small:
+summary() is the topic: the slices (tokens and cost) as the page adds them up, coarser the further back so the topic stays small:
 SLICE_SECONDS for the last FINE_HOURS, hours for the last HOURLY_DAYS, then local days (from midnight).
 """
 
@@ -41,6 +47,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+from github_searcher.claude_models import PRICES
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # override: the backend reloads itself on code changes, and .env changes should apply then too.
@@ -96,12 +104,17 @@ class TokenUsage:
         self.log_start: str | None = None
         self.files: dict[str, dict] = {}
         self.slices: dict[str, dict[str, dict[str, int]]] = {}
+        self.costs: dict[str, dict[str, dict[str, float]]] = {}
+        # Saved before costs were kept: start over, so the first read adds up both.
+        saved = {}
         if self.path.exists():
             saved = json.loads(self.path.read_text())
+        if "costs" in saved:
             self.log_offset = saved.get("log_offset", 0)
             self.log_start = saved.get("log_start")
             self.files = saved["files"]
             self.slices = saved["slices"]
+            self.costs = saved["costs"]
         # Saved before the kinds of work were kept: all of it was the agents'.
         for models in self.slices.values():
             for model, tokens in list(models.items()):
@@ -127,11 +140,22 @@ class TokenUsage:
                     if self.log_start is None:
                         self.log_start = entry["at"]
                     tokens = entry["input"] + entry["cache_write"] + entry["cache_read"] + entry["output"]
+                    cost = entry["cost_usd"]
+                    if cost is None:
+                        price = PRICES.get(entry["model"], (0, 0, 0))
+                        cost = (
+                            entry["input"] * price[0]
+                            + entry["cache_write"] * price[0] * 2
+                            + entry["cache_read"] * price[2]
+                            + entry["output"] * price[1]
+                        ) / 1_000_000
                     start = int(datetime.fromisoformat(entry["at"]).timestamp()) // SLICE_SECONDS * SLICE_SECONDS
                     key = datetime.fromtimestamp(start, UTC).isoformat()
                     with self.lock:
                         works = self.slices.setdefault(key, {}).setdefault(entry["model"], {})
                         works[entry["work"]] = works.get(entry["work"], 0) + tokens
+                        work_costs = self.costs.setdefault(key, {}).setdefault(entry["model"], {})
+                        work_costs[entry["work"]] = work_costs.get(entry["work"], 0) + cost
             changed = True
         log_start = datetime.fromisoformat(self.log_start) if self.log_start is not None else None
 
@@ -139,13 +163,13 @@ class TokenUsage:
         if self.folder.is_dir():
             paths = sorted(self.folder.glob("*.jsonl"))
         for path in paths:
-            state = self.files.get(path.name, {"offset": 0, "reply": None, "counted": 0})
+            state = self.files.get(path.name, {"offset": 0, "reply": None, "counted": 0, "cost": 0})
             size = path.stat().st_size
             if size == state["offset"]:
                 continue
             # Smaller than what was read: a new file under the old name, read from the start.
             if size < state["offset"]:
-                state = {"offset": 0, "reply": None, "counted": 0}
+                state = {"offset": 0, "reply": None, "counted": 0, "cost": 0}
             with path.open("rb") as file:
                 file.seek(state["offset"])
                 for line in file:
@@ -171,14 +195,25 @@ class TokenUsage:
                         + (usage.get("cache_read_input_tokens") or 0)
                         + (usage.get("output_tokens") or 0)
                     )
+                    price = PRICES.get(model, (0, 0, 0))
+                    cost = (
+                        (usage.get("input_tokens") or 0) * price[0]
+                        + (usage.get("cache_creation_input_tokens") or 0) * price[0] * 2
+                        + (usage.get("cache_read_input_tokens") or 0) * price[2]
+                        + (usage.get("output_tokens") or 0) * price[1]
+                    ) / 1_000_000
                     # The same reply as the line before: only what grew since.
                     grown = tokens
+                    grown_cost = cost
                     if message.get("id") is not None and message.get("id") == state["reply"]:
                         grown = tokens - state["counted"]
+                        grown_cost = cost - state["cost"]
                     else:
                         state["reply"] = message.get("id")
                         state["counted"] = 0
+                        state["cost"] = 0
                     state["counted"] = max(state["counted"], tokens)
+                    state["cost"] = max(state["cost"], cost)
                     if grown <= 0 or "timestamp" not in entry:
                         continue
                     at = datetime.fromisoformat(entry["timestamp"].replace("Z", "+00:00"))
@@ -190,6 +225,8 @@ class TokenUsage:
                     with self.lock:
                         works = self.slices.setdefault(key, {}).setdefault(model, {})
                         works["agent"] = works.get("agent", 0) + grown
+                        work_costs = self.costs.setdefault(key, {}).setdefault(model, {})
+                        work_costs["agent"] = work_costs.get("agent", 0) + max(grown_cost, 0)
             self.files[path.name] = state
             changed = True
         if not changed:
@@ -199,7 +236,16 @@ class TokenUsage:
             for key in list(self.slices):
                 if datetime.fromisoformat(key) < cutoff:
                     del self.slices[key]
-            saved = {"log_offset": self.log_offset, "log_start": self.log_start, "files": self.files, "slices": self.slices}
+            for key in list(self.costs):
+                if datetime.fromisoformat(key) < cutoff:
+                    del self.costs[key]
+            saved = {
+                "log_offset": self.log_offset,
+                "log_start": self.log_start,
+                "files": self.files,
+                "slices": self.slices,
+                "costs": self.costs,
+            }
             text = json.dumps(saved, separators=(",", ":"))
         temporary = self.path.with_suffix(".json.tmp")
         temporary.write_text(text)
@@ -207,12 +253,14 @@ class TokenUsage:
         self.version += 1
 
     def summary(self) -> dict:
-        """The "tokens" topic: {"slices": [{"at": the slice's start (ISO), "model", "work", "tokens"}]}, oldest first.
-        SLICE_SECONDS slices for the last FINE_HOURS, hours for the last HOURLY_DAYS, then local days."""
+        """The "tokens" topic: {"slices": [{"at": the slice's start (ISO), "model", "work", "tokens", "cost_usd"}]},
+        oldest first. SLICE_SECONDS slices for the last FINE_HOURS, hours for the last HOURLY_DAYS, then local days."""
         now = datetime.now(UTC)
         with self.lock:
             items = [(key, json.loads(json.dumps(models))) for key, models in self.slices.items()]
+            costs = json.loads(json.dumps(self.costs))
         merged: dict[tuple[str, str, str], int] = {}
+        merged_costs: dict[tuple[str, str, str], float] = {}
         for key, models in items:
             at = datetime.fromisoformat(key)
             start = at
@@ -223,8 +271,11 @@ class TokenUsage:
             for model, works in models.items():
                 for work, tokens in works.items():
                     merged[(start.isoformat(), model, work)] = merged.get((start.isoformat(), model, work), 0) + tokens
+                    cost = costs.get(key, {}).get(model, {}).get(work, 0)
+                    merged_costs[(start.isoformat(), model, work)] = merged_costs.get((start.isoformat(), model, work), 0) + cost
         slices = []
         for (at, model, work), tokens in merged.items():
-            slices.append({"at": at, "model": model, "work": work, "tokens": tokens})
+            cost = round(merged_costs[(at, model, work)], 6)
+            slices.append({"at": at, "model": model, "work": work, "tokens": tokens, "cost_usd": cost})
         slices.sort(key=lambda each: datetime.fromisoformat(each["at"]))
         return {"slices": slices}

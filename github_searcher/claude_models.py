@@ -9,7 +9,10 @@ in, out and cached read; writing to the cache costs twice the input for an hour.
     Sonnet 5.5  claude-sonnet-5-5  $2    $10    $0.10
 
 All three hold 1M tokens. Haiku isn't used anywhere: Claude Code makes small side calls of its own on every run with
-its Haiku model, and those go to SIDE_MODEL instead (ANTHROPIC_DEFAULT_HAIKU_MODEL in each run's env).
+its Haiku model, and those go to SIDE_MODEL instead (ANTHROPIC_DEFAULT_HAIKU_MODEL in each run's env). Some judgments'
+runs still show Haiku 5.5 (claude-haiku-5-5): $0.10 in, $0.50 out.
+
+PRICES has these numbers for the Dashboard's cost (token_usage.py), the same as Claude Code's own cost of a run.
 
 An agent keeps one conversation, and Claude's cache only serves the same model, so an agent's model is picked once per
 job (agents.py work), never per step: a switch re-reads the whole conversation at full price.
@@ -29,6 +32,14 @@ The kinds of work:
 FABLE = "claude-fable-5-2"
 OPUS = "claude-opus-5-5"
 SONNET = "claude-sonnet-5-5"
+
+# USD per million tokens: in, out and cached read. Writing to the cache is twice the input.
+PRICES = {
+    FABLE: (8, 40, 0.20),
+    OPUS: (4, 20, 0.20),
+    SONNET: (2, 10, 0.10),
+    "claude-haiku-5-5": (0.10, 0.50, 0.005),
+}
 
 MODELS = {
     "fix_issue": OPUS,
