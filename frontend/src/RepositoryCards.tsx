@@ -8,9 +8,9 @@ bottom that scrolls on its own (on a narrow window the columns keep their width 
 - Contributed: repos that merged a pull request of yours. By stars, most first, or by the pick in the column's sort
   menu (Sort by stars, merged PRs, open PRs, closed PRs or in-progress PRs, always the most first; then by stars).
 - Target: repos you hunt, to become a contributor there (an NVIDIA one, say), added from Catalog (Add to Target, the
-  Repos list's target, with when each went there). One leaves only by its PRs: once one of yours is merged there it is
-  in Contributed, and once one is closed without a merge after it went there it is rejected: back in Catalog, at the
-  top. Add to Target there puts it back. By stars.
+  Repos list's target, with when each went there). Remove from Target takes one back to Catalog; besides, one leaves by
+  its PRs: once one of yours is merged there it is in Contributed, and once one is closed without a merge after it went
+  there it is rejected: back in Catalog, at the top. Add to Target there puts it back. By stars.
 - Catalog: the rest, in three groups: the ones rejected in Target first, then the ones with a PR of yours open or an
   issue in progress, then the others. In each group by owner: the owner with the most starred repo first, an owner's
   repos always together, by stars.
@@ -20,8 +20,7 @@ bottom that scrolls on its own (on a narrow window the columns keep their width 
 In every column an owner's repos are together, where its first one comes (in Catalog, within its group).
 Every repo with a pull request of yours has a card, also one that isn't in the Repos list (a PR you opened by hand, a
 repo taken out of the list): made from its pull requests, so it goes to its column like any other (only closed ones:
-Removed). Its stars aren't known (–), and its ⋯ has only the moves (none outside Prioritized and Contributed: no ⋯
-there).
+Removed). Its stars aren't known (–), and its ⋯ has only the moves (none in Catalog or Removed: no ⋯ there).
 A card: the owner's picture as its logo, owner/name, and under it in GitHub's colors: its stars (yellow), then of your
 pull requests there how many it merged (purple), closed without a merge (red) and are still open (green). Gray instead:
 a closed count of 0, and outside Contributed the stars and every count of 0. Last, only when there are any, the issues
@@ -29,13 +28,13 @@ in progress there (yellow, a draft PR icon): fix_issue jobs still open with no p
 requests page's In progress has them (from the live "jobs" topic).
 A click on a card's owner/name (the text itself, with no tooltip) opens the repo on GitHub in a new tab; elsewhere on a
 card it does nothing yet. A card has a ⋯, whose menu opens when the mouse is on it (a tap or click on a phone): Move to
-Contributed in Prioritized and back; in Catalog Add to Target; and outside Removed Delete, or Add to Removed for a repo
+Contributed in Prioritized and back; in Catalog Add to Target, in Target Remove from Target; and outside Removed Delete, or Add to Removed for a repo
 with pull requests of yours (merged, closed or open), at once, with no "are you sure?" (POST /api/repos/delete): every
 agent working on the repo stops, and one with pull requests of yours goes to Removed, any other leaves the page and the
 list. A card with none of these (every one in Removed) has no ⋯.
 A card also moves by dragging it with the mouse between Prioritized and Contributed; the column it can go to lights up
 while it's dragged.
-A move or Add to Target (POST /api/repos/move) shows at once, before the live feed has it (the repos topic comes every
+A move, Add to or Remove from Target (POST /api/repos/move) shows at once, before the live feed has it (the repos topic comes every
 few seconds).
 Every column but Removed has a switch in its header: on, agents take new issues of its repos; off, they don't, and what
 is going there goes on (PUT /api/automation/take_from, the live "automation" topic's take_from). Agents take new issues
@@ -137,6 +136,10 @@ export default function RepositoryCards(props: { state: string }) {
   const targetNames: string[] = [];
   const rejectedNames: string[] = [];
   for (const name of Object.keys(repos.target)) {
+    // Removed from Target here.
+    if (moved[name] === "Catalog") {
+      continue;
+    }
     if (moved[name] !== "Target" && (lastClosed[name.toLowerCase()] ?? "") > repos.target[name]) {
       rejectedNames.push(name);
     } else {
@@ -413,8 +416,8 @@ export default function RepositoryCards(props: { state: string }) {
                 </h2>
                 <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
                   {ordered.map((card) => {
-                    // Its ⋯ has a move, or Delete or Add to Removed (and in Catalog Add to Target).
-                    const menu = column.moveTo !== "" || (card.listed && !column.removed);
+                    // Its ⋯ has a move, Remove from Target, or Delete or Add to Removed (and in Catalog Add to Target).
+                    const menu = column.moveTo !== "" || column.title === "Target" || (card.listed && !column.removed);
                     return (
                       <div
                         key={card.repo.full_name}
@@ -518,6 +521,9 @@ export default function RepositoryCards(props: { state: string }) {
                               )}
                               {card.listed && column.title === "Catalog" && (
                                 <DropdownMenuItem onSelect={() => move(card.repo.full_name, "Target")}>Add to Target</DropdownMenuItem>
+                              )}
+                              {column.title === "Target" && (
+                                <DropdownMenuItem onSelect={() => move(card.repo.full_name, "Catalog")}>Remove from Target</DropdownMenuItem>
                               )}
                               {card.listed && !column.removed && (
                                 <DropdownMenuItem variant="destructive" onSelect={() => deleteRepo(card.repo.full_name)}>
