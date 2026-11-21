@@ -26,6 +26,8 @@ to one agent for all of them (role "closed_prs").
 Every agent has a worker (an asyncio task) that waits for messages, joins the waiting ones into
 one prompt, each starting with [User] (the user typed it) or [System] (the app: a new job, a VM
 that is its turn now, the user's decision on a draft, a reminder), and runs one turn with them.
+Each turn is a Claude Code process of its own, closed when the turn ends (the next one resumes the conversation), and
+at most MAX_AGENTS_AT_ONCE agents are in a turn at once: the others wait for one to end.
 A message sent while the agent works waits in a queue (the chat shows it as pending; MAX_QUEUED of
 the user's at most). Each of the user's messages gets a turn of its own, in order, together with the
 app's messages that came before it; interrupting a turn (Esc in the chat) starts the next one. The user can take
@@ -190,6 +192,9 @@ DATA_DIR = PROJECT_ROOT / os.environ["DATA_DIR"]
 MAX_NUDGES = 2
 # The user's messages that may wait for their turn at once.
 MAX_QUEUED = 10
+# Agents in a turn at the same time. Each turn is a Claude Code process of its own (about 150 MB), closed when the turn
+# ends; the others wait for one to end, their messages kept (2026-11-21: a restart woke 270 at once, 42 GB).
+MAX_AGENTS_AT_ONCE = 10
 # While an agent works, its record is saved this often (and after every turn).
 SAVE_SECONDS = 5
 # How often the runs nobody waits for are checked.
@@ -322,6 +327,8 @@ class Agents:
         self.pending: dict[str, list] = {}
         self.wake: dict[str, asyncio.Event] = {}
         self.workers: dict[str, asyncio.Task] = {}
+        # A place for each agent in a turn: MAX_AGENTS_AT_ONCE at most, the others wait in work().
+        self.turns = asyncio.Semaphore(MAX_AGENTS_AT_ONCE)
         # VM rule reminders in a row: {"count", "state"}; state is what the jobs and queue place
         # looked like, and a change in it starts the count again.
         self.nudges: dict[str, dict] = {}
@@ -534,9 +541,14 @@ class Agents:
         """The agent's worker: wait for messages, run a turn with them, then apply the VM rule."""
         while True:
             await self.wake[agent.id].wait()
+            # Its place among the agents in a turn (MAX_AGENTS_AT_ONCE): it waits here for one, its messages kept. Given
+            # back in the finally below; nothing in between waits.
+            await self.turns.acquire()
             self.wake[agent.id].clear()
             messages = self.pending[agent.id]
-            if not messages:
+            # Archived while it waited: its messages wait for it to come back.
+            if not messages or agent.record["archived_at"] is not None:
+                self.turns.release()
                 continue
 
             # "/compact" (the Compact button) is a command for Claude Code itself: it goes alone and as it is.
@@ -602,9 +614,8 @@ class Agents:
             if work in ["fix_issue", "follow_up"] and stars >= BIG_REPO_STARS:
                 model = BIG_REPO_MODEL
             agent.work = {"work": work, "job": current["id"] if current is not None else None, "repo": repo}
-            if model != agent.model:
-                agent.model = model
-                await agent.stop()
+            # Its process starts with the turn (below), so it starts on this model.
+            agent.model = model
             # Fresh GitHub answers every turn: an issue may have been taken or fixed since the last one.
             search.CACHE.clear()
             try:
@@ -612,11 +623,13 @@ class Agents:
             except Exception as error:
                 agent.history.append({"type": "system", "text": f"Error: {error}", "time": datetime.now(UTC).isoformat()})
                 self.crashes.add("agent", f"{agent.name}'s turn failed: {type(error).__name__}: {error}", traceback.format_exc())
-                # Start over with a fresh connection next time; the conversation is resumed.
-                await agent.stop()
             finally:
                 # A desktop lock the agent set ends with its turn, also one that failed or was cancelled.
                 agent.computer_tools.end_turn()
+                self.turns.release()
+                # Its Claude Code process ends with the turn, so an agent between turns takes no memory. The next turn
+                # starts a new one, which resumes the conversation.
+                await agent.stop()
             agent.busy = False
             self.save(agent)
             self.version += 1
