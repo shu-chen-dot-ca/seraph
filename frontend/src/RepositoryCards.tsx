@@ -17,17 +17,18 @@ bottom that scrolls on its own (on a narrow window the columns keep their width 
 In every column an owner's repos are together, where its first one comes.
 Every repo with a pull request of yours has a card, also one that isn't in the Repos list (a PR you opened by hand, a
 repo taken out of the list): made from its pull requests, so it goes to its column like any other (only closed ones:
-Removed). Its stars aren't known (–), and its ⋯ has Open on GitHub only.
+Removed). Its stars aren't known (–), and it has no ⋯.
 A card: the owner's picture as its logo, owner/name, and under it in GitHub's colors: its stars (yellow), then of your
 pull requests there how many it merged (purple), closed without a merge (red) and are still open (green). Gray instead:
 a closed count of 0, and outside Contributed the stars and every count of 0. Last, only when there are any, the issues
 in progress there (yellow, a draft PR icon): fix_issue jobs still open with no pull request on GitHub yet, as the Pull
 requests page's In progress has them (from the live "jobs" topic).
-A click on a card does nothing yet. Every card has a ⋯, whose menu opens when the mouse is on it (a tap or click on a
-phone): Open on GitHub; in Planned and Catalog Add to Planned, or Remove from Planned for one you picked (POST
-/api/repos/plan); and outside Removed Delete, at once, with no "are you sure?" (POST /api/repos/delete): every agent
-working on the repo stops, and one with pull requests of yours (merged, closed or open) goes to Removed, any other leaves
-the page and the list.
+A click on a card's owner/name (the text itself, with no tooltip) opens the repo on GitHub in a new tab; elsewhere on a
+card it does nothing yet. A card has a ⋯, whose menu opens when the mouse is on it (a tap or click on a phone): in
+Planned and Catalog Add to Planned, or Remove from Planned for one you picked (POST /api/repos/plan); and outside Removed
+Delete, at once, with no "are you sure?" (POST /api/repos/delete): every agent working on the repo stops, and one with
+pull requests of yours (merged, closed or open) goes to Removed, any other leaves the page and the list. A card with
+none of these (every one in Removed) has no ⋯.
 Your pull requests are the ones the app follows (github_searcher/pr_tracking.py), from the live "prs" topic, so the
 numbers update themselves.
 */
@@ -299,6 +300,8 @@ export default function RepositoryCards(props: { state: string }) {
                 </h2>
                 <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
                   {ordered.map((card) => {
+                    // Its ⋯ has Delete (and in Planned and Catalog Add to or Remove from Planned).
+                    const menu = card.listed && !column.removed;
                     return (
                       <div
                         key={card.repo.full_name}
@@ -307,7 +310,12 @@ export default function RepositoryCards(props: { state: string }) {
                       >
                         <img src={`https://github.com/${card.repo.full_name.split("/")[0]}.png?size=64`} alt="" className="size-8 shrink-0 rounded" />
                         <div className="min-w-0 flex-1">
-                          <div className="truncate font-medium text-foreground">{card.repo.full_name}</div>
+                          {/* The link is the text only. title="": no tooltip (the card's name) over it. */}
+                          <div className="truncate font-medium text-foreground">
+                            <a href={card.repo.html_url} target="_blank" rel="noreferrer" title="" className="hover:underline">
+                              {card.repo.full_name}
+                            </a>
+                          </div>
                           <div className="flex items-center gap-2.5 text-xs text-muted-foreground tabular-nums">
                             <span className={cn("flex items-center gap-0.5", column.contributed && "text-yellow-600 dark:text-yellow-400")} title="Stars">
                               <Star className="size-3" />
@@ -333,65 +341,66 @@ export default function RepositoryCards(props: { state: string }) {
                             )}
                           </div>
                         </div>
-                        <DropdownMenu
-                          modal={false}
-                          open={menuOpen === card.repo.full_name}
-                          onOpenChange={(open) => setMenuOpen(open ? card.repo.full_name : null)}
-                        >
-                          <DropdownMenuTrigger asChild>
-                            {/* title="": no tooltip (the card's name) over the ⋯, its menu shows instead. */}
-                            <button
-                              type="button"
-                              title=""
-                              className="flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
-                              aria-label={`Settings for ${card.repo.full_name}`}
-                              onPointerEnter={(event) => {
-                                if (event.pointerType === "mouse") {
-                                  window.clearTimeout(closeTimer.current);
-                                  setMenuOpen(card.repo.full_name);
-                                }
-                              }}
+                        {menu && (
+                          <DropdownMenu
+                            modal={false}
+                            open={menuOpen === card.repo.full_name}
+                            onOpenChange={(open) => setMenuOpen(open ? card.repo.full_name : null)}
+                          >
+                            <DropdownMenuTrigger asChild>
+                              {/* title="": no tooltip (the card's name) over the ⋯, its menu shows instead. */}
+                              <button
+                                type="button"
+                                title=""
+                                className="flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
+                                aria-label={`Settings for ${card.repo.full_name}`}
+                                onPointerEnter={(event) => {
+                                  if (event.pointerType === "mouse") {
+                                    window.clearTimeout(closeTimer.current);
+                                    setMenuOpen(card.repo.full_name);
+                                  }
+                                }}
+                                onPointerLeave={(event) => {
+                                  if (event.pointerType === "mouse") {
+                                    closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
+                                  }
+                                }}
+                                onPointerDown={(event) => {
+                                  // The mouse opened it already: a click doesn't close it again.
+                                  if (event.pointerType === "mouse") {
+                                    event.preventDefault();
+                                  }
+                                }}
+                              >
+                                <MoreHorizontal className="size-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="end"
+                              sideOffset={0}
+                              // At once, with no fade or zoom in or out.
+                              style={{ animation: "none" }}
+                              onPointerEnter={() => window.clearTimeout(closeTimer.current)}
                               onPointerLeave={(event) => {
                                 if (event.pointerType === "mouse") {
                                   closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
                                 }
                               }}
-                              onPointerDown={(event) => {
-                                // The mouse opened it already: a click doesn't close it again.
-                                if (event.pointerType === "mouse") {
-                                  event.preventDefault();
-                                }
-                              }}
                             >
-                              <MoreHorizontal className="size-4" />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent
-                            align="end"
-                            sideOffset={0}
-                            // At once, with no fade or zoom in or out.
-                            style={{ animation: "none" }}
-                            onPointerEnter={() => window.clearTimeout(closeTimer.current)}
-                            onPointerLeave={(event) => {
-                              if (event.pointerType === "mouse") {
-                                closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
-                              }
-                            }}
-                          >
-                            <DropdownMenuItem onSelect={() => window.open(card.repo.html_url, "_blank", "noreferrer")}>Open on GitHub</DropdownMenuItem>
-                            {card.listed && !column.contributed && !column.removed && repos.planned.includes(card.repo.full_name) && (
-                              <DropdownMenuItem onSelect={() => plan(card.repo.full_name, false)}>Remove from Planned</DropdownMenuItem>
-                            )}
-                            {card.listed && !column.contributed && !column.removed && !repos.planned.includes(card.repo.full_name) && (
-                              <DropdownMenuItem onSelect={() => plan(card.repo.full_name, true)}>Add to Planned</DropdownMenuItem>
-                            )}
-                            {card.listed && !column.removed && (
-                              <DropdownMenuItem variant="destructive" onSelect={() => deleteRepo(card.repo.full_name)}>
-                                Delete
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                              {card.listed && !column.contributed && !column.removed && repos.planned.includes(card.repo.full_name) && (
+                                <DropdownMenuItem onSelect={() => plan(card.repo.full_name, false)}>Remove from Planned</DropdownMenuItem>
+                              )}
+                              {card.listed && !column.contributed && !column.removed && !repos.planned.includes(card.repo.full_name) && (
+                                <DropdownMenuItem onSelect={() => plan(card.repo.full_name, true)}>Add to Planned</DropdownMenuItem>
+                              )}
+                              {card.listed && !column.removed && (
+                                <DropdownMenuItem variant="destructive" onSelect={() => deleteRepo(card.repo.full_name)}>
+                                  Delete
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
                       </div>
                     );
                   })}
