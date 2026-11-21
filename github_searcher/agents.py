@@ -18,8 +18,10 @@ conversation stays, so it can pick up where it left off (an update on its PR). T
 archived agent wait without waking it; a message from the user, a job given to it, or a reply to one of
 its drafts brings it back (unarchive), and those messages go in then. An agent that made PRs (a PR draft
 that waits for the user or was approved: Inbox.pr_owners) can't be deleted, only archived.
-When a PR or issue is merged or closed, its agent's open jobs on it are cancelled and it is archived (follow_up), and
-it never comes back for it: what happens there afterwards goes to one agent for all of them (role "closed_prs").
+The app archives an agent itself once its work is over (keep_going): no open job, message, waiting draft, run or VM
+place. Reviewers and the closed PRs agent (below) stay. When a PR or issue is merged or closed, its agent's open jobs
+on it are cancelled and it is archived (follow_up), and it never comes back for it: what happens there afterwards goes
+to one agent for all of them (role "closed_prs").
 
 Every agent has a worker (an asyncio task) that waits for messages, joins the waiting ones into
 one prompt, each starting with [User] (the user typed it) or [System] (the app: a new job, a VM
@@ -1975,6 +1977,25 @@ class Agents:
                 )
                 self.pending[agent.id].append({"from": "System", "text": text, "shown": False})
                 self.wake[agent.id].set()
+            # An agent whose work is over is archived: no job left open, no message waiting, no draft of its waiting (with
+            # its reviewer, in the Inbox, or approved and not sent), no run and no place in a VM. Its conversation stays.
+            # News on a PR of its that is still open brings it back (follow_up); news on one that was merged or closed goes
+            # to the closed PRs agent instead. Not a reviewer or that agent: they stay for their next one.
+            drafting = []
+            for draft in self.inbox.list():
+                if draft["status"] == "pending" or (draft["status"] == "approved" and draft["sent"] is None):
+                    drafting.append(draft["agent"])
+            for agent in list(self.agents.values()):
+                if agent.record["archived_at"] is not None or agent.busy or self.pending[agent.id] or self.wake[agent.id].is_set():
+                    continue
+                if agent.record["role"] in ["reviewer", "closed_prs"] or agent.id in running or agent.id in drafting:
+                    continue
+                if [job for job in self.jobs.for_agent(agent.id) if job["status"] not in ["done", "cancelled"]]:
+                    continue
+                vm_name, place = self.queue.place(agent.id)
+                if place is not None:
+                    continue
+                await self.archive(agent.id)
 
     async def count_vm_time(self) -> None:
         """Every VM_TIME_SECONDS, each agent holding a VM desktop adds that much to the job it works on (jobs.py
