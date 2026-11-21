@@ -4,6 +4,7 @@ it and moves them (frontend/src/Secrets.tsx, backend/secrets_api.py).
 The secrets, and where each is on this computer:
 - GITHUB_TOKEN, GITHUB_TOKEN_2, ...: the search tokens (token_balancer.py), in .env.
 - CLAUDE_CODE_OAUTH_TOKEN: the agents' Claude login, in .env.
+- CLAUDE_CODE_OAUTH_TOKEN_VM: the Claude login of Fix all's Claude Code in Seraph's own VM (problem_fixes.py), in .env.
 - GITHUB_SIGN_IN_TOKEN: your GitHub sign-in (github_account.py), the "token" of DATA_DIR/github_account.json.
 - GITHUB_APP_CLIENT_SECRET: the sign-in app's client secret, the "client_secret" of DATA_DIR/github_app.json.
 
@@ -86,9 +87,9 @@ if SETTINGS_PATH.is_file() and os.environ.get("SERAPH_TESTS") != "1":
         except (BotoCoreError, ClientError) as error:
             print(f"Can't reach the vault (AWS Secrets Manager, {SETTINGS['region']}): {error}. Trying again in {RETRY_SECONDS} s.", flush=True)
             time.sleep(RETRY_SECONDS)
-# The search tokens and the Claude login, for token_balancer.py and the agents' Claude Code.
+# The search tokens and the Claude logins, for token_balancer.py, the agents' Claude Code and Fix all's.
 for name, value in VALUES.items():
-    if name.startswith("GITHUB_TOKEN") or name == "CLAUDE_CODE_OAUTH_TOKEN":
+    if name.startswith("GITHUB_TOKEN") or name.startswith("CLAUDE_CODE_OAUTH_TOKEN"):
         os.environ[name] = value
 
 
@@ -96,7 +97,7 @@ def status() -> dict:
     """What Settings → Secrets shows: where they are, their names, and which are still on this computer. Never a value."""
     on_disk = []
     for name, value in dotenv_values(PROJECT_ROOT / ".env").items():
-        if (name.startswith("GITHUB_TOKEN") or name == "CLAUDE_CODE_OAUTH_TOKEN") and value:
+        if (name.startswith("GITHUB_TOKEN") or name.startswith("CLAUDE_CODE_OAUTH_TOKEN")) and value:
             on_disk.append(name)
     account_path = DATA_DIR / "github_account.json"
     if account_path.is_file() and "token" in json.loads(account_path.read_text()):
@@ -139,7 +140,7 @@ def move(access_key_id: str, secret_access_key: str, region: str) -> dict:
     env_path = (PROJECT_ROOT / ".env").resolve()
     found = dict(VALUES)
     for name, value in dotenv_values(env_path).items():
-        if (name.startswith("GITHUB_TOKEN") or name == "CLAUDE_CODE_OAUTH_TOKEN") and value:
+        if (name.startswith("GITHUB_TOKEN") or name.startswith("CLAUDE_CODE_OAUTH_TOKEN")) and value:
             found[name] = value
     account_path = DATA_DIR / "github_account.json"
     account = None
@@ -194,7 +195,7 @@ def move(access_key_id: str, secret_access_key: str, region: str) -> dict:
     for line in env_path.read_text().splitlines():
         # dotenv also reads "export NAME=value".
         name = line.partition("=")[0].strip().removeprefix("export ").strip()
-        secret = "=" in line and (name.startswith("GITHUB_TOKEN") or name == "CLAUDE_CODE_OAUTH_TOKEN")
+        secret = "=" in line and (name.startswith("GITHUB_TOKEN") or name.startswith("CLAUDE_CODE_OAUTH_TOKEN"))
         if secret and not noted:
             lines.append(ENV_NOTE)
             noted = True
