@@ -6,7 +6,8 @@ update(your_repositories) searches GitHub, as you, for every pull request of you
 that isn't yours (is:pr is:merged is:public author:<you> -user:<you>), and writes how many there are and in how many
 repositories ("Seraph merged PRs: 12 in 8 repositories"), then a table: one row per repository with its stars, the
 most starred first, with a link to each pull request and, in a column of their own, its lines added (green) and
-removed (red). Only the part between START and END changes; everything else in README.md
+removed (red). Pull requests of fewer than MIN_LINES lines (added and removed together) are left out, not counted or
+shown. Only the part between START and END changes; everything else in README.md
 stays as you wrote it. When nothing changed, nothing is committed. A README.md without both markers is left alone.
 Both are committed on the repository's default branch, as you: pull before you push Seraph's own.
 
@@ -23,6 +24,8 @@ END = "<!-- merged-prs:end -->"
 FIRST_TEXT = "Hi, I'm Shu.\n\n"
 # GitHub's search gives at most 1000, 100 a page.
 MAX_PAGES = 10
+# Smaller pull requests (lines added and removed together) are left out.
+MIN_LINES = 10
 
 SEARCH_QUERY = """
 query($query: String!, $after: String) {
@@ -52,6 +55,8 @@ def table(your_repositories, login: str) -> str:
             break
         after = search["pageInfo"]["endCursor"]
     nodes.sort(key=lambda node: node["mergedAt"], reverse=True)
+    # Only the ones of MIN_LINES lines or more.
+    nodes = [node for node in nodes if node["additions"] + node["deletions"] >= MIN_LINES]
 
     # By repository, each one's pull requests newest first.
     repos = {}
