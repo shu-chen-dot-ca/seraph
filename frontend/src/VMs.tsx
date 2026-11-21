@@ -15,19 +15,22 @@ size; under it a row of cards, all the same size, side by side (the row scrolls 
 
 Everything comes from the live "vms", "jobs" and "agents" topics (the backend samples usage about once a second),
 so the numbers move on their own. Whether a running VM has a desktop is asked once when it runs (its viewer).
-The bands are VMList; the Dashboard shows them too, with only CPU, Memory, Internet and Disk.
+The bands are VMList; the Dashboard shows them too, with only CPU, Memory, Internet and Disk, and a ⋯ on each that
+opens the VM's settings (VMSettings, as on its page's Settings tab) in a dialog.
 New VM opens NewVMDialog. The Images tab (#/vms?tab=images) manages the
 images VMs start from (Images.tsx), which puts its own buttons in this same header row, right of the tabs. The
 Defaults tab (#/vms?tab=defaults) is the YAML that goes under every image's image.yaml (Defaults.tsx).
 */
 
-import { Plus, SquareTerminal } from "lucide-react";
+import { MoreHorizontal, Plus, SquareTerminal } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import Defaults from "@/Defaults";
 import Images from "@/Images";
 import NewVMDialog from "@/NewVMDialog";
+import VMSettings from "@/VMSettings";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { JobProgressBar } from "@/components/ui/job-progress";
 import { JOB_LABEL, JOB_TONE, StatusDot, VM_TONE } from "@/components/ui/status-dot";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -147,6 +150,8 @@ export function VMList(props: { usageOnly: boolean }) {
   const [screenTick, setScreenTick] = useState(0);
   // The VMs whose last picture didn't come (the desktop isn't up yet): their card says so.
   const [noScreen, setNoScreen] = useState<Record<string, boolean>>({});
+  // The VM whose settings are open from its ⋯ (Dashboard), or null.
+  const [settingsFor, setSettingsFor] = useState<string | null>(null);
   // Only the names: the VM list changes every second, the running ones rarely.
   const runningNames = vms
     .filter((vm) => vm.status === "running")
@@ -301,6 +306,18 @@ export function VMList(props: { usageOnly: boolean }) {
                 <span className="truncate text-xs text-destructive" title={vm.error}>
                   {vm.error}
                 </span>
+              )}
+              {props.usageOnly && (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="ml-auto shrink-0"
+                  aria-label={`${vm.name} settings`}
+                  title="Settings"
+                  onClick={() => setSettingsFor(vm.name)}
+                >
+                  <MoreHorizontal />
+                </Button>
               )}
             </div>
 
@@ -498,6 +515,21 @@ export function VMList(props: { usageOnly: boolean }) {
           </div>
         );
       })}
+
+      {/* The Dashboard's ⋯ on a VM: the same settings as its page's Settings tab. */}
+      <Dialog
+        open={settingsFor !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSettingsFor(null);
+          }
+        }}
+      >
+        <DialogContent className="gap-0 p-0 sm:max-w-2xl">
+          <DialogTitle className="px-4 pt-4">{settingsFor} settings</DialogTitle>
+          <div className="max-h-[75vh] overflow-auto">{settingsFor !== null && <VMSettings name={settingsFor} />}</div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

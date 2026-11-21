@@ -1,6 +1,6 @@
 /*
-The Settings tab of a VM page: its name, CPU and memory, max desktops, internet, autostart, env vars, its image,
-Graceful shutdown and Delete.
+The Settings tab of a VM page (and the Dashboard's ⋯ on a VM): its name, CPU and memory, max desktops, internet,
+autostart, env vars, its image, Graceful shutdown and Delete.
 
 Graceful shutdown: no agent new to the VM gets a desktop, the ones holding one finish, then it shuts down by itself
 (Agents.watch_room). Start or Restart makes it a normal VM again; nothing is deleted.
