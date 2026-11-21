@@ -28,10 +28,11 @@ Under the top:
   the right. Models by their names (Opus 5.5), kinds of work in plain words; Agents is the agents' work from before the
   log, when its kind wasn't kept.
   These two share one time axis: hovering a period in one marks it in both, with its numbers.
-- In progress: the fix_issue and follow_up jobs working now, longest on its step first: Issue or pull request (its
-  repository and number only, opens it on GitHub), Step, On step, Tokens (all its agent used, in thousands: an agent is
-  made per issue, and its pull request's follow-ups go to it), Agent (opens its chat), VM and desktop. The header
-  counts working and queued, and says Safe to shut down while no agent is busy (nothing otherwise).
+- In progress: the fix_issue and follow_up jobs working now, the most VM time first: Issue or pull request (its
+  repository and number only, opens it on GitHub), Step, VM time (how long its agent held a VM desktop for it: tests,
+  builds and all it did there, counted since 11-20; jobs.py vm_seconds), Tokens (all its agent used, in thousands: an
+  agent is made per issue, and its pull request's follow-ups go to it), Agent (opens its chat), VM and desktop. The
+  header counts working and queued, and says Safe to shut down while no agent is busy (nothing otherwise).
 - Virtual machines: every VM's band from the VMs tab (VMList in VMs.tsx) with only its CPU, Memory, Internet and Disk
   cards. The header counts the running ones.
 Charts keep fixed heights; a line breaks where there is no number. Lines are drawn back to front by their layer, each
@@ -43,7 +44,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { VMList } from "@/VMs";
-import { JobProgressBar, since, useNow } from "@/components/ui/job-progress";
+import { JobProgressBar, useNow } from "@/components/ui/job-progress";
 import { api, useConnected, useLive, useLoaded, type AutomationData } from "@/live";
 import { cn } from "@/lib/utils";
 
@@ -424,14 +425,14 @@ export default function Dashboard() {
     { title: "Desktops in use", used: desktopsUsed, limit: desktopsAll, about: "" },
   ];
 
-  // In progress: the jobs agents work on now, longest on its step first.
+  // In progress: the jobs agents work on now, the most VM time first.
   const agentById: Record<string, (typeof agents)[number]> = {};
   for (const agent of agents) {
     agentById[agent.id] = agent;
   }
   const agentJobs = jobs.filter((job) => job.kind === "fix_issue" || job.kind === "follow_up");
   const working = agentJobs.filter((job) => job.status === "working");
-  working.sort((a, b) => (a.step_at ?? a.updated_at).localeCompare(b.step_at ?? b.updated_at));
+  working.sort((a, b) => b.vm_seconds - a.vm_seconds);
   const queued = agentJobs.filter((job) => job.status === "queued").length;
 
   // The Pull requests chart's y axis, a log scale: 0, then 1, 3, 10, 30, ... up to the first at or over the highest.
@@ -971,7 +972,7 @@ export default function Dashboard() {
                     <tr>
                       <th className={th}>Issue or pull request</th>
                       <th className={th}>Step</th>
-                      <th className={cn(th, "text-right")}>On step</th>
+                      <th className={cn(th, "text-right")}>VM time</th>
                       <th className={cn(th, "text-right")}>Tokens</th>
                       <th className={th}>Agent</th>
                       <th className={th}>VM</th>
@@ -982,6 +983,9 @@ export default function Dashboard() {
                       const [repo, number] = (job.issue ?? job.thread ?? "").split("#");
                       const agent = agentById[job.agent];
                       const vm = agent?.vm ?? job.vm;
+                      // "12m", or "2h 15m" from an hour.
+                      const vmMinutes = Math.floor(job.vm_seconds / 60);
+                      const vmTime = vmMinutes < 60 ? `${vmMinutes}m` : `${Math.floor(vmMinutes / 60)}h ${vmMinutes % 60}m`;
                       return (
                         <tr key={job.id} className="hover:bg-accent/40 [&:last-child>td]:border-b-0">
                           <td className={cn(td, "max-w-96 truncate")}>
@@ -992,7 +996,7 @@ export default function Dashboard() {
                           <td className={td}>
                             <JobProgressBar job={job} />
                           </td>
-                          <td className={cn(td, "text-right font-mono text-xs tabular-nums")}>{since(job.step_at ?? job.started_at, now)}</td>
+                          <td className={cn(td, "text-right font-mono text-xs tabular-nums")}>{vmTime}</td>
                           <td className={cn(td, "text-right font-mono text-xs tabular-nums")}>
                             {agent === undefined ? "–" : `${Math.round(agent.tokens_used / 1000).toLocaleString("en")}K`}
                           </td>

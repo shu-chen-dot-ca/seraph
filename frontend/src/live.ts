@@ -76,6 +76,7 @@ export type Job = {
   step: string | null;
   step_at: string | null; // when it got to that step
   started_at: string | null; // when the job first became "working"
+  vm_seconds: number; // how long its agent held a VM desktop while it was working (counted since 11-20)
   paused_from?: JobStatus | null; // paused: the status Resume puts back
   about: string; // what the job is about, in everyday words
   headline: string; // where it stands now, in everyday words
