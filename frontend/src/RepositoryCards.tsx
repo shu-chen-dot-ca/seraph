@@ -11,17 +11,14 @@ bottom that scrolls on its own (on a narrow window the columns keep their width 
 - Target: repos you hunt, to become a contributor there (an NVIDIA one, say), added from Catalog (Add to Target, the
   Repos list's target, with when each went there). Remove from Target takes one back to Catalog; besides, one leaves by
   its PRs: once one of yours is merged there it is in Contributed, and once one is closed without a merge after it went
-  there it is rejected: back in Catalog, at the top. Add to Target there puts it back. By stars.
-- Catalog: the rest, in three groups: the ones rejected in Target first, then the ones with a PR of yours open or an
-  issue in progress, then the others. In each group by owner: the owner with the most starred repo first, an owner's
-  repos always together, by stars.
+  there it is rejected: back in Catalog. Add to Target there puts it back. By stars.
+- Catalog: the rest. By stars.
 - Removed: the ones you deleted that have pull requests of yours (the Repos list's removed), and every other one with a
   PR of yours closed that isn't in another column (none merged or open, no issue in progress, never in Target). By
   stars.
-In every column an owner's repos are together, where its first one comes (in Catalog, within its group).
 Every repo with a pull request of yours has a card, also one that isn't in the Repos list (a PR you opened by hand, a
 repo taken out of the list): made from its pull requests, so it goes to its column like any other (only closed ones:
-Removed). Its stars aren't known (–), and its ⋯ has only the moves (none in Catalog or Removed: no ⋯ there).
+Removed). Its stars aren't known (–), so it comes last in its column, and its ⋯ has only the moves (none in Catalog or Removed: no ⋯ there).
 A card: the owner's picture as its logo, owner/name, and under it in color: its stars (yellow), then of your pull
 requests there how many it merged (purple), closed without a merge (red) and are still open (green), then the issues in
 progress there (yellow, a draft PR icon: fix_issue jobs still open with no pull request on GitHub yet, as the Pull
@@ -249,38 +246,8 @@ export default function RepositoryCards(props: { state: string }) {
   });
   // Target: none merged, and you added it there (not rejected).
   const target = shown.filter((card) => card.merged === 0 && !removed.includes(card) && targetNames.includes(card.repo.full_name));
-  // Catalog: the rest, in groups (by its name): 0 rejected in Target, 1 a PR of yours open or an issue in progress, 2 the
-  // others. In each by owner: each owner's most stars.
+  // Catalog: the rest, by stars.
   const catalog = shown.filter((card) => !removed.includes(card) && !prioritized.includes(card) && !contributed.includes(card) && !target.includes(card));
-  const group: Record<string, number> = {};
-  for (const card of catalog) {
-    group[card.repo.full_name] = 2;
-    if (card.open > 0 || card.working > 0) {
-      group[card.repo.full_name] = 1;
-    }
-    if (rejectedNames.includes(card.repo.full_name)) {
-      group[card.repo.full_name] = 0;
-    }
-  }
-  const topStars: Record<string, number> = {};
-  for (const card of catalog) {
-    const owner = group[card.repo.full_name] + ":" + card.repo.full_name.split("/")[0].toLowerCase();
-    topStars[owner] = Math.max(topStars[owner] ?? 0, card.repo.stars);
-  }
-  catalog.sort((a, b) => {
-    if (group[a.repo.full_name] !== group[b.repo.full_name]) {
-      return group[a.repo.full_name] - group[b.repo.full_name];
-    }
-    const ownerA = group[a.repo.full_name] + ":" + a.repo.full_name.split("/")[0].toLowerCase();
-    const ownerB = group[b.repo.full_name] + ":" + b.repo.full_name.split("/")[0].toLowerCase();
-    if (topStars[ownerA] !== topStars[ownerB]) {
-      return topStars[ownerB] - topStars[ownerA];
-    }
-    if (ownerA !== ownerB) {
-      return ownerA < ownerB ? -1 : 1;
-    }
-    return b.repo.stars - a.repo.stars;
-  });
   // moveTo: the column a card here can move to (its ⋯ or a drag), and back. key: its switch in take_from ("" for none).
   const columns = [
     { title: "Prioritized", key: "prioritized", contributed: true, removed: false, moveTo: "Contributed", cards: prioritized },
@@ -377,21 +344,6 @@ export default function RepositoryCards(props: { state: string }) {
       {shown.length > 0 && (
         <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
           {columns.map((column) => {
-            // An owner's repos together, where its first one comes (in Catalog, within its group).
-            const owners: string[] = [];
-            const byOwner: Record<string, typeof shown> = {};
-            for (const card of column.cards) {
-              const owner = (group[card.repo.full_name] ?? 0) + ":" + card.repo.full_name.split("/")[0].toLowerCase();
-              if (byOwner[owner] === undefined) {
-                owners.push(owner);
-                byOwner[owner] = [];
-              }
-              byOwner[owner].push(card);
-            }
-            const ordered: typeof shown = [];
-            for (const owner of owners) {
-              ordered.push(...byOwner[owner]);
-            }
             // A card dragged from the column this one pairs with can drop here.
             const dropHere = dragging !== null && column.moveTo === dragging.from;
 
@@ -450,7 +402,7 @@ export default function RepositoryCards(props: { state: string }) {
                   )}
                 </h2>
                 <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-                  {ordered.map((card) => {
+                  {column.cards.map((card) => {
                     // Its ⋯ has a move, Remove from Target, or Delete or Add to Removed (and in Catalog Add to Target).
                     const menu = column.moveTo !== "" || column.title === "Target" || (card.listed && !column.removed);
                     // Its record with us: one round of its tests, as text ("~": only rough times), and the rating's parts.
