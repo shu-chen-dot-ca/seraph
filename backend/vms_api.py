@@ -230,9 +230,10 @@ def restart_vm(name: str) -> dict:
 
 
 @router.post("/vms/{name}/graceful_shutdown")
-def graceful_shutdown_vm(name: str) -> dict:
+async def graceful_shutdown_vm(name: str) -> dict:
     """No agent new to it gets a desktop; the ones on it finish, then Agents.watch_room shuts it down. A start or
-    restart makes it a normal VM again."""
+    restart makes it a normal VM again. async: it only sets a flag, so it never waits behind the thread pool's
+    Incus calls."""
     if name == FIX_VM:
         raise HTTPException(status_code=400, detail=f"{FIX_VM} is Seraph's own VM, for Fix all on the Feedback page: it stays on.")
     try:
