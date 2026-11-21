@@ -38,13 +38,11 @@ cp .env.example .env
 |---|---|---|
 | `GITHUB_TOKEN`, `GITHUB_TOKEN_2`, … | | Search tokens. Requests are spread over all of them. |
 | `CLAUDE_CODE_OAUTH_TOKEN` | | The agents' login |
-| `CLAUDE_MODEL` | `claude-opus-5-5[1m]` | The model every agent uses |
-| `AGENT_CONTEXT_CAP` | `500000` | How large an agent's context gets before it is compacted |
+| `CLAUDE_CODE_OAUTH_TOKEN_VM` | | Fix all's login, in Seraph's own VM |
 | `BACKEND_PORT` | `8001` | The backend's port, on 127.0.0.1 only |
 | `DATA_DIR` | `data` | Everything Seraph keeps |
-| `SANDBOX_*_DEFAULT` | 8 CPUs, 8 GB, 128 GB | A new VM's size |
-| `SANDBOX_MIN_FREE_RAM_GB` | `8` | Memory that must stay free |
-| `REMOTE_ACCESS_*` | | Optional: see [remote access](../remote_access/README.md) |
+| `SERAPH_REPO` | | This repo on GitHub (owner/name), for updates and Fix all. `deploy/install.sh` sets it. |
+| `REMOTE_ACCESS_DOMAIN`, `REMOTE_ACCESS_SERVER` | | Optional: see [remote access](../remote_access/README.md) |
 
 The tokens can live in AWS Secrets Manager instead: see [Security](security.md#secrets-in-aws-secrets-manager).
 
