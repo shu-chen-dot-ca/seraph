@@ -27,9 +27,8 @@ count opens a menu with Close all (every open PR of yours there closed on GitHub
 in-progress one Stop all (those jobs stopped and their issues dropped, POST /api/repos/stop_in_progress), as the ⋯
 opens. Then, from the live "repo_stats" topic (github_searcher/repo_stats.py): one round of its tests (blue, a clock:
 the median after run, the one every change needs before its PR, of the scope its rules ask for; "~" when only rough
-times from before 11-20 are known; its tooltip with the scope, the CPU and how many runs),
-and in Prioritized and Contributed its rating of how our PRs are received there (pink, 0 to 10; its tooltip with the
-parts: first reply, time to merge, merged share, change requests, tone).
+times from before 11-20 are known), and in Prioritized and Contributed its rating of how our PRs are received there
+(pink, 0 to 10). None of these has a tooltip.
 A click on a card's owner/name (the text itself, with no tooltip) opens the repo on GitHub in a new tab; elsewhere on a
 card it does nothing yet. A card has a ⋯, whose menu opens when the mouse is on it (a tap or click on a phone): Move to
 Contributed in Prioritized and back; in Catalog Add to Target, in Target Remove from Target; and outside Removed Delete, or Add to Removed for a repo
@@ -405,10 +404,9 @@ export default function RepositoryCards(props: { state: string }) {
                   {column.cards.map((card) => {
                     // Its ⋯ has a move, Remove from Target, or Delete or Add to Removed (and in Catalog Add to Target).
                     const menu = column.moveTo !== "" || column.title === "Target" || (card.listed && !column.removed);
-                    // Its record with us: one round of its tests, as text ("~": only rough times), and the rating's parts.
+                    // Its record with us: one round of its tests, as text ("~": only rough times), and the rating.
                     const stat = stats[card.repo.full_name.toLowerCase()];
                     let round = "";
-                    const roundLines: string[] = [];
                     if (stat !== undefined && stat.round_seconds !== null) {
                       if (stat.round_seconds < 60) {
                         round = `${stat.round_seconds}s`;
@@ -419,40 +417,6 @@ export default function RepositoryCards(props: { state: string }) {
                       }
                       if (!stat.exact) {
                         round = "~" + round;
-                      }
-                      roundLines.push(`Test run: ${round}`);
-                      if (stat.scope === "full") {
-                        roundLines.push("Official checks, after each change");
-                      }
-                      if (stat.scope === "focused") {
-                        roundLines.push("Tests that cover the change, after each change");
-                      }
-                      if (stat.round_cpu_seconds !== null) {
-                        roundLines.push(`CPU: ${(stat.round_cpu_seconds / 3600).toFixed(1)}h`);
-                      }
-                      roundLines.push(`Runs: ${stat.rounds}`);
-                    }
-                    const ratingLines: string[] = [];
-                    if (stat !== undefined && stat.rating !== null) {
-                      ratingLines.push(`Rating: ${stat.rating.toFixed(1)} of 10`);
-                      if (stat.first_reply_hours !== null) {
-                        ratingLines.push(
-                          stat.first_reply_hours < 48
-                            ? `First reply: ${Math.round(stat.first_reply_hours)} hours`
-                            : `First reply: ${(stat.first_reply_hours / 24).toFixed(1)} days`,
-                        );
-                      }
-                      if (stat.merge_days !== null) {
-                        ratingLines.push(`Time to merge: ${stat.merge_days} days`);
-                      }
-                      if (stat.merge_rate !== null) {
-                        ratingLines.push(`Merged: ${Math.round(stat.merge_rate * 100)}%`);
-                      }
-                      if (stat.change_requests !== null) {
-                        ratingLines.push(`Change requests: ${stat.change_requests} per PR`);
-                      }
-                      if (stat.tone !== null) {
-                        ratingLines.push(`Tone: ${stat.tone} of 10`);
                       }
                     }
                     return (
@@ -482,19 +446,20 @@ export default function RepositoryCards(props: { state: string }) {
                               {card.repo.full_name}
                             </a>
                           </div>
-                          <div className="flex items-center gap-2.5 text-xs text-muted-foreground tabular-nums">
-                            <span className="flex items-center gap-0.5 text-yellow-600 dark:text-yellow-400" title="Stars">
+                          {/* title="": no tooltip (the card's name) over the counts. */}
+                          <div className="flex items-center gap-2.5 text-xs text-muted-foreground tabular-nums" title="">
+                            <span className="flex items-center gap-0.5 text-yellow-600 dark:text-yellow-400">
                               <Star className="size-3" />
                               {card.listed ? card.repo.stars.toLocaleString("en", { notation: "compact" }) : "–"}
                             </span>
                             {card.merged > 0 && (
-                              <span className="flex items-center gap-0.5 text-violet-500" title="Your PRs merged">
+                              <span className="flex items-center gap-0.5 text-violet-500">
                                 <GitMerge className="size-3" />
                                 {card.merged}
                               </span>
                             )}
                             {card.closed > 0 && (
-                              <span className="flex items-center gap-0.5 text-destructive" title="Your PRs closed without a merge">
+                              <span className="flex items-center gap-0.5 text-destructive">
                                 <GitPullRequestClosed className="size-3" />
                                 {card.closed}
                               </span>
@@ -568,13 +533,13 @@ export default function RepositoryCards(props: { state: string }) {
                                 </DropdownMenu>
                               ))}
                             {round !== "" && (
-                              <span className="flex items-center gap-0.5 text-sky-500" title={roundLines.join("\n")}>
+                              <span className="flex items-center gap-0.5 text-sky-500">
                                 <Clock className="size-3" />
                                 {round}
                               </span>
                             )}
-                            {column.contributed && ratingLines.length > 0 && (
-                              <span className="flex items-center gap-0.5 text-pink-500" title={ratingLines.join("\n")}>
+                            {column.contributed && stat !== undefined && stat.rating !== null && (
+                              <span className="flex items-center gap-0.5 text-pink-500">
                                 <ThumbsUp className="size-3" />
                                 {stat?.rating?.toFixed(1)}
                               </span>
