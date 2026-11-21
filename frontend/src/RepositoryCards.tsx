@@ -3,17 +3,20 @@ The Repositories page (#/repos): the repos in the repo list (repo_list.py) as ca
 each a list from top to bottom that scrolls on its own (on a narrow window the columns keep their width and the page
 scrolls sideways):
 - Contributed: repos that merged a pull request of yours. By stars, most first, or by the pick in the column's sort
-  menu (Sort by stars, merged PRs, open PRs or closed PRs, always the most first; then by stars).
+  menu (Sort by stars, merged PRs, open PRs, closed PRs or in-progress PRs, always the most first; then by stars).
 - Planned: repos you want to contribute to, none of yours merged yet: the ones you picked (Add to Planned, kept in the
-  Repos list's planned, repo_list.py), and the ones where a PR of yours is open. By stars.
-- Catalog: the rest, grouped by owner: the owner with the most starred repo first, an owner's repos always together, by
+  Repos list's planned, repo_list.py), the ones where a PR of yours is open, and the ones with an issue in progress. By
   stars.
+- Catalog: the rest (no PR of yours open, no issue in progress), grouped by owner: the owner with the most starred repo
+  first, an owner's repos always together, by stars.
 - Removed: the ones you deleted that have pull requests of yours (the Repos list's removed), and the ones where every PR
-  of ours was closed, none merged or open (unless you picked them for Planned). By stars.
+  of ours was closed, none merged or open, and no issue is in progress (unless you picked them for Planned). By stars.
 In every column an owner's repos are together, where its first one comes.
 A card: the owner's picture as its logo, owner/name, and under it in GitHub's colors: its stars (yellow), then of your
 pull requests there how many it merged (purple), closed without a merge (red) and are still open (green). Gray instead:
-a closed count of 0, and outside Contributed the stars and every count of 0.
+a closed count of 0, and outside Contributed the stars and every count of 0. Last, only when there are any, the issues
+in progress there (yellow, a draft PR icon): fix_issue jobs still open with no pull request on GitHub yet, as the Pull
+requests page's In progress has them (from the live "jobs" topic).
 A click on a card does nothing yet. Every card has a ⋯, whose menu opens when the mouse is on it (a tap or click on a
 phone): Open on GitHub; in Planned and Catalog Add to Planned, or Remove from Planned for one you picked (POST
 /api/repos/plan); and outside Removed Delete, at once, with no "are you sure?" (POST /api/repos/delete): every agent
@@ -23,7 +26,7 @@ Your pull requests are the ones the app follows (github_searcher/pr_tracking.py)
 numbers update themselves.
 */
 
-import { ChevronDown, GitMerge, GitPullRequest, GitPullRequestClosed, MoreHorizontal, Star } from "lucide-react";
+import { ChevronDown, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MoreHorizontal, Star } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -38,7 +41,9 @@ import {
 import { api, useLive, useLoaded } from "@/live";
 import { cn } from "@/lib/utils";
 
-type Sort = "stars" | "merged" | "open" | "closed";
+type Sort = "stars" | "merged" | "open" | "closed" | "working";
+
+const OPEN_JOB = ["queued", "working", "waiting_on_user", "waiting_on_maintainers"];
 
 // The Contributed column's sort menu.
 const SORT_TITLE: Record<Sort, string> = {
@@ -46,11 +51,13 @@ const SORT_TITLE: Record<Sort, string> = {
   merged: "Sort by merged PRs",
   open: "Sort by open PRs",
   closed: "Sort by closed PRs",
+  working: "Sort by in-progress PRs",
 };
 
 export default function RepositoryCards() {
   const repos = useLive("repos");
   const prs = useLive("prs");
+  const jobs = useLive("jobs");
   const loaded = useLoaded("repos");
   // The card whose ⋯ menu is open: the mouse on the ⋯ opens it at once, and it closes once the mouse left both the ⋯
   // and the menu (closeTimer: a tenth of a second, to go from one to the other). A tap or a key opens and closes it as
@@ -78,20 +85,34 @@ export default function RepositoryCards() {
     }
   }
 
+  // The issues in progress in each repo: fix_issue jobs still open with no pull request yet.
+  const prJobs = prs.items.filter((pr) => pr.relation === "author").map((pr) => pr.job);
+  const working: Record<string, number> = {};
+  for (const job of jobs) {
+    if (job.kind !== "fix_issue" || !OPEN_JOB.includes(job.status) || prJobs.includes(job.id)) {
+      continue;
+    }
+    if (job.repo === null) {
+      continue;
+    }
+    const key = job.repo.toLowerCase();
+    working[key] = (working[key] ?? 0) + 1;
+  }
+
   const cards = repos.items.map((repo) => {
     const key = repo.full_name.toLowerCase();
-    return { repo: repo, merged: merged[key] ?? 0, closed: closed[key] ?? 0, open: open[key] ?? 0 };
+    return { repo: repo, merged: merged[key] ?? 0, closed: closed[key] ?? 0, open: open[key] ?? 0, working: working[key] ?? 0 };
   });
   cards.sort((a, b) => b.repo.stars - a.repo.stars);
   // A repo deleted here with no pull requests of yours is gone; one with some goes to Removed.
   const shown = cards.filter((card) => !deleted.includes(card.repo.full_name) || card.merged + card.closed + card.open > 0);
   const removedNames = [...repos.removed, ...deleted];
-  // Removed: the ones you deleted, and the ones where every PR of ours was closed, none merged or open, unless you
-  // picked them for Planned.
+  // Removed: the ones you deleted, and the ones where every PR of ours was closed, none merged or open and no issue in
+  // progress, unless you picked them for Planned.
   const removed = shown.filter(
     (card) =>
       removedNames.includes(card.repo.full_name) ||
-      (card.merged === 0 && card.open === 0 && card.closed > 0 && !repos.planned.includes(card.repo.full_name)),
+      (card.merged === 0 && card.open === 0 && card.working === 0 && card.closed > 0 && !repos.planned.includes(card.repo.full_name)),
   );
   // Contributed by the sort menu's pick, the most first, then by stars (cards are by stars already).
   const contributed = shown.filter((card) => card.merged > 0 && !removed.includes(card));
@@ -105,11 +126,15 @@ export default function RepositoryCards() {
     if (sort === "closed") {
       return b.closed - a.closed;
     }
+    if (sort === "working") {
+      return b.working - a.working;
+    }
     return 0;
   });
-  // Planned: none merged, and you picked it, or a PR of yours is open there.
+  // Planned: none merged, and you picked it, a PR of yours is open there, or an issue is in progress.
   const planned = shown.filter(
-    (card) => card.merged === 0 && !removed.includes(card) && (repos.planned.includes(card.repo.full_name) || card.open > 0),
+    (card) =>
+      card.merged === 0 && !removed.includes(card) && (repos.planned.includes(card.repo.full_name) || card.open > 0 || card.working > 0),
   );
   // Catalog by owner: each owner's most stars.
   const catalog = shown.filter((card) => !removed.includes(card) && !contributed.includes(card) && !planned.includes(card));
@@ -202,6 +227,7 @@ export default function RepositoryCards() {
                           <DropdownMenuRadioItem value="merged">{SORT_TITLE.merged}</DropdownMenuRadioItem>
                           <DropdownMenuRadioItem value="open">{SORT_TITLE.open}</DropdownMenuRadioItem>
                           <DropdownMenuRadioItem value="closed">{SORT_TITLE.closed}</DropdownMenuRadioItem>
+                          <DropdownMenuRadioItem value="working">{SORT_TITLE.working}</DropdownMenuRadioItem>
                         </DropdownMenuRadioGroup>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -235,6 +261,12 @@ export default function RepositoryCards() {
                               <GitPullRequest className="size-3" />
                               {card.open}
                             </span>
+                            {card.working > 0 && (
+                              <span className="flex items-center gap-0.5 text-yellow-600 dark:text-yellow-400" title="In progress">
+                                <GitPullRequestDraft className="size-3" />
+                                {card.working}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <DropdownMenu
