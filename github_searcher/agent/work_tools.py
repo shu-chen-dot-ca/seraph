@@ -3871,7 +3871,7 @@ class WorkTools:
             disk_used_gb = vm_record.usage["disk_used_gb"]
             entry = {
                 "name": vm_record.name,
-                "status": vm_record.status,
+                "status": "shutting down once the agents on it are done: takes nobody new" if vm_record.graceful_shutdown else vm_record.status,
                 "cpus": vm_record.cpus,
                 "memory_gb": vm_record.memory_gb,
                 "disk_gb": vm_record.disk_gb,
@@ -3963,11 +3963,15 @@ class WorkTools:
                 named = set(name.rstrip(".") for name in re.findall(r"[\w.-]+/[\w.-]+", note["text"].lower()))
                 if note["by"] != "user" and named & repos:
                     set_up = True
+            # The user's Graceful shutdown: nobody new gets it, set up there or not.
+            if target.graceful_shutdown:
+                why = "it shuts down once the agents on it are done"
+                set_up = False
         other = None
         if wanted is None and place is None and why and not set_up:
             for each in self.agents.vms.list():
                 free = [number for number, line in each.desktops.items() if line["holder"] is None]
-                if each.name == FIX_VM or each.name == vm_name:
+                if each.name == FIX_VM or each.name == vm_name or each.graceful_shutdown:
                     continue
                 if other is None and each.status == "running" and each.name not in self.agents.queue.full and not each.queue and free:
                     other = each
