@@ -191,6 +191,9 @@ ROOM_DISK_GB = 20
 OVERLOAD_TIMES = 2
 OVERLOAD_MEMORY_PERCENT = 10
 STEP_DOWN_SECONDS = 15 * 60
+# How often an agent's time on a VM is added to its job (count_vm_time): every desktop holder working on a job gets
+# this much more.
+VM_TIME_SECONDS = 30
 OPEN_STATUSES = ["queued", "working"]
 # The record fields of agents of features the app no longer has (a repository's Live agent, a project's agents, the
 # Workflow tab's): start() archives an agent that has any of them, and takes them off.
@@ -274,6 +277,7 @@ class Agents:
         self.run_watcher = None
         self.heartbeat = None
         self.room_watcher = None
+        self.vm_timer = None
         queue.on_grant = self.on_grant
         queue.on_kick = self.on_kick
         # Every place in a queue shows in the agent list.
@@ -398,6 +402,7 @@ class Agents:
         self.run_watcher = asyncio.create_task(self.watch_runs())
         self.heartbeat = asyncio.create_task(self.keep_going())
         self.room_watcher = asyncio.create_task(self.watch_room())
+        self.vm_timer = asyncio.create_task(self.count_vm_time())
 
     async def stop(self) -> None:
         if self.saver is not None:
@@ -408,6 +413,8 @@ class Agents:
             self.heartbeat.cancel()
         if self.room_watcher is not None:
             self.room_watcher.cancel()
+        if self.vm_timer is not None:
+            self.vm_timer.cancel()
         for worker in self.workers.values():
             worker.cancel()
         for agent in self.agents.values():
@@ -1853,6 +1860,27 @@ class Agents:
                 )
                 self.pending[agent.id].append({"from": "System", "text": text, "shown": False})
                 self.wake[agent.id].set()
+
+    async def count_vm_time(self) -> None:
+        """Every VM_TIME_SECONDS, each agent holding a VM desktop adds that much to the job it works on (jobs.py
+        vm_seconds), while that job is working: its tests, builds and everything else it does there count. Waiting in a
+        VM's line doesn't."""
+        while True:
+            await asyncio.sleep(VM_TIME_SECONDS)
+            for agent in list(self.agents.values()):
+                job_id = agent.work["job"]
+                if job_id is None:
+                    continue
+                vm_name, place = self.queue.place(agent.id)
+                if place != 0:
+                    continue
+                try:
+                    job = self.jobs.get(job_id)
+                except KeyError:
+                    continue
+                if job["status"] != "working":
+                    continue
+                self.jobs.add_vm_seconds(job_id, VM_TIME_SECONDS)
 
     async def watch_room(self) -> None:
         """A VM steps down when it runs out of room (module docstring), every ROOM_CHECK_SECONDS: each running VM's load,
