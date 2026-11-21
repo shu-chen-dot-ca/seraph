@@ -112,8 +112,9 @@ def start(record: VMRecord, agent_id: str, desktop: int, kind: str, command: str
 
 
 def check(record: VMRecord, run: dict) -> dict | None:
-    """None while the run goes. Once it ended: {"ended", "exit_code", "output", "seconds"} (and "cpu_seconds" for one
-    that exited, None when not known: see the top of this file), where ended is "exit"
+    """None while the run goes. Once it ended: {"ended", "exit_code", "output", "seconds"} (and for one that exited
+    "exact", whether seconds are its own start to end, and "cpu_seconds", None when not known: see the top of this file),
+    where ended is "exit"
     (it finished, with exit_code), "timeout" (stopped after RUN_LIMIT_SECONDS) or "gone" (it ended without
     finishing: the user or its agent stopped it, the VM stopped or restarted, the disk filled up, or something else
     ended its processes); a gone one also has "why", that cause as far as the VM shows it. Blocking (an incus call);
@@ -162,7 +163,7 @@ def check(record: VMRecord, run: dict) -> dict | None:
                 cpu_seconds = round(cpu_seconds)
             except ValueError:
                 cpu_seconds = None
-        return {"ended": "exit", "exit_code": int(words[1]), "output": output, "seconds": seconds, "cpu_seconds": cpu_seconds}
+        return {"ended": "exit", "exit_code": int(words[1]), "output": output, "seconds": seconds, "exact": len(words) >= 4, "cpu_seconds": cpu_seconds}
     if first.startswith("gone"):
         # Why it ended without its exit code: the VM booted after it started, its folder of runs was deleted (a clean-up
         # of ~/.cache), the disk is full (whatever it ran failed for lack of room, or it couldn't write its result), or
