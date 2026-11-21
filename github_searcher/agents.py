@@ -58,7 +58,9 @@ A VM steps down when it runs out of room (watch_room, every ROOM_CHECK_SECONDS, 
 disk). Full (the load of the last minute at its number of CPUs or more, less than ROOM_MEMORY_PERCENT of its memory free,
 or less than ROOM_DISK_GB of its disk free), it takes nobody new (VMQueue.full, with why): agents wait in its line instead
 of getting a free desktop or adding one, and are told why. When its disk runs low, the agents holding its desktops are
-told once to free what they can in their own homes (the folders of jobs that are over, caches); nobody else can.
+told once to free what they can in their own homes (the folders of jobs that are over, caches).
+The app also clears agents' leftovers itself (clean_disks, every CLEAN_SECONDS), so it never rests on agents remembering:
+clones of repos nobody works on anymore, and with the disk low, download caches and Docker's unused images.
 An agent is never stuck on one VM: one waiting in a VM's line for any desktop, with nothing of its jobs set up there,
 goes to another running VM with a desktop free and nobody waiting (watch_room; queue_for_vm does the same when it
 queues for a VM that is off, gone, full or has every desktop taken). One whose project is set up there stays: setting it
@@ -151,6 +153,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import threading
 import traceback
 from datetime import UTC, datetime, timedelta
@@ -164,6 +167,7 @@ from github_searcher.agent.work_tools import WorkTools
 from github_searcher.claude_models import BIG_REPO_MODEL, BIG_REPO_STARS, MODELS
 from sandbox.agent import long_runs
 from sandbox.agent.tools import ComputerTools
+from sandbox.images import load_inventory
 from sandbox.vms import FIX_VM, VMsError
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -195,6 +199,50 @@ ROOM_DISK_GB = 20
 OVERLOAD_TIMES = 2
 OVERLOAD_MEMORY_PERCENT = 10
 STEP_DOWN_SECONDS = 15 * 60
+# How often the app clears agents' leftovers off each running VM's disk (clean_disks): a clone nobody touched for
+# CLEAN_UNTOUCHED_DAYS, of a repo with no open job or PR. With less than CLEAN_LOW_DISK_PERCENT of the disk free, also
+# Docker's unused images (not the ones its image came with), volumes and build cache, and these download caches in each
+# home: all fill again by themselves.
+CLEAN_SECONDS = 10 * 60
+CLEAN_UNTOUCHED_DAYS = 2
+CLEAN_LOW_DISK_PERCENT = 15
+CLEAN_CACHES = [
+    ".cache/pip", ".cache/uv", ".npm/_cacache", ".local/share/pnpm/store", ".cache/go-build", ".cargo/registry/cache",
+    ".cache/yarn", ".bun/install/cache", ".gradle/caches", ".m2/repository",
+]
+# Run as root in a VM (clean_disks): its disk in all and free (kB), each desktop's home ("home", its desktop, the folder),
+# then each git clone at the top of a home ("clone", its desktop, the folder, when its .git last changed in seconds since
+# 1970, its origin URL). Desktop 1's user is the image's own (uid 1000), desktop n's is desktopn.
+CLEAN_LIST_SCRIPT = r"""
+df -Pk /home | awk 'NR == 2 {print "disk", $2, $4}'
+one=$(getent passwd 1000 | cut -d: -f6)
+for home in /home/*; do
+    number=""
+    [ "$home" = "$one" ] && number=1
+    case "$home" in /home/desktop[0-9]*) number=${home#/home/desktop} ;; esac
+    [ -n "$number" ] || continue
+    printf 'home\t%s\t%s\n' "$number" "$home"
+    for dir in "$home"/*/; do
+        dir=${dir%/}
+        [ -e "$dir/.git" ] || continue
+        url=$(git -c safe.directory='*' -C "$dir" remote get-url origin 2> /dev/null) || continue
+        printf 'clone\t%s\t%s\t%s\t%s\n' "$number" "$dir" "$(stat -c %Y "$dir/.git")" "$url"
+    done
+done
+"""
+# Run as root in a VM with its disk low (clean_disks), after protected= (the Docker images its image came with, by
+# space). docker rmi without -f leaves an image any container uses, running or stopped.
+CLEAN_DOCKER_SCRIPT = r"""
+command -v docker > /dev/null || exit 0
+for image in $(docker image ls --format '{{.Repository}}:{{.Tag}}'); do
+    case " $protected " in *" $image "*) continue ;; esac
+    docker rmi "$image" > /dev/null 2>&1
+done
+docker image prune -f > /dev/null 2>&1
+docker volume prune -f > /dev/null 2>&1
+docker builder prune -af > /dev/null 2>&1
+true
+"""
 # How often an agent's time on a VM is added to its job (count_vm_time): every desktop holder working on a job gets
 # this much more.
 VM_TIME_SECONDS = 30
@@ -281,6 +329,7 @@ class Agents:
         self.run_watcher = None
         self.heartbeat = None
         self.room_watcher = None
+        self.disk_cleaner = None
         self.vm_timer = None
         queue.on_grant = self.on_grant
         queue.on_kick = self.on_kick
@@ -406,6 +455,7 @@ class Agents:
         self.run_watcher = asyncio.create_task(self.watch_runs())
         self.heartbeat = asyncio.create_task(self.keep_going())
         self.room_watcher = asyncio.create_task(self.watch_room())
+        self.disk_cleaner = asyncio.create_task(self.clean_disks())
         self.vm_timer = asyncio.create_task(self.count_vm_time())
 
     async def stop(self) -> None:
@@ -417,6 +467,8 @@ class Agents:
             self.heartbeat.cancel()
         if self.room_watcher is not None:
             self.room_watcher.cancel()
+        if self.disk_cleaner is not None:
+            self.disk_cleaner.cancel()
         if self.vm_timer is not None:
             self.vm_timer.cancel()
         for worker in self.workers.values():
@@ -2079,6 +2131,104 @@ class Agents:
                     # A desktop given right in join isn't reported by the queue: its message comes from here.
                     if place == 0:
                         self.on_grant(other.name, agent_id)
+
+    async def clean_disks(self) -> None:
+        """Agents' leftovers on each running VM's disk, cleared by the app itself every CLEAN_SECONDS: no agent has to
+        remember it, and it costs no tokens. vm1 filled its 512 GB with clones of repos whose PRs were long merged, tool
+        downloads and Docker images, while the agents told to free their homes (watch_room) freed little.
+
+        A clone (a git folder at the top of a desktop's home, its origin on GitHub) goes when nobody works on its repo
+        anymore: no job for it is open (paused and waiting ones count) and no PR of ours there is open, nobody touched it
+        (its .git) for CLEAN_UNTOUCHED_DAYS, and its desktop has no holder and no run. Repos are matched by name, not
+        owner, so a clone of a fork stays with its PR. The agents' notes on that desktop naming the repo go with it.
+        With less than CLEAN_LOW_DISK_PERCENT of the disk free and no clone to delete, also the download caches
+        (CLEAN_CACHES) in the homes of desktops with no holder and no run, and Docker's images no container uses (but
+        not the ones the VM's image came with), unused volumes and build cache: all come back by themselves, at the
+        cost of a download, so only then."""
+        while True:
+            await asyncio.sleep(CLEAN_SECONDS)
+            # The repos someone may still work on, by name: those of jobs not over and of our open PRs.
+            keep = set()
+            for job in self.jobs.list():
+                if job["status"] in ["done", "cancelled"]:
+                    continue
+                for repo in [job.get("repo"), (job.get("thread") or "").split("#")[0], (job.get("issue") or "").split("#")[0]]:
+                    if repo:
+                        keep.add(repo.split("/")[-1].lower())
+            try:
+                tracking = json.loads((DATA_DIR / "pr_tracking.json").read_text())
+            except (OSError, ValueError):
+                # Which PRs are open isn't known: nothing goes.
+                continue
+            for pr in tracking.get("prs", {}).values():
+                if pr["state"] == "open":
+                    keep.add(pr["repo"].split("/")[-1].lower())
+
+            for vm_record in self.vms.list():
+                # Seraph's own VM holds the app's own clone, which no job names.
+                if vm_record.status != "running" or vm_record.name == FIX_VM:
+                    continue
+                busy = set()
+                for number, line in vm_record.desktops.items():
+                    if line["holder"] is not None:
+                        busy.add(number)
+                for run in vm_record.runs:
+                    busy.add(run.get("desktop", 1))
+                try:
+                    result = await asyncio.to_thread(vm_record.vm.exec_root, CLEAN_LIST_SCRIPT, 120)
+                except Exception:
+                    # The VM doesn't answer right now: again next time.
+                    continue
+                disk = []
+                homes = []
+                doomed = []
+                now = datetime.now(UTC).timestamp()
+                for line in result.stdout.splitlines():
+                    parts = line.split("\t")
+                    if line.startswith("disk "):
+                        disk = [int(number) for number in line.split()[1:]]
+                    if parts[0] == "home" and len(parts) == 3 and parts[1].isdigit() and int(parts[1]) not in busy:
+                        homes.append(parts[2])
+                    if parts[0] != "clone" or len(parts) != 5 or not parts[1].isdigit() or not parts[3].isdigit():
+                        continue
+                    name = parts[4].strip().rstrip("/").removesuffix(".git").split("/")[-1].lower()
+                    if "github.com" not in parts[4] or int(parts[1]) in busy or name in keep:
+                        continue
+                    if now - int(parts[3]) < CLEAN_UNTOUCHED_DAYS * 24 * 60 * 60:
+                        continue
+                    doomed.append((int(parts[1]), parts[2], name))
+
+                if doomed:
+                    folders = " ".join(shlex.quote(folder) for number, folder, name in doomed)
+                    try:
+                        await asyncio.to_thread(vm_record.vm.exec_root, f"rm -rf -- {folders}", 30 * 60)
+                    except Exception:
+                        continue
+                    gone = []
+                    for note in vm_record.notes:
+                        named = set(each.rstrip(".").split("/")[-1] for each in re.findall(r"[\w.-]+/[\w.-]+", note["text"].lower()))
+                        if note["by"] == "user" or "desktop" not in note:
+                            continue
+                        if any(note["desktop"] == number and name in named for number, folder, name in doomed):
+                            gone.append(note["id"])
+                    if gone:
+                        vm_record.remove_notes(gone, "app")
+                        self.version += 1
+                    # What that freed shows at the next round, before anything that has to be downloaded again goes.
+                    continue
+
+                if len(disk) != 2 or disk[1] * 100 / disk[0] >= CLEAN_LOW_DISK_PERCENT:
+                    continue
+                script = ""
+                for home in homes:
+                    script += "rm -rf -- " + " ".join(shlex.quote(f"{home}/{cache}") for cache in CLEAN_CACHES) + "\n"
+                inventory = load_inventory(vm_record.image_fingerprint) or {"packages": []}
+                protected = " ".join(package["name"] for package in inventory["packages"] if package["kind"] == "docker")
+                script += f"protected={shlex.quote(protected)}\n" + CLEAN_DOCKER_SCRIPT
+                try:
+                    await asyncio.to_thread(vm_record.vm.exec_root, script, 30 * 60)
+                except Exception:
+                    pass
 
     async def watch_runs(self) -> None:
         """Every RUN_CHECK_SECONDS: the runs no tool call waits for. One that ended goes to its agent (run_ended).
