@@ -1,8 +1,9 @@
 /*
-Automation (#/automation), laid out like a settings page: sections, each a list of rows with the name on the left and
-its controls on the right. The page starts from the live "automation" topic and keeps your edits until Save
-(PUT /api/automation with every field), which is enabled only when something changed. Your edits stay shown until the
-live topic has them, so nothing flips back while it comes.
+The Automation dialog, from the Automation card on the Dashboard (and the Limits card's title), laid out like a
+settings page: sections, each a list of rows with the name on the left and its controls on the right. It starts from
+the live "automation" topic and keeps your edits until Save (PUT /api/automation with every field), which is enabled
+only when something changed and closes the dialog once saved. Your edits stay shown until the live topic has them, so
+nothing flips back while it comes. Cancel, or closing it any other way, drops the edits.
 - Activities: one switch each. Manage repositories (on: finds and adds repositories, archives the ones that don't
   merge ours), Add repositories (add_repos: off, nothing new is added), Take new issues (take_new), Create pull requests (send_prs), Reply to reviews and comments
   (send_comments).
@@ -21,6 +22,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { api, useLive, useLoaded, type AutomationData } from "@/live";
@@ -45,7 +47,7 @@ const AI_POLICIES = [
 ];
 const EXCLUDED = ["Politically sensitive", "Games", "Chinese-language documentation"];
 
-// The page's copy of the settings. numbers: each number box as typed (a limit that is off keeps its number, greyed
+// The dialog's copy of the settings. numbers: each number box as typed (a limit that is off keeps its number, greyed
 // out); limitOn: each limit's switch and Minimum stars'.
 type Form = {
   activities: Record<string, boolean>;
@@ -54,13 +56,13 @@ type Form = {
   policies: string[];
 };
 
-export default function Automation() {
+export default function AutomationDialog(props: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const automation = useLive("automation");
   const loaded = useLoaded("automation");
   const [edited, setEdited] = useState<Form | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // The settings as the backend has them, in the page's shape. A limit that is off shows a usual number.
+  // The settings as the backend has them, in the dialog's shape. A limit that is off shows a usual number.
   const saved: Form = {
     activities: { on: automation.on, add_repos: automation.add_repos, take_new: automation.take_new, send_prs: automation.send_prs, send_comments: automation.send_comments },
     numbers: {
@@ -80,7 +82,7 @@ export default function Automation() {
   };
   const form = edited ?? saved;
 
-  // What Save sends, and the same from the backend, to tell whether anything changed. Policies in the page's order.
+  // What Save sends, and the same from the backend, to tell whether anything changed. Policies in the dialog's order.
   const body = {
     on: form.activities.on,
     add_repos: form.activities.add_repos,
@@ -128,10 +130,19 @@ export default function Automation() {
     try {
       await api<AutomationData>("/api/automation", { method: "PUT", body: body });
       toast.success("Saved");
+      changeOpen(false);
     } catch (err) {
       toast.error(`Could not save: ${err instanceof Error ? err.message : err}`);
     }
     setSaving(false);
+  }
+
+  // Closed: the edits go.
+  function changeOpen(open: boolean) {
+    if (!open) {
+      setEdited(null);
+    }
+    props.onOpenChange(open);
   }
 
   const section = "space-y-2";
@@ -140,125 +151,129 @@ export default function Automation() {
   const row = "flex min-h-11 items-center gap-4 px-4 py-2";
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex min-h-9 shrink-0 items-center gap-3 border-b px-3 py-1">
-        <span className="font-medium">Automation</span>
-        <Button size="xs" className="ml-auto" onClick={save} disabled={!loaded || !changed || !valid || saving}>
-          {saving && <Loader2 className="animate-spin" />}
-          Save
-        </Button>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="max-w-3xl space-y-8 p-6 max-md:p-3">
-          <div className={section}>
-            <div className={heading}>Activities</div>
-            <div className={list}>
-              {ACTIVITIES.map((activity) => (
-                <label key={activity.key} className={row}>
-                  <span className="flex-1">{activity.title}</span>
-                  <Switch
-                    checked={form.activities[activity.key]}
-                    onCheckedChange={(on) => setEdited({ ...form, activities: { ...form.activities, [activity.key]: on } })}
-                  />
-                </label>
-              ))}
+    <Dialog open={props.open} onOpenChange={changeOpen}>
+      <DialogContent className="gap-0 p-0 sm:max-w-2xl" aria-describedby={undefined}>
+        <DialogTitle className="px-4 pt-4 pb-3">Automation</DialogTitle>
+        <div className="max-h-[70vh] overflow-y-auto border-y">
+          <div className="space-y-8 p-4">
+            <div className={section}>
+              <div className={heading}>Activities</div>
+              <div className={list}>
+                {ACTIVITIES.map((activity) => (
+                  <label key={activity.key} className={row}>
+                    <span className="flex-1">{activity.title}</span>
+                    <Switch
+                      checked={form.activities[activity.key]}
+                      onCheckedChange={(on) => setEdited({ ...form, activities: { ...form.activities, [activity.key]: on } })}
+                    />
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className={section}>
-            <div className={heading}>Limits</div>
-            <div className={list}>
-              {LIMITS.map((limit) => (
-                <div key={limit.key} className={row}>
-                  <span className="flex-1">{limit.title}</span>
+            <div className={section}>
+              <div className={heading}>Limits</div>
+              <div className={list}>
+                {LIMITS.map((limit) => (
+                  <div key={limit.key} className={row}>
+                    <span className="flex-1">{limit.title}</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      className="w-24 text-right tabular-nums"
+                      value={form.numbers[limit.key]}
+                      disabled={!form.limitOn[limit.key]}
+                      onChange={(event) => setEdited({ ...form, numbers: { ...form.numbers, [limit.key]: event.target.value } })}
+                    />
+                    <Switch
+                      checked={form.limitOn[limit.key]}
+                      onCheckedChange={(on) => setEdited({ ...form, limitOn: { ...form.limitOn, [limit.key]: on } })}
+                      aria-label={`${limit.title} limit`}
+                    />
+                  </div>
+                ))}
+                <div className={row}>
+                  <span className="flex-1">Concurrent agents</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    className="w-24 text-right tabular-nums"
+                    value={form.numbers.max_agents}
+                    onChange={(event) => setEdited({ ...form, numbers: { ...form.numbers, max_agents: event.target.value } })}
+                  />
+                  {/* Where the others' switch is, so the numbers line up. */}
+                  <span className="w-8 shrink-0" />
+                </div>
+              </div>
+            </div>
+
+            <div className={section}>
+              <div className={heading}>Repositories</div>
+              <div className={list}>
+                <div className={row}>
+                  <span className="flex-1">Minimum stars</span>
                   <Input
                     type="number"
                     min={0}
+                    step={500}
                     className="w-24 text-right tabular-nums"
-                    value={form.numbers[limit.key]}
-                    disabled={!form.limitOn[limit.key]}
-                    onChange={(event) => setEdited({ ...form, numbers: { ...form.numbers, [limit.key]: event.target.value } })}
+                    value={form.numbers.min_stars}
+                    disabled={!form.limitOn.min_stars}
+                    onChange={(event) => setEdited({ ...form, numbers: { ...form.numbers, min_stars: event.target.value } })}
                   />
                   <Switch
-                    checked={form.limitOn[limit.key]}
-                    onCheckedChange={(on) => setEdited({ ...form, limitOn: { ...form.limitOn, [limit.key]: on } })}
-                    aria-label={`${limit.title} limit`}
+                    checked={form.limitOn.min_stars}
+                    onCheckedChange={(on) => setEdited({ ...form, limitOn: { ...form.limitOn, min_stars: on } })}
+                    aria-label="Minimum stars"
                   />
                 </div>
-              ))}
-              <div className={row}>
-                <span className="flex-1">Concurrent agents</span>
-                <Input
-                  type="number"
-                  min={1}
-                  className="w-24 text-right tabular-nums"
-                  value={form.numbers.max_agents}
-                  onChange={(event) => setEdited({ ...form, numbers: { ...form.numbers, max_agents: event.target.value } })}
-                />
-                {/* Where the others' switch is, so the numbers line up. */}
-                <span className="w-8 shrink-0" />
               </div>
             </div>
-          </div>
 
-          <div className={section}>
-            <div className={heading}>Repositories</div>
-            <div className={list}>
-              <div className={row}>
-                <span className="flex-1">Minimum stars</span>
-                <Input
-                  type="number"
-                  min={0}
-                  step={500}
-                  className="w-24 text-right tabular-nums"
-                  value={form.numbers.min_stars}
-                  disabled={!form.limitOn.min_stars}
-                  onChange={(event) => setEdited({ ...form, numbers: { ...form.numbers, min_stars: event.target.value } })}
-                />
-                <Switch
-                  checked={form.limitOn.min_stars}
-                  onCheckedChange={(on) => setEdited({ ...form, limitOn: { ...form.limitOn, min_stars: on } })}
-                  aria-label="Minimum stars"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className={section}>
-            <div className={heading}>AI policy</div>
-            <div className={list}>
-              {AI_POLICIES.map((policy) => (
-                <label key={policy.key} className={row}>
-                  <span className="flex-1">{policy.title}</span>
-                  <Switch
-                    checked={form.policies.includes(policy.key)}
-                    onCheckedChange={(on) =>
-                      setEdited({ ...form, policies: on ? [...form.policies, policy.key] : form.policies.filter((key) => key !== policy.key) })
-                    }
-                  />
-                </label>
-              ))}
-              <div className={row}>
-                <span className="flex-1 text-muted-foreground">Bans AI</span>
-                <Switch checked={false} disabled aria-label="Bans AI" />
-              </div>
-            </div>
-          </div>
-
-          <div className={section}>
-            <div className={heading}>Excluded repositories</div>
-            <div className={list}>
-              {EXCLUDED.map((title) => (
-                <div key={title} className={row}>
-                  <span className="flex-1">{title}</span>
-                  <Switch checked disabled aria-label={title} />
+            <div className={section}>
+              <div className={heading}>AI policy</div>
+              <div className={list}>
+                {AI_POLICIES.map((policy) => (
+                  <label key={policy.key} className={row}>
+                    <span className="flex-1">{policy.title}</span>
+                    <Switch
+                      checked={form.policies.includes(policy.key)}
+                      onCheckedChange={(on) =>
+                        setEdited({ ...form, policies: on ? [...form.policies, policy.key] : form.policies.filter((key) => key !== policy.key) })
+                      }
+                    />
+                  </label>
+                ))}
+                <div className={row}>
+                  <span className="flex-1 text-muted-foreground">Bans AI</span>
+                  <Switch checked={false} disabled aria-label="Bans AI" />
                 </div>
-              ))}
+              </div>
+            </div>
+
+            <div className={section}>
+              <div className={heading}>Excluded repositories</div>
+              <div className={list}>
+                {EXCLUDED.map((title) => (
+                  <div key={title} className={row}>
+                    <span className="flex-1">{title}</span>
+                    <Switch checked disabled aria-label={title} />
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </div>
+        <DialogFooter className="px-4 py-3">
+          <Button variant="outline" onClick={() => changeOpen(false)}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={!loaded || !changed || !valid || saving}>
+            {saving && <Loader2 className="animate-spin" />}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

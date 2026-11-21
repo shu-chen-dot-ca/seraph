@@ -135,7 +135,7 @@ export type DraftStatus = "pending" | "approved" | "rejected" | "replied" | "cle
 
 export type Draft = {
   id: string;
-  kind: "pr" | "comment" | "question" | "taken" | "report" | "edit" | "approval"; // taken: old, made by the app when an issue an agent worked on was taken (agents decide that themselves now); report: on a paper; edit: a new title and description for your own PR or issue; approval: a blocker only you can lift, on the Dashboard's Approvals page (not the Inbox)
+  kind: "pr" | "comment" | "question" | "taken" | "report" | "edit" | "approval"; // taken: old, made by the app when an issue an agent worked on was taken (agents decide that themselves now); report: on a paper; edit: a new title and description for your own PR or issue; approval: a blocker only you can lift, in the Dashboard's Blockers dialog (not the Inbox)
   agent: string;
   job: string | null;
   repo: string | null;
@@ -577,7 +577,7 @@ export type UpdatesData = {
   restarting: boolean;
 };
 
-// The Automation page's settings (backend/automation_api.py; PUT /api/automation takes the same). A limit that is null
+// Automation's settings (AutomationDialog.tsx; backend/automation_api.py; PUT /api/automation takes the same). A limit that is null
 // has none.
 export type AutomationData = {
   on: boolean; // Manage repositories: finds and adds repositories, archives the ones that don't merge ours
@@ -591,7 +591,7 @@ export type AutomationData = {
   max_agents: number; // at least 1
   min_stars: number | null; // null: any
   ai_policies: string[]; // the AI policies whose repositories may be worked on: "welcome", "disclose", "none", "unclear"
-  // The Repositories page's column switches (PUT /api/automation/take_from): off, no new issues of its repos.
+  // The Repositories dialog's column switches (PUT /api/automation/take_from): off, no new issues of its repos.
   take_from: Record<"target" | "prioritized" | "contributed" | "catalog", boolean>;
 };
 
@@ -600,7 +600,7 @@ export type AutomationData = {
 // two hours, an hour for the last 8 days, then a day from local midnight. cost_usd: what they cost.
 export type TokensData = { slices: { at: string; model: string; work: string; tokens: number; cost_usd: number }[] };
 
-// The Feedback page (github_searcher/problems.py): what the agents reported, and what the app saw itself (agent
+// The Feedback dialog (FeedbackDialog.tsx; github_searcher/problems.py): what the agents reported, and what the app saw itself (agent
 // "seraph"), newest first. closed_at: once Fix all fixed it, found nothing to change or gave up on it.
 export type Feedback = {
   id: string;
@@ -637,10 +637,10 @@ export type RepoStats = Record<
 // ---- The live store ----
 
 export type Topics = {
-  // archived, removed, prioritized, target (by name: when it went there): the Repositories page (repo_list.py).
+  // archived, removed, prioritized, target (by name: when it went there): the Repositories dialog (repo_list.py).
   repos: ListData<RepoItem> & { archived: string[]; removed: string[]; prioritized: string[]; target: Record<string, string> };
   jobs: Job[];
-  inbox: Draft[]; // only the approval requests still waiting: the Blockers page
+  inbox: Draft[]; // only the approval requests still waiting: the Dashboard's Blockers card and dialog
   prs: PRsData;
   agents: AgentSummary[];
   vms: VMSummary[];

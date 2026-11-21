@@ -16,7 +16,7 @@ time: it is how many agents can work in the VM at the same time at most, each on
 keyboard and home folder). Agents add desktops up to it, and the + and × above the desktop on the Overview add or
 remove one at any time. It can't go below how many the VM has; remove some first.
 Rename works running or not; the page moves to the new name (#/vms/<new name>). Seraph's own VM, where Fix all on the
-Feedback page works (FIX_VM), keeps its name and can't be deleted.
+Feedback dialog works (FIX_VM), keeps its name and can't be deleted.
 */
 
 import { Eye, EyeOff, Loader2, Plus, Power, Save, Trash2, X } from "lucide-react";

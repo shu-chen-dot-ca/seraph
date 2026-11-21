@@ -1,5 +1,6 @@
 /*
-One VM's page: a header with its state and power buttons, and four tabs.
+One VM's page, in a dialog over the Dashboard (#/vms/<name>, Dashboard.tsx): a header with its state and power
+buttons, and four tabs. The header leaves room on its right for the dialog's close button.
 
 Overview is three areas with draggable dividers:
   desktop (noVNC in an iframe)  |  queue (who holds the desktop, who waits)
@@ -21,14 +22,12 @@ not. Waiting
 is one line for the whole VM: the next agent gets the first desktop that frees up, unless it asked for one ("for
 desktop 2"); Give hands the desktop shown to that agent. A desktop's iframe stays mounted once opened, so switching
 back is instant.
-Notes is VMNotes: what agents (and you) set up in this VM, for the next agent. #/vms/<name>?tab=notes opens it
-(the VMs overview's Notes card links there).
+Notes is VMNotes: what agents (and you) set up in this VM, for the next agent.
 Resources is VMResources: copy files and folders between this computer and the VM (only you; agents can't).
 Settings is VMSettings. Fork (only while stopped) makes a new VM that starts as a copy of this one (ForkVMDialog).
 
-App keeps this page mounted (hidden) after you leave it, and the Overview stays mounted while the
-Notes, Resources or Settings tab is open, so the desktop iframe never reloads: coming back is instant, and always to the
-Overview (the tab you were on isn't remembered). The iframe only
+The Overview stays mounted while the Notes, Resources or Settings tab is open, so the desktop iframe doesn't reload; the
+dialog opens on the Overview every time. The iframe only
 exists while the VM runs; its address comes from GET /api/vms/{name}/viewer?desktop=n, asked again (every 3 s)
 until the VM has one. A VM from a terminal-only image has no desktop: the same area shows its terminal (ttyd).
 
@@ -108,24 +107,13 @@ function formatBytes(bytes: number): string {
 // The internet chart never scales below this, so an idle VM's few packets don't look like a busy line.
 const INTERNET_CHART_MIN = 100_000;
 
-export default function VMPage(props: { name: string; active: boolean; tab: string | null }) {
+export default function VMPage(props: { name: string }) {
   const vms = useLive("vms");
   const loaded = useLoaded("vms");
   const imagesData = useLive("images");
   const agents = useLive("agents");
   const jobs = useLive("jobs");
   const [tab, setTab] = useState("overview");
-  // Leaving the page puts it back on the Overview, so coming back always starts there, unless the address names
-  // the Notes tab (#/vms/<name>?tab=notes).
-  useEffect(() => {
-    if (!props.active) {
-      setTab("overview");
-      return;
-    }
-    if (props.tab === "notes") {
-      setTab("notes");
-    }
-  }, [props.active, props.tab]);
   // Each desktop's noVNC page by its number (1, 2, 3), once known.
   const [desktopUrls, setDesktopUrls] = useState<Record<number, string>>({});
   // The VM has no desktop (a terminal-only image): desktopUrls[1] is its terminal.
@@ -423,7 +411,7 @@ export default function VMPage(props: { name: string; active: boolean; tab: stri
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3 max-md:h-auto max-md:min-h-9 max-md:flex-wrap max-md:py-1">
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b pr-10 pl-3 max-md:h-auto max-md:min-h-9 max-md:flex-wrap max-md:py-1">
         <Monitor className="size-4 text-muted-foreground" />
         <h1 className="font-semibold">{vm.name}</h1>
         <Badge variant="secondary" title={error ?? undefined}>

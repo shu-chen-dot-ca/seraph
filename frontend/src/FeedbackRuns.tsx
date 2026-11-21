@@ -4,7 +4,7 @@ released, or why not), the commits pushed, the items it closed with no change ne
 it closed after too many tries, each with why. A run going on links to Seraph's VM, where its terminal shows what Claude
 Code does.
 
-Only reads: Feedback.tsx asks for the runs and passes them in.
+Only reads: FeedbackDialog.tsx asks for the runs and passes them in.
 */
 
 import { Loader2 } from "lucide-react";

@@ -1,7 +1,8 @@
 /*
-The Repositories page (#/repos). On top, its tabs, each with its count: Repositories (the cards below), then your pull
-requests' In progress, Open, Merged and Closed (#/repos?state=progress|open|merged|closed), which show those tables
-instead (PullRequests.tsx, under these same tabs).
+The Repositories dialog, from the Dashboard (Dashboard.tsx owns it): its Repositories card opens it on the cards, the
+pull request numbers and charts and In progress on their tab. On top, its tabs, each with its count: Repositories (the
+cards below), then your pull requests' In progress, Open, Merged and Closed (state progress|open|merged|closed), which
+show those tables instead (PullRequests.tsx, under these same tabs).
 Repositories: the repos in the repo list (repo_list.py) as cards, in five columns side by side, each a list from top to
 bottom that scrolls on its own (on a narrow window the columns keep their width and the page scrolls sideways):
 - Prioritized: the Contributed ones you moved here (the Repos list's prioritized, repo_list.py). By stars.
@@ -87,7 +88,7 @@ const SORT_TITLE: Record<Sort, string> = {
   round: "Sort by test run time",
 };
 
-export default function RepositoryCards(props: { state: string }) {
+export default function RepositoryCards(props: { state: string; onState: (state: string) => void }) {
   const repos = useLive("repos");
   const prs = useLive("prs");
   const jobs = useLive("jobs");
@@ -270,15 +271,16 @@ export default function RepositoryCards(props: { state: string }) {
   const tab = "relative flex h-full items-center gap-1.5 px-2 font-medium whitespace-nowrap text-muted-foreground hover:text-foreground";
   const currentTab = "text-foreground after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-primary";
   const tabs = TABS.map((each) => (
-    <a
+    <button
       key={each.state}
-      href={each.state === "" ? "#/repos" : `#/repos?state=${each.state}`}
+      type="button"
       aria-current={each.state === state ? "page" : undefined}
       className={cn(tab, each.state === state && currentTab)}
+      onClick={() => props.onState(each.state)}
     >
       {each.title}
       <span className="text-muted-foreground tabular-nums">{counts[each.state]}</span>
-    </a>
+    </button>
   ));
 
   async function move(name: string, to: string) {

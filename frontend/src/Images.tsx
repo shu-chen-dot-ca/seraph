@@ -1,5 +1,5 @@
 /*
-The Images tab of the VMs page: the images new VMs start from.
+The Images tab of the Dashboard's Virtual machines: the images new VMs start from.
 
 One row per image (an Incus image with a name): its system version, its description (the description field of its
 image.yaml, on one line; the whole of it on hover), size, when it was made, and how many VMs were made from that
@@ -53,7 +53,7 @@ const COLUMNS =
 
 const TASK_TITLE: Record<string, string> = { build: "Building", save: "Saving", inspect: "Listing what it has:" };
 
-// tabs: the VMs page's tabs, which share the header row with the buttons here.
+// tabs: Virtual machines' tabs (Dashboard.tsx), which share the header row with the buttons here.
 export default function Images(props: { tabs: ReactNode }) {
   const data = useLive("images");
   const loaded = useLoaded("images");

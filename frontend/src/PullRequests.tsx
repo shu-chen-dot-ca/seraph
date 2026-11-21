@@ -1,7 +1,7 @@
 /*
-Pull requests, a part of the Repositories page (RepositoryCards.tsx): its tabs In progress, Open, Merged and Closed
-(#/repos?state=progress|open|merged|closed), each a table grouped by repository. The tab row is the Repositories page's
-(tabs), with Expand all and Collapse all on its right. A repository's row (its picture, name and count) folds and
+Pull requests, a part of the Repositories dialog (RepositoryCards.tsx): its tabs In progress, Open, Merged and Closed
+(state progress|open|merged|closed), each a table grouped by repository. The tab row is the Repositories dialog's
+(tabs), with Expand all and Collapse all on its right, left of the dialog's close button. A repository's row (its picture, name and count) folds and
 unfolds its rows; Expand all and Collapse all do every group of the open tab.
 Groups come in the order of their newest row; folds are kept while the app is open.
 - In progress (state=progress): fix_issue jobs still open that have no pull request yet. Issue (opens it on GitHub),
@@ -218,7 +218,7 @@ export default function PullRequests(props: { state: string; tabs: ReactNode }) 
       <div className="flex h-9 shrink-0 items-center border-b px-1">
         {props.tabs}
         {repos.length > 0 && (
-          <div className="ml-auto flex gap-1 pr-2">
+          <div className="ml-auto flex gap-1 pr-10">
             <Button size="xs" variant="ghost" onClick={() => changeFolded(folded.filter((key) => !keys.includes(key)))}>
               Expand all
             </Button>

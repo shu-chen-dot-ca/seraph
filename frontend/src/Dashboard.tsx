@@ -3,8 +3,10 @@ The Dashboard (#/), the page the app opens on, display only. On top, its name, L
 feed is down) with the time your pull requests were last read, and the range every pull request number and chart
 follows: 1 hour, 1 day, 7, 30 or 90 days (kept while the page is open). A range is cut into equal periods that start on
 the clock (5 minutes for an hour, an hour for a day, 6 hours for 7 days, else a day); the last one is the one now. Every
-widget has the same frame: a header with its title, which opens its page (Tokens and cost has none), and on the right a
-detail.
+widget has the same frame: a header with its title, which opens its page, or the Repositories dialog on its tab (Tokens
+and cost has none), and on the right a detail. The Repositories dialog (RepositoryCards.tsx) is the cards and your pull
+requests' tabs; its own card opens it on the cards, the pull request numbers and charts on Open, Merged or Closed, and In
+progress on In progress.
 Smooth, left of the range (on at first, kept while the page is open), draws every line as a curve through its points
 instead of straight lines between them. Every point stays at its real value; between two points the curve never goes
 past either one's level (a monotone cubic curve, Steffen's), so it shows no peak or dip that isn't in the numbers.
@@ -13,13 +15,11 @@ Under the top:
   agents used, the cost in USD above the tokens): a big number, with the change from the previous range of the same
   length a little after it, always at the same place whatever the range, green when it is good, red when it is bad (for
   Tokens and cost, less is good). The previous one on hover.
-- Limits: the Automation page's limits against what is used now, amber from 85%: pull requests opened today, open pull
-  requests, the most open in one repository, agents working, and desktops in use of all the running VMs may have.
 - Pull requests: opened, merged and closed per period, as three lines in GitHub's colors; Open, the pull requests still
   open at the end of each period (now for the last one), in blue, all on a log scale (0, 1, 3, 10, 30, ...: a count's
   height is log(1 + count), so 0 sits at the bottom); and Merge rate: the 7-day average at the end of each period
   (merged of merged and closed in the 7 days before), dotted gray, on its own 0-100% axis on the right. Open PR limit in
-  its header is the Automation page's Open pull requests limit (PUT /api/automation on Enter or leaving the box; empty:
+  its header is Automation's Open pull requests limit (PUT /api/automation on Enter or leaving the box; empty:
   no limit). The box takes only 1 to 999: a keystroke or paste that would make it anything else is ignored. Set, it is
   a dashed blue line at that count, and the axis goes up to it. Back to front: Open PR limit, Merge rate, Open, Closed,
   Opened, Merged.
@@ -27,22 +27,43 @@ Under the top:
   usage log: github_searcher/token_usage.py), a line per model, no total; and Cost, what they all cost in USD, as gray
   bars behind the lines on its own axis on the right. Models by their names (Opus 5.5).
   These two share one time axis: hovering a period in one marks it in both, with its numbers.
+- Limits, kept small (one short line each, two columns of the row): Automation's limits against what is used now,
+  amber from 85%: pull requests opened today, open pull requests, the most open in one repository, agents working, and
+  desktops in use of all the running VMs may have. Its title opens the Automation dialog (AutomationDialog.tsx).
+  On its right in the same row, Repositories: how many repositories have a card (the list's, and those with a pull
+  request of yours that aren't in it); Automation: how many of its five activities are on; Blockers: how many of the
+  agents' approval requests wait for you (amber when any); Feedback: how much is open; and Settings. A click anywhere
+  on one opens its dialog (the Repositories dialog on its cards, AutomationDialog.tsx, BlockersDialog.tsx,
+  FeedbackDialog.tsx, and SettingsDialog, which App owns: onOpenSettings).
+- Virtual machines, with two tabs in its header, the box as tall on both. VMs (#/): every VM's band (VMList.tsx)
+  with its CPU, Memory, Internet and Disk cards, how many run, and New VM (NewVMDialog). Images (#/vms?tab=images): the
+  images VMs start from (Images.tsx). A VM's name (#/vms/<name>) opens its page (VMPage.tsx: its desktop, Resources
+  and Settings) in a dialog over the Dashboard; closing it goes back to #/. App.tsx reads these from the address and passes them in (vm, vmsTab).
 - In progress: the fix_issue and follow_up jobs working now, the most VM time first: Issue or pull request (its
   repository and number only, opens it on GitHub), Step, VM time (how long its agent held a VM desktop for it: tests,
   builds and all it did there, counted since 11-20; jobs.py vm_seconds), Tokens (all its agent used, in millions: an
   agent is made per issue, and its pull request's follow-ups go to it), Agent (opens its chat), VM and desktop. The
   header counts working and queued.
-- Virtual machines: every VM's band from the VMs tab (VMList in VMs.tsx) with only its CPU, Memory, Internet and Disk
-  cards. The header counts the running ones.
 Charts keep fixed heights; a line breaks where there is no number. Lines are drawn back to front by their layer, each
 with a thin edge in the card's color, so where two cross the one in front clearly covers the one behind. Big numbers are short: 1.2K, 3.4M,
 and dollars $0.05, $412, $1.23K.
 */
 
-import { useState } from "react";
+import { Plus, Settings } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
-import { VMList } from "@/VMs";
+import AutomationDialog from "@/AutomationDialog";
+import BlockersDialog from "@/BlockersDialog";
+import FeedbackDialog from "@/FeedbackDialog";
+import RepositoryCards from "@/RepositoryCards";
+import Images from "@/Images";
+import NewVMDialog from "@/NewVMDialog";
+import VMList from "@/VMList";
+import VMPage from "@/VMPage";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { JobProgressBar, useNow } from "@/components/ui/job-progress";
 import { api, useConnected, useLive, useLoaded, type AutomationData } from "@/live";
 import { cn } from "@/lib/utils";
@@ -89,12 +110,17 @@ const DETAIL = "ml-auto shrink-0 text-xs text-muted-foreground tabular-nums";
 // line. layer: lines are drawn by it, the highest in front.
 type Line = { title: string; color: string; values: (number | null)[]; pieces: string[]; right: boolean; stroke: "solid" | "dashed" | "dotted" | "bar"; layer: number };
 
-export default function Dashboard() {
+// vm: the VM whose page is open in the dialog (#/vms/<name>), or null. vmsTab: the Virtual machines tab open.
+export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "images"; onOpenSettings: () => void; appButtons: ReactNode }) {
   const prs = useLive("prs");
   const jobs = useLive("jobs");
   const vms = useLive("vms");
+  const imagesData = useLive("images");
   const agents = useLive("agents");
   const automation = useLive("automation");
+  const inbox = useLive("inbox");
+  const feedback = useLive("problems");
+  const repos = useLive("repos");
   const automationLoaded = useLoaded("automation");
   const usage = useLive("tokens").slices;
   const connected = useConnected();
@@ -103,6 +129,12 @@ export default function Dashboard() {
   const [smooth, setSmooth] = useState(true);
   // The period the mouse is on, in both charts.
   const [hovered, setHovered] = useState<number | null>(null);
+  const [blockersOpen, setBlockersOpen] = useState(false);
+  const [automationOpen, setAutomationOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  // The Repositories dialog's open tab ("": the cards), null while it is closed.
+  const [reposTab, setReposTab] = useState<string | null>(null);
+  const [creatingVM, setCreatingVM] = useState(false);
   // The Open PR limit as you type it, until the live topic has it (null: the saved one).
   const [limitText, setLimitText] = useState<string | null>(null);
   const openLimit = automation.max_open_prs;
@@ -112,7 +144,7 @@ export default function Dashboard() {
     setLimitText(null);
   }
 
-  // The Open PR limit is the Automation page's Open pull requests limit: the whole settings go back with only it changed.
+  // The Open PR limit is Automation's Open pull requests limit: the whole settings go back with only it changed.
   async function saveLimit() {
     if (limitText === null) {
       return;
@@ -291,7 +323,7 @@ export default function Dashboard() {
   const numbers = [
     {
       title: "Opened",
-      href: "#/repos?state=open",
+      tab: "open",
       better: "up",
       rows: [
         {
@@ -305,7 +337,7 @@ export default function Dashboard() {
     },
     {
       title: "Merged",
-      href: "#/repos?state=merged",
+      tab: "merged",
       better: "up",
       rows: [
         {
@@ -319,7 +351,7 @@ export default function Dashboard() {
     },
     {
       title: "Closed",
-      href: "#/repos?state=closed",
+      tab: "closed",
       better: "down",
       rows: [
         {
@@ -333,7 +365,7 @@ export default function Dashboard() {
     },
     {
       title: "Merge rate",
-      href: "#/repos?state=closed",
+      tab: "closed",
       better: "up",
       rows: [
         {
@@ -347,7 +379,7 @@ export default function Dashboard() {
     },
     {
       title: "Time to merge",
-      href: "#/repos?state=merged",
+      tab: "merged",
       better: "down",
       rows: [
         {
@@ -361,7 +393,7 @@ export default function Dashboard() {
     },
     {
       title: "Tokens and cost",
-      href: "",
+      tab: null,
       better: "down",
       rows: [
         {
@@ -382,7 +414,7 @@ export default function Dashboard() {
     },
   ];
 
-  // Limits: what is used now against the Automation page's limits (null: none).
+  // Limits: what is used now against Automation's limits (null: none).
   const todayKey = new Date().toDateString();
   const openedToday = mine.filter((pr) => new Date(pr.opened_at).toDateString() === todayKey).length;
   const perRepo: Record<string, number> = {};
@@ -410,6 +442,45 @@ export default function Dashboard() {
     { title: "Agents", used: busy, limit: automation.max_agents, about: "" },
     { title: "Desktops in use", used: desktopsUsed, limit: desktopsAll, about: "" },
   ];
+
+  // Repositories: the repo list's, and those with a pull request of yours that aren't in it (they have cards too).
+  const repoNames = repos.items.map((repo) => repo.full_name.toLowerCase());
+  for (const pr of mine) {
+    if (!repoNames.includes(pr.repo.toLowerCase())) {
+      repoNames.push(pr.repo.toLowerCase());
+    }
+  }
+
+  // Automation: its activities that are on, of the five.
+  const activities = [automation.on, automation.add_repos, automation.take_new, automation.send_prs, automation.send_comments];
+  const activitiesOn = activities.filter((on) => on).length;
+
+  // Feedback: what is still open.
+  const feedbackOpenCount = feedback.filter((item) => item.closed_at === null).length;
+
+  // Blockers: the agents' approval requests still waiting for you.
+  const blockers = inbox.filter((draft) => draft.kind === "approval" && draft.status === "pending").length;
+
+  // Virtual machines' tabs. Each has its own address (App.tsx), so a link can open one: VMs is the Dashboard's own.
+  const vmsTabs = (
+    <Tabs
+      value={props.vmsTab}
+      onValueChange={(value) => {
+        window.location.hash = value === "vms" ? "#/" : `#/vms?tab=${value}`;
+      }}
+    >
+      <TabsList>
+        <TabsTrigger value="vms" className="px-2.5">
+          VMs
+          <span className="text-xs text-muted-foreground tabular-nums">{vms.length}</span>
+        </TabsTrigger>
+        <TabsTrigger value="images" className="px-2.5">
+          Images
+          <span className="text-xs text-muted-foreground tabular-nums">{imagesData.images.length}</span>
+        </TabsTrigger>
+      </TabsList>
+    </Tabs>
+  );
 
   // In progress: the jobs agents work on now, the most VM time first.
   const agentById: Record<string, (typeof agents)[number]> = {};
@@ -509,7 +580,7 @@ export default function Dashboard() {
   const charts: {
     key: string;
     title: string;
-    href: string;
+    tab: string | null;
     detail: string;
     top: number;
     ticks: number[];
@@ -526,7 +597,7 @@ export default function Dashboard() {
     {
       key: "prs",
       title: "Pull requests",
-      href: "#/repos?state=open",
+      tab: "open",
       detail: range.per,
       top: prTop,
       ticks: prTicks,
@@ -543,7 +614,7 @@ export default function Dashboard() {
     {
       key: "tokens",
       title: "Tokens and cost",
-      href: "",
+      tab: null,
       detail: range.per,
       top: tokenTop,
       ticks: tokenTicks,
@@ -637,12 +708,12 @@ export default function Dashboard() {
         return (
           <div key={chart.key} className={WIDGET}>
             <div className={WIDGET_HEADER}>
-              {chart.href !== "" && (
-                <a href={chart.href} className={TITLE}>
+              {chart.tab !== null && (
+                <button type="button" className={TITLE} onClick={() => setReposTab(chart.tab)}>
                   {chart.title}
-                </a>
+                </button>
               )}
-              {chart.href === "" && <span className="truncate font-medium">{chart.title}</span>}
+              {chart.tab === null && <span className="truncate font-medium">{chart.title}</span>}
               {chart.key === "prs" && (
                 <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
                   Open PR limit
@@ -856,20 +927,21 @@ export default function Dashboard() {
             </button>
           ))}
         </div>
+        <div className="flex items-center gap-1">{props.appButtons}</div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto bg-muted/40">
         <div className="space-y-3 p-3">
-          <div className="grid grid-cols-8 gap-3 max-2xl:grid-cols-4 max-md:grid-cols-2">
+          <div className="grid grid-cols-6 gap-3 max-2xl:grid-cols-3 max-md:grid-cols-2">
             {numbers.map((number) => (
               <div key={number.title} className={WIDGET}>
                 <div className={WIDGET_HEADER}>
-                  {number.href !== "" && (
-                    <a href={number.href} className={TITLE}>
+                  {number.tab !== null && (
+                    <button type="button" className={TITLE} onClick={() => setReposTab(number.tab)}>
                       {number.title}
-                    </a>
+                    </button>
                   )}
-                  {number.href === "" && <span className="truncate font-medium">{number.title}</span>}
+                  {number.tab === null && <span className="truncate font-medium">{number.title}</span>}
                   <span className={DETAIL}>{range.title}</span>
                 </div>
                 <div className="flex flex-1 flex-col justify-end gap-2 px-3 pt-4 pb-3">
@@ -899,25 +971,30 @@ export default function Dashboard() {
                 </div>
               </div>
             ))}
-            <div className={cn(WIDGET, "col-span-2")}>
+          </div>
+
+          {drawn}
+
+          <div className="grid grid-cols-7 gap-3 max-xl:grid-cols-5 max-md:grid-cols-2">
+            <div className={cn(WIDGET, "col-span-2 max-xl:col-span-5 max-md:col-span-2")}>
               <div className={WIDGET_HEADER}>
-                <a href="#/automation" className={TITLE}>
+                <button type="button" className={TITLE} onClick={() => setAutomationOpen(true)}>
                   Limits
-                </a>
+                </button>
               </div>
-              <div className="flex flex-1 flex-col justify-evenly gap-2 px-3 py-2">
+              <div className="grid flex-1 content-center gap-x-6 gap-y-1.5 px-3 py-2 text-xs max-xl:grid-cols-3 max-md:grid-cols-1">
                 {limits.map((each) => {
                   const full = each.limit !== null && each.limit > 0 ? each.used / each.limit : 0;
                   return (
-                    <div key={each.title} className="flex items-center gap-3" title={each.about}>
-                      <span className="w-36 shrink-0 truncate">{each.title}</span>
+                    <div key={each.title} className="flex min-w-0 items-center gap-2" title={each.about}>
+                      <span className="w-32 shrink-0 truncate">{each.title}</span>
                       {each.limit !== null && (
-                        <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                        <div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
                           <div className={cn("h-full rounded-full", full >= 0.85 ? "bg-warn" : "bg-foreground/40")} style={{ width: `${Math.min(full, 1) * 100}%` }} />
                         </div>
                       )}
-                      {each.limit === null && <span className="min-w-0 flex-1 text-xs text-muted-foreground">No limit</span>}
-                      <span className={cn("w-14 shrink-0 text-right font-mono text-xs tabular-nums", full >= 0.85 && "text-warn")}>
+                      {each.limit === null && <span className="min-w-0 flex-1 text-muted-foreground">No limit</span>}
+                      <span className={cn("shrink-0 font-mono tabular-nums", full >= 0.85 && "text-warn")}>
                         {each.used}
                         {each.limit !== null && ` / ${each.limit}`}
                       </span>
@@ -926,15 +1003,80 @@ export default function Dashboard() {
                 })}
               </div>
             </div>
+            <button type="button" className={cn(WIDGET, "text-left hover:bg-accent/40")} onClick={() => setReposTab("")}>
+              <div className={WIDGET_HEADER}>
+                <span className="truncate font-medium">Repositories</span>
+              </div>
+              <div className="flex flex-1 flex-col justify-end px-3 pt-4 pb-3">
+                <span className="font-mono text-3xl font-light tabular-nums">{repoNames.length}</span>
+              </div>
+            </button>
+            <button type="button" className={cn(WIDGET, "text-left hover:bg-accent/40")} onClick={() => setAutomationOpen(true)}>
+              <div className={WIDGET_HEADER}>
+                <span className="truncate font-medium">Automation</span>
+                <span className={DETAIL}>Activities</span>
+              </div>
+              <div className="flex flex-1 flex-col justify-end px-3 pt-4 pb-3">
+                <span className="font-mono text-3xl font-light tabular-nums">
+                  {activitiesOn}/{activities.length}
+                </span>
+              </div>
+            </button>
+            <button type="button" className={cn(WIDGET, "text-left hover:bg-accent/40")} onClick={() => setBlockersOpen(true)}>
+              <div className={WIDGET_HEADER}>
+                <span className="truncate font-medium">Blockers</span>
+              </div>
+              <div className="flex flex-1 flex-col justify-end px-3 pt-4 pb-3">
+                <span className={cn("font-mono text-3xl font-light tabular-nums", blockers > 0 && "text-warn")}>{blockers}</span>
+              </div>
+            </button>
+            <button type="button" className={cn(WIDGET, "text-left hover:bg-accent/40")} onClick={() => setFeedbackOpen(true)}>
+              <div className={WIDGET_HEADER}>
+                <span className="truncate font-medium">Feedback</span>
+                <span className={DETAIL}>Open</span>
+              </div>
+              <div className="flex flex-1 flex-col justify-end px-3 pt-4 pb-3">
+                <span className="font-mono text-3xl font-light tabular-nums">{feedbackOpenCount}</span>
+              </div>
+            </button>
+            <button type="button" className={cn(WIDGET, "text-left hover:bg-accent/40")} onClick={props.onOpenSettings}>
+              <div className={WIDGET_HEADER}>
+                <span className="truncate font-medium">Settings</span>
+              </div>
+              <div className="flex flex-1 flex-col justify-end px-3 pt-4 pb-3">
+                <Settings className="size-8 stroke-[1.5] text-muted-foreground" />
+              </div>
+            </button>
           </div>
 
-          {drawn}
+          {/* VMs and Images share one cell, the other one hidden, so the box is as tall on both tabs: the taller of the
+              two. Images brings its own header row, with these tabs in it. */}
+          <div className={cn(WIDGET, "grid")}>
+            <div className={cn("col-start-1 row-start-1 min-w-0", props.vmsTab !== "vms" && "invisible")}>
+              <div className={WIDGET_HEADER}>
+                {vmsTabs}
+                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                  {vms.filter((vm) => vm.status === "running").length} of {vms.length} running
+                </span>
+                <Button size="sm" className="ml-auto" onClick={() => setCreatingVM(true)}>
+                  <Plus /> New VM
+                </Button>
+              </div>
+              {vms.length === 0 && <div className="p-3 text-muted-foreground">No VMs yet.</div>}
+              <div className="[&>div:last-child]:border-b-0">
+                <VMList />
+              </div>
+            </div>
+            <div className={cn("col-start-1 row-start-1 min-w-0", props.vmsTab !== "images" && "invisible")}>
+              <Images tabs={vmsTabs} />
+            </div>
+          </div>
 
           <div className={WIDGET}>
             <div className={WIDGET_HEADER}>
-              <a href="#/repos?state=progress" className={TITLE}>
+              <button type="button" className={TITLE} onClick={() => setReposTab("progress")}>
                 In progress
-              </a>
+              </button>
               <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                 {working.length} working · {queued} queued
               </span>
@@ -992,23 +1134,41 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-
-          <div className={WIDGET}>
-            <div className={WIDGET_HEADER}>
-              <a href="#/vms" className={TITLE}>
-                Virtual machines
-              </a>
-              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                {vms.filter((vm) => vm.status === "running").length} of {vms.length} running
-              </span>
-            </div>
-            {vms.length === 0 && <div className="p-3 text-muted-foreground">No VMs yet.</div>}
-            <div className="[&>div:last-child]:border-b-0">
-              <VMList usageOnly={true} />
-            </div>
-          </div>
         </div>
       </div>
+      <Dialog
+        open={reposTab !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReposTab(null);
+          }
+        }}
+      >
+        <DialogContent className="flex h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[95vw]" aria-describedby={undefined}>
+          <DialogTitle className="sr-only">Repositories</DialogTitle>
+          <div className="min-h-0 flex-1">
+            <RepositoryCards state={reposTab ?? ""} onState={setReposTab} />
+          </div>
+        </DialogContent>
+      </Dialog>
+      <AutomationDialog open={automationOpen} onOpenChange={setAutomationOpen} />
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+      <BlockersDialog open={blockersOpen} onOpenChange={setBlockersOpen} />
+      <NewVMDialog open={creatingVM} onOpenChange={setCreatingVM} />
+      {/* The close button sits in the VM page's header row, right of its tabs (VMPage.tsx leaves room for it). */}
+      <Dialog
+        open={props.vm !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            window.location.hash = "#/";
+          }
+        }}
+      >
+        <DialogContent className="flex h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[95vw]" aria-describedby={undefined}>
+          <DialogTitle className="sr-only">{props.vm}</DialogTitle>
+          {props.vm !== null && <VMPage name={props.vm} />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
