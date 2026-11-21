@@ -7,7 +7,8 @@ that isn't yours (is:pr is:merged is:public author:<you> -user:<you>), and write
 repositories ("Seraph merged PRs: 12 in 8 repositories"), then a table: one row per repository with its stars, the
 most starred first, with a link to each pull request and, in a column of their own, its lines added (green) and
 removed (red). Pull requests of fewer than MIN_LINES lines (added and removed together) are left out, not counted or
-shown. Only the part between START and END changes; everything else in README.md
+shown. The table stops after MAX_SHOWN pull requests, in its own order; below it, a line says how many more there are,
+with a link to them on GitHub. Only the part between START and END changes; everything else in README.md
 stays as you wrote it. When nothing changed, nothing is committed. A README.md without both markers is left alone.
 Both are committed on the repository's default branch, as you: pull before you push Seraph's own.
 
@@ -16,6 +17,7 @@ and the markers with the table between them.
 """
 
 import base64
+from urllib.parse import quote_plus
 
 from github_searcher.projects import SELF_REPO
 
@@ -24,6 +26,8 @@ END = "<!-- merged-prs:end -->"
 FIRST_TEXT = "Hi, I'm Shu.\n\n"
 # GitHub's search gives at most 1000, 100 a page.
 MAX_PAGES = 10
+# The table shows this many pull requests at most.
+MAX_SHOWN = 50
 # Smaller pull requests (lines added and removed together) are left out.
 MIN_LINES = 10
 
@@ -72,16 +76,31 @@ def table(your_repositories, login: str) -> str:
 
     if not repos:
         return "No merged pull requests yet."
-    # Above the table, the totals. The empty line keeps the table from running into it.
+    # Above the table, the totals of all of them, not only the ones shown. The empty line keeps the table from running
+    # into it.
     lines = [f"Seraph merged PRs: {len(nodes):,} in {len(repos):,} repositories", ""]
     lines.append("| Repository 🚀 | Stars 🌟 | Merged PR | Lines changed |")
     lines.append("| --- | --- | --- | --- |")
-    # The most starred first.
+    # The most starred first, until MAX_SHOWN pull requests are in the table.
+    shown = 0
     for name, repo in sorted(repos.items(), key=lambda item: item[1]["stars"], reverse=True):
+        if shown >= MAX_SHOWN:
+            break
+        room = MAX_SHOWN - shown
+        shown += len(repo["links"][:room])
         # A table cell can't hold a new line in Markdown: <br> puts each pull request on its own line.
-        links = "<br>".join(repo["links"])
-        changed = "<br>".join(repo["lines"])
+        links = "<br>".join(repo["links"][:room])
+        changed = "<br>".join(repo["lines"][:room])
         lines.append(f"| [{name}]({repo['url']}) 🚀 | {repo['stars']:,} 🌟 | {links} | {changed} |")
+    # Below the table, how many more there are. The empty line keeps it out of the table.
+    more = len(nodes) - shown
+    if more > 0:
+        more_prs = f"{more:,} more PRs"
+        if more == 1:
+            more_prs = "1 more PR"
+        url = "https://github.com/search?q=" + quote_plus(query) + "&type=pullrequests"
+        lines.append("")
+        lines.append(f"And [{more_prs}]({url}).")
     return "\n".join(lines)
 
 
