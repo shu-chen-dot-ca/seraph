@@ -244,6 +244,23 @@ def restart_vm(name: str) -> dict:
     return {}
 
 
+@router.post("/vms/{name}/graceful_shutdown")
+def graceful_shutdown_vm(name: str) -> dict:
+    """No agent new to it gets a desktop; the ones on it finish, then Agents.watch_room shuts it down. A start or
+    restart makes it a normal VM again."""
+    if name == FIX_VM:
+        raise HTTPException(status_code=400, detail=f"{FIX_VM} is Seraph's own VM, for Fix all on the Feedback page: it stays on.")
+    try:
+        record = vms.get(name)
+    except VMsError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    try:
+        record.set_graceful_shutdown()
+    except VMsError as error:
+        raise HTTPException(status_code=409, detail=str(error))
+    return {}
+
+
 @router.post("/vms/{name}/traffic/reset")
 def reset_traffic(name: str) -> dict:
     """Count the VM's internet use from zero again."""

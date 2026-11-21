@@ -6,7 +6,7 @@ A VM is a resource, not tied to a repo or an agent. Each one is an Incus VM name
     DATA_DIR/vms/<name>.json   {"name", "incus_name", "image", "image_fingerprint", "cpus", "memory_gb",
                                 "disk_gb", "internet", "env", "secrets_in_vm", "autostart", "status",
                                 "created_at", "forked_from", "max_desktops", "desktops", "queue", "wants", "runs", "stepped_down_at",
-                                "traffic", "notes"}
+                                "traffic", "notes", "graceful_shutdown"}
 
 "desktops" has one entry per desktop, each {"number", "holder"}: its number (1 to MAX_DESKTOPS, sandbox/vm.py) and
 who uses it. In the record it is {number: {"holder"}}, lowest number first. A desktop keeps its number: removing one never renumbers the others, and a new one
@@ -61,6 +61,10 @@ adds up what they counted into totals that survive restarts, until the user rese
     "traffic": {"down", "up" (bytes since "since"), "since", "boot_id", "last_down", "last_up"}
 
 boot_id and last_* are the VM's counters at the last read, so a backend restart doesn't count anything twice.
+
+"graceful_shutdown" is the user's Graceful shutdown (VM settings): no agent new to it gets a desktop (VMQueue), the ones
+holding one finish, and once nobody holds one and no run goes, Agents.watch_room shuts it down. Any start or stop ends
+it, so a restarted VM is a normal one again.
 
 A rename (VMs.rename) only changes the record: the Incus VM keeps the name it was made with, so a running VM
 can be renamed too. A new VM whose Incus name is still taken that way gets a number after it (sandbox-vm1-2).
@@ -209,6 +213,8 @@ class VMRecord:
         self.traffic_lock = threading.Lock()
         # Records from before notes were kept have none.
         self.notes = record.get("notes", [])
+        # Graceful shutdown asked for (module docstring). Records from before it have none.
+        self.graceful_shutdown = record.get("graceful_shutdown", False)
         # The agent holding the VM and the user may change the notes at the same time.
         self.notes_lock = threading.Lock()
         # Called after every save; VMs bumps its version there.
@@ -274,6 +280,7 @@ class VMRecord:
             "forked_from": self.forked_from,
             "traffic": dict(self.traffic),
             "notes": list(self.notes),
+            "graceful_shutdown": self.graceful_shutdown,
         }
 
     def save(self) -> None:
@@ -379,6 +386,8 @@ class VMRecord:
     def start(self) -> None:
         if not self.lock.acquire(blocking=False):
             raise VMsError(f"{self.name} is busy")
+        # A start (or restart) makes it a normal VM again.
+        self.graceful_shutdown = False
         try:
             if self.vm.status() == "Running":
                 if self.status != "running":
@@ -433,6 +442,8 @@ class VMRecord:
             self.save()
             self.vm.stop()
             self.status = "stopped"
+            # A graceful shutdown is over once it is off.
+            self.graceful_shutdown = False
             self.save()
         except Exception as error:
             self.error = str(error)
@@ -680,6 +691,13 @@ class VMRecord:
             result = self.desktop_vm(desktop).exec(command, timeout=30)
             if result.returncode != 0:
                 raise VMsError(f"Could not add the variables to ~/.bashrc on desktop {desktop}: {result.stderr.strip()}")
+
+    def set_graceful_shutdown(self) -> None:
+        """The user's Graceful shutdown: shut down once the agents on it are done (module docstring)."""
+        if self.status != "running":
+            raise VMsError(f"{self.name} is {self.status}, not running")
+        self.graceful_shutdown = True
+        self.save()
 
     def set_autostart(self, enabled: bool) -> None:
         """Start the VM when this computer starts."""

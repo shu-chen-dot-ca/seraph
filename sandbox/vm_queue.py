@@ -69,9 +69,9 @@ class VMQueue:
     def next_holder(self, record, desktop: int) -> str | None:
         """Only with the lock held, on a desktop nobody holds: makes the next one its holder, and returns it (None when
         nobody can take it): the first in the waiting line that asked for this desktop or for none, unless the VM is
-        full."""
+        full or shuts down once its agents are done (graceful_shutdown)."""
         line = record.desktops[desktop]
-        if record.name in self.full:
+        if record.name in self.full or record.graceful_shutdown:
             return None
         for agent_id in record.queue:
             if record.wants.get(agent_id, desktop) == desktop:
@@ -98,6 +98,9 @@ class VMQueue:
                     return 0
             if agent_id in record.queue:
                 return record.queue.index(agent_id) + 1
+            # The agents on it finish; nobody new comes.
+            if record.graceful_shutdown:
+                raise ValueError(f"{vm_name} shuts down once the agents on it are done: pick another VM with vms_list and choose_vm, then queue again.")
             for other in self.vms.list():
                 if other.desktop_of(agent_id) is not None or agent_id in other.queue:
                     raise ValueError(f"Already in {other.name}'s queue; release_vm takes you out of it")
