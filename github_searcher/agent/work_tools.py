@@ -91,7 +91,10 @@ The GitHub tools (github_tools.py) only read GitHub; these change what the user 
   off the Issues board for good (nothing on GitHub changes; a claim posted already is named, for the agent to take back).
 - Taking back, only what the agent itself sent and where the repo's Level of automation allows it (Comments, Pull
   requests): delete_comment (a comment posted from its draft), close_pr (a PR opened from its draft, with a comment
-  saying why posted on it first) and drop_commits
+  saying why posted on it first), reopen_pr (one of those it closed itself, once what closed it is gone, such as a CLA
+  the user signed since: its reviews and approvals stay, which a new PR would lose; its branch comes back in the user's
+  fork first if the app deleted it; a maintainer's close stays, and a comment saying why goes on it once it is open) and
+  drop_commits
   (its newest pushes on a PR of its own: the branch goes back to a commit it had before one of them, only while nobody
   pushed since). A stalled PR of its own is made again as a fresh one: draft_pr with replaces (and every remake job,
   Agents.remake_pr, does it by itself); once the new one is on GitHub the old one is closed (github_account.py).
@@ -561,6 +564,18 @@ class WorkTools:
                 {"type": "object", "properties": {"pr": {"type": "string"}, "comment": {"type": "string"}}, "required": ["pr", "comment"]},
             )(self.close_pr),
             tool(
+                "reopen_pr",
+                "Bring back a PR of yours that you closed (pr: owner/name#number): one the app opened from your draft, closed by "
+                "you (with close_pr) and not merged; never one a maintainer closed, that close is their answer. Only where the "
+                "user lets agents send PRs there (the repo's Level of automation: Pull requests). For one closed for a reason "
+                "that is gone now, such as a CLA the user has signed since: reopening keeps its reviews and approvals, which a "
+                "new PR would lose, so use it instead of a new PR. Its branch is put back in the user's fork first when the app "
+                "deleted it after the close. comment says why it is back, in a sentence or two, for the "
+                "maintainers: it is posted on the PR as the user once it is open. Then go on with it as with any open PR of "
+                "yours (a new version with draft_pr and pr).",
+                {"type": "object", "properties": {"pr": {"type": "string"}, "comment": {"type": "string"}}, "required": ["pr", "comment"]},
+            )(self.reopen_pr),
+            tool(
                 "drop_commits",
                 "Take back your newest commits on a PR of yours (pr: owner/name#number): its branch goes back to back_to, a "
                 "commit it had before one of your pushes (the commit your earlier push ended on, or the PR's newest commit "
@@ -973,6 +988,8 @@ class WorkTools:
             return f"Taking back the comment {args.get('comment')}"
         if name == "close_pr":
             return f"Taking back {args.get('pr')}"
+        if name == "reopen_pr":
+            return f"Reopening {args.get('pr')}"
         if name == "drop_commits":
             return f"Taking back the commits of {args.get('pr')} after {(args.get('back_to') or '')[:10]}"
         if name == "report_problem":
@@ -2019,6 +2036,40 @@ class WorkTools:
         except SendError as error:
             return {"content": [{"type": "text", "text": f"The comment is on it ({posted['url']}), but it wasn't closed. {error}"}], "is_error": True}
         return {"content": [{"type": "text", "text": f"{pr}: posted why ({posted['url']}), then {result}"}]}
+
+    async def reopen_pr(self, args: dict) -> dict:
+        pr = args["pr"].strip()
+        repo, _, number = pr.rpartition("#")
+        if repo.count("/") != 1 or not number.isdigit():
+            return {"content": [{"type": "text", "text": "pr must be owner/name#number."}], "is_error": True}
+        owned = []
+        for draft in self.agents.inbox.list():
+            sent = draft["sent"]
+            if draft["agent"] == self.agent_id and draft["kind"] == "pr" and sent is not None and not sent.get("update"):
+                owned.append(f"{sent['repo']}#{sent['number']}".lower())
+        if pr.lower() not in owned:
+            return {"content": [{"type": "text", "text": f"{pr} isn't a PR of yours (one the app opened from your draft)."}], "is_error": True}
+        settings = {}
+        if AUTOMATION_FILE.is_file():
+            settings = json.loads(AUTOMATION_FILE.read_text())
+        allowed = [name.lower() for name, rules in settings.items() if rules.get("pull_requests")]
+        if repo.lower() not in allowed:
+            text = f"The user doesn't let agents send PRs on {repo} (its Level of automation: Pull requests is off), so you can't reopen one there either."
+            return {"content": [{"type": "text", "text": text}], "is_error": True}
+        comment = (args.get("comment") or "").strip()
+        if comment == "":
+            return {"content": [{"type": "text", "text": "comment is required: why it is back, for the maintainers."}], "is_error": True}
+        # Open first, then why: a comment on a PR that then fails to reopen would say something that didn't happen.
+        github_account = self.agents.your_repositories.github_account
+        try:
+            result = await asyncio.to_thread(github_account.manage, "reopen", repo, int(number))
+        except SendError as error:
+            return {"content": [{"type": "text", "text": f"It wasn't reopened. {error}"}], "is_error": True}
+        try:
+            posted = await asyncio.to_thread(github_account.comment, pr, comment)
+        except SendError as error:
+            return {"content": [{"type": "text", "text": f"{pr}: {result} But the comment saying why didn't go: {error}"}], "is_error": True}
+        return {"content": [{"type": "text", "text": f"{pr}: {result} Then posted why ({posted['url']})."}]}
 
     async def drop_commits(self, args: dict) -> dict:
         pr = args["pr"].strip()
