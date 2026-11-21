@@ -17,8 +17,11 @@ Under the top:
 - Pull requests: opened, merged and closed per period, as three lines in GitHub's colors; Open, the pull requests still
   open at the end of each period (now for the last one), in blue, all on a log scale (0, 1, 3, 10, 30, ...: a count's
   height is log(1 + count), so 0 sits at the bottom); and Merge rate: the 7-day average at the end of each period
-  (merged of merged and closed in the 7 days before), dashed, on its own 0-100% axis on the right. Back to front:
-  Merge rate, Open, Closed, Opened, Merged.
+  (merged of merged and closed in the 7 days before), solid gray, on its own 0-100% axis on the right. Open PR limit in
+  its header is the Automation page's Open pull requests limit (PUT /api/automation on Enter or leaving the box; empty:
+  no limit). The box takes only 1 to 999: a keystroke or paste that would make it anything else is ignored. Set, it is
+  a dashed blue line at that count, and the axis goes up to it. Back to front: Open PR limit, Merge rate, Open, Closed,
+  Opened, Merged.
 - Tokens and cost: the tokens every Claude run used per period (input, cache written, cache read and output, from the
   usage log: github_searcher/token_usage.py), a line per model (Model, the default) or per kind of work (Work), picked
   in its header, no total; and Cost, what they all cost in USD, white (black when light), in front on its own axis on
@@ -37,10 +40,11 @@ and dollars $0.05, $412, $1.23K.
 */
 
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { VMList } from "@/VMs";
 import { JobProgressBar, since, useNow } from "@/components/ui/job-progress";
-import { useConnected, useLive } from "@/live";
+import { api, useConnected, useLive, useLoaded, type AutomationData } from "@/live";
 import { cn } from "@/lib/utils";
 
 const MINUTE = 60 * 1000;
@@ -93,9 +97,9 @@ const WIDGET_HEADER = "flex h-9 shrink-0 items-center gap-3 border-b px-3";
 const TITLE = "truncate font-medium hover:underline";
 const DETAIL = "ml-auto shrink-0 text-xs text-muted-foreground tabular-nums";
 
-// A chart's line. pieces: its drawing (SVG paths), broken where a value is missing. right: on the chart's right axis,
-// dashed. layer: lines are drawn by it, the highest in front.
-type Line = { title: string; color: string; values: (number | null)[]; pieces: string[]; right: boolean; layer: number };
+// A chart's line. pieces: its drawing (SVG paths), broken where a value is missing. right: on the chart's right axis.
+// dashed: a limit. layer: lines are drawn by it, the highest in front.
+type Line = { title: string; color: string; values: (number | null)[]; pieces: string[]; right: boolean; dashed: boolean; layer: number };
 
 export default function Dashboard() {
   const prs = useLive("prs");
@@ -103,6 +107,7 @@ export default function Dashboard() {
   const vms = useLive("vms");
   const agents = useLive("agents");
   const automation = useLive("automation");
+  const automationLoaded = useLoaded("automation");
   const usage = useLive("tokens").slices;
   const connected = useConnected();
   const now = useNow();
@@ -112,6 +117,31 @@ export default function Dashboard() {
   const [tokensBy, setTokensBy] = useState("model");
   // The period the mouse is on, in both charts.
   const [hovered, setHovered] = useState<number | null>(null);
+  // The Open PR limit as you type it, until the live topic has it (null: the saved one).
+  const [limitText, setLimitText] = useState<string | null>(null);
+  const openLimit = automation.max_open_prs;
+  const limitSaved = openLimit === null ? "" : String(openLimit);
+  // Saved: follow the topic again. (Setting state while rendering is React's pattern for state derived from props.)
+  if (limitText !== null && limitText === limitSaved) {
+    setLimitText(null);
+  }
+
+  // The Open PR limit is the Automation page's Open pull requests limit: the whole settings go back with only it changed.
+  async function saveLimit() {
+    if (limitText === null) {
+      return;
+    }
+    if (limitText === limitSaved) {
+      setLimitText(null);
+      return;
+    }
+    try {
+      await api<AutomationData>("/api/automation", { method: "PUT", body: { ...automation, max_open_prs: limitText === "" ? null : Number(limitText) } });
+    } catch (err) {
+      toast.error(`Could not save: ${err instanceof Error ? err.message : err}`);
+      setLimitText(null);
+    }
+  }
 
   const range = RANGES.find((each) => each.key === rangeKey) ?? RANGES[2];
   const mine = prs.items.filter((pr) => pr.relation === "author");
@@ -409,6 +439,10 @@ export default function Dashboard() {
   for (const period of periods) {
     highest = Math.max(highest, period.opened, period.merged, period.closed, period.open);
   }
+  // The Open PR limit stays in view.
+  if (openLimit !== null) {
+    highest = Math.max(highest, openLimit);
+  }
   const prTicks = [0, 1];
   while (prTicks[prTicks.length - 1] < highest) {
     const last = prTicks[prTicks.length - 1];
@@ -456,6 +490,7 @@ export default function Dashboard() {
         values: periods.map((period) => period.byModel[model] ?? 0),
         pieces: [],
         right: false,
+        dashed: false,
         layer: 0,
       });
     });
@@ -468,6 +503,7 @@ export default function Dashboard() {
         values: periods.map((period) => period.byWork[work] ?? 0),
         pieces: [],
         right: false,
+        dashed: false,
         layer: 0,
       });
     });
@@ -479,8 +515,20 @@ export default function Dashboard() {
       values: periods.map((period) => period.cost),
       pieces: [],
       right: true,
+      dashed: false,
       layer: 1,
     });
+  }
+  // The pull requests' lines, and the Open PR limit when there is one.
+  const prLines: Line[] = [
+    { title: "Opened", color: OPENED, values: periods.map((period) => period.opened), pieces: [], right: false, dashed: false, layer: 4 },
+    { title: "Merged", color: MERGED, values: periods.map((period) => period.merged), pieces: [], right: false, dashed: false, layer: 5 },
+    { title: "Closed", color: CLOSED, values: periods.map((period) => period.closed), pieces: [], right: false, dashed: false, layer: 3 },
+    { title: "Open", color: "text-sky-600 dark:text-sky-500", values: periods.map((period) => period.open), pieces: [], right: false, dashed: false, layer: 2 },
+    { title: "Merge rate", color: "text-foreground/60", values: periods.map((period) => period.rate), pieces: [], right: true, dashed: false, layer: 1 },
+  ];
+  if (openLimit !== null) {
+    prLines.push({ title: "Open PR limit", color: "text-sky-600 dark:text-sky-500", values: periods.map(() => openLimit), pieces: [], right: false, dashed: true, layer: 0 });
   }
 
   const percentTicks = [0, 25, 50, 75, 100];
@@ -517,13 +565,7 @@ export default function Dashboard() {
       rightFormat: (value) => `${Math.round(value)}%`,
       labels: periods.map((period) => period.label),
       axis: prAxis,
-      lines: [
-        { title: "Opened", color: OPENED, values: periods.map((period) => period.opened), pieces: [], right: false, layer: 3 },
-        { title: "Merged", color: MERGED, values: periods.map((period) => period.merged), pieces: [], right: false, layer: 4 },
-        { title: "Closed", color: CLOSED, values: periods.map((period) => period.closed), pieces: [], right: false, layer: 2 },
-        { title: "Open", color: "text-sky-600 dark:text-sky-500", values: periods.map((period) => period.open), pieces: [], right: false, layer: 1 },
-        { title: "Merge rate", color: "text-foreground/60", values: periods.map((period) => period.rate), pieces: [], right: true, layer: 0 },
-      ],
+      lines: prLines,
       empty: "",
     },
     {
@@ -625,6 +667,31 @@ export default function Dashboard() {
                 </a>
               )}
               {chart.href === "" && <span className="truncate font-medium">{chart.title}</span>}
+              {chart.key === "prs" && (
+                <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                  Open PR limit
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="–"
+                    value={limitText ?? limitSaved}
+                    disabled={!automationLoaded}
+                    className="h-6 w-12 rounded-sm border bg-transparent px-1.5 text-right font-mono text-xs text-foreground tabular-nums outline-none placeholder:text-muted-foreground focus:border-ring"
+                    onChange={(event) => {
+                      // Only 1 to 999 goes in (or nothing: no limit); any other keystroke or paste is ignored.
+                      if (/^([1-9][0-9]{0,2})?$/.test(event.target.value)) {
+                        setLimitText(event.target.value);
+                      }
+                    }}
+                    onBlur={saveLimit}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                </label>
+              )}
               <span className={DETAIL}>{chart.detail}</span>
               {chart.key === "tokens" && (
                 <div className="flex shrink-0 overflow-hidden rounded-sm border">
@@ -697,7 +764,7 @@ export default function Dashboard() {
                             fill="none"
                             stroke="currentColor"
                             strokeWidth="1.5"
-                            strokeDasharray={line.right ? "4 3" : undefined}
+                            strokeDasharray={line.dashed ? "4 3" : undefined}
                             strokeLinejoin="round"
                             strokeLinecap="round"
                             vectorEffect="non-scaling-stroke"
@@ -767,7 +834,7 @@ export default function Dashboard() {
               <div className="mt-2 ml-11 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 {chart.lines.map((line) => (
                   <span key={line.title} className="flex items-center gap-1.5">
-                    <span className={cn("h-0.5 w-3 rounded-full bg-current", line.color, line.right && "h-0 rounded-none border-t-2 border-dashed border-current bg-transparent")} />
+                    <span className={cn("h-0.5 w-3 rounded-full bg-current", line.color, line.dashed && "h-0 rounded-none border-t-2 border-dashed border-current bg-transparent")} />
                     {line.title}
                   </span>
                 ))}
