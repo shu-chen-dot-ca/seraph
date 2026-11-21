@@ -12,7 +12,8 @@ CPU and memory only change here while the VM is stopped; they apply on the next 
 time: it is how many agents can work in the VM at the same time at most, each on its own desktop (screen, mouse,
 keyboard and home folder). Agents add desktops up to it, and the + and × above the desktop on the Overview add or
 remove one at any time. It can't go below how many the VM has; remove some first.
-Rename works running or not; the page moves to the new name (#/vms/<new name>).
+Rename works running or not; the page moves to the new name (#/vms/<new name>). Seraph's own VM, where Fix all on the
+Feedback page works (FIX_VM), keeps its name and can't be deleted.
 */
 
 import { Eye, EyeOff, Loader2, Plus, Save, Trash2, X } from "lucide-react";
@@ -35,6 +36,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { api, useLive, type VMOptions, type VMSettings as Settings } from "@/live";
+
+// Seraph's own VM (sandbox/vms.py FIX_VM).
+const FIX_VM = "seraph";
 
 type EnvRow = { name: string; value: string; shown: boolean };
 
@@ -216,6 +220,7 @@ export default function VMSettings(props: { name: string }) {
               className="w-56"
               spellCheck={false}
               value={newName}
+              disabled={vmName === FIX_VM}
               onChange={(event) => setNewName(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && newName.trim() !== "" && newName.trim() !== vmName && busy === "") {
@@ -223,7 +228,7 @@ export default function VMSettings(props: { name: string }) {
                 }
               }}
             />
-            <Button size="sm" onClick={rename} disabled={newName.trim() === "" || newName.trim() === vmName || busy !== ""}>
+            <Button size="sm" onClick={rename} disabled={newName.trim() === "" || newName.trim() === vmName || busy !== "" || vmName === FIX_VM}>
               {busy === "rename" && <Loader2 className="animate-spin" />}
               Rename
             </Button>
@@ -452,7 +457,7 @@ export default function VMSettings(props: { name: string }) {
         <section>
           <h2 className="mb-1.5 border-b pb-1 font-semibold">Delete</h2>
           <div className="flex items-center gap-3">
-            <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)} disabled={busy !== ""}>
+            <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)} disabled={busy !== "" || vmName === FIX_VM}>
               {busy === "delete" ? <Loader2 className="animate-spin" /> : <Trash2 />}
               Delete {vmName}
             </Button>
