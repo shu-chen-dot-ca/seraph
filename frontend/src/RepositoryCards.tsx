@@ -6,7 +6,8 @@ Repositories: the repos in the repo list (repo_list.py) as cards, in five column
 bottom that scrolls on its own (on a narrow window the columns keep their width and the page scrolls sideways):
 - Prioritized: the Contributed ones you moved here (the Repos list's prioritized, repo_list.py). By stars.
 - Contributed: repos that merged a pull request of yours. By stars, most first, or by the pick in the column's sort
-  menu (Sort by stars, merged PRs, open PRs, closed PRs or in-progress PRs, always the most first; then by stars).
+  menu (Sort by stars, merged PRs, open PRs, closed PRs, in-progress PRs, rating or test run time, always the most
+  first, the unknown last; then by stars).
 - Target: repos you hunt, to become a contributor there (an NVIDIA one, say), added from Catalog (Add to Target, the
   Repos list's target, with when each went there). Remove from Target takes one back to Catalog; besides, one leaves by
   its PRs: once one of yours is merged there it is in Contributed, and once one is closed without a merge after it went
@@ -27,7 +28,11 @@ progress there (yellow, a draft PR icon: fix_issue jobs still open with no pull 
 requests page's In progress has them, from the live "jobs" topic); a count of 0 isn't shown. The mouse on the open
 count opens a menu with Close all (every open PR of yours there closed on GitHub, POST /api/repos/close_prs), on the
 in-progress one Stop all (those jobs stopped and their issues dropped, POST /api/repos/stop_in_progress), as the ⋯
-opens.
+opens. Then, from the live "repo_stats" topic (github_searcher/repo_stats.py): one round of its tests (blue, a clock:
+the median after run, the one every change needs before its PR, of the scope its rules ask for; "~" when only rough
+times from before 11-20 are known; its tooltip with the scope, the CPU and how many runs),
+and in Prioritized and Contributed its rating of how our PRs are received there (pink, 0 to 10; its tooltip with the
+parts: first reply, time to merge, merged share, change requests, tone).
 A click on a card's owner/name (the text itself, with no tooltip) opens the repo on GitHub in a new tab; elsewhere on a
 card it does nothing yet. A card has a ⋯, whose menu opens when the mouse is on it (a tap or click on a phone): Move to
 Contributed in Prioritized and back; in Catalog Add to Target, in Target Remove from Target; and outside Removed Delete, or Add to Removed for a repo
@@ -46,7 +51,7 @@ Your pull requests are the ones the app follows (github_searcher/pr_tracking.py)
 numbers update themselves.
 */
 
-import { ChevronDown, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MoreHorizontal, Star } from "lucide-react";
+import { ChevronDown, Clock, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MoreHorizontal, Star, ThumbsUp } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -63,7 +68,7 @@ import PullRequests from "@/PullRequests";
 import { api, useLive, useLoaded } from "@/live";
 import { cn } from "@/lib/utils";
 
-type Sort = "stars" | "merged" | "open" | "closed" | "working";
+type Sort = "stars" | "merged" | "open" | "closed" | "working" | "rating" | "round";
 
 const OPEN_JOB = ["queued", "working", "waiting_on_user", "waiting_on_maintainers"];
 // The page's tabs: the cards (state "") and the pull requests' tables.
@@ -82,6 +87,8 @@ const SORT_TITLE: Record<Sort, string> = {
   open: "Sort by open PRs",
   closed: "Sort by closed PRs",
   working: "Sort by in-progress PRs",
+  rating: "Sort by rating",
+  round: "Sort by test run time",
 };
 
 export default function RepositoryCards(props: { state: string }) {
@@ -89,6 +96,7 @@ export default function RepositoryCards(props: { state: string }) {
   const prs = useLive("prs");
   const jobs = useLive("jobs");
   const automation = useLive("automation");
+  const stats = useLive("repo_stats");
   const loaded = useLoaded("repos");
   // The card whose ⋯ menu is open: the mouse on the ⋯ opens it at once, and it closes once the mouse left both the ⋯
   // and the menu (closeTimer: a tenth of a second, to go from one to the other). A tap or a key opens and closes it as
@@ -229,6 +237,13 @@ export default function RepositoryCards(props: { state: string }) {
     }
     if (sort === "working") {
       return b.working - a.working;
+    }
+    // Not known yet: last.
+    if (sort === "rating") {
+      return (stats[b.repo.full_name.toLowerCase()]?.rating ?? -1) - (stats[a.repo.full_name.toLowerCase()]?.rating ?? -1);
+    }
+    if (sort === "round") {
+      return (stats[b.repo.full_name.toLowerCase()]?.round_seconds ?? -1) - (stats[a.repo.full_name.toLowerCase()]?.round_seconds ?? -1);
     }
     return 0;
   });
@@ -419,6 +434,8 @@ export default function RepositoryCards(props: { state: string }) {
                           <DropdownMenuRadioItem value="open">{SORT_TITLE.open}</DropdownMenuRadioItem>
                           <DropdownMenuRadioItem value="closed">{SORT_TITLE.closed}</DropdownMenuRadioItem>
                           <DropdownMenuRadioItem value="working">{SORT_TITLE.working}</DropdownMenuRadioItem>
+                          <DropdownMenuRadioItem value="rating">{SORT_TITLE.rating}</DropdownMenuRadioItem>
+                          <DropdownMenuRadioItem value="round">{SORT_TITLE.round}</DropdownMenuRadioItem>
                         </DropdownMenuRadioGroup>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -436,6 +453,56 @@ export default function RepositoryCards(props: { state: string }) {
                   {ordered.map((card) => {
                     // Its ⋯ has a move, Remove from Target, or Delete or Add to Removed (and in Catalog Add to Target).
                     const menu = column.moveTo !== "" || column.title === "Target" || (card.listed && !column.removed);
+                    // Its record with us: one round of its tests, as text ("~": only rough times), and the rating's parts.
+                    const stat = stats[card.repo.full_name.toLowerCase()];
+                    let round = "";
+                    const roundLines: string[] = [];
+                    if (stat !== undefined && stat.round_seconds !== null) {
+                      if (stat.round_seconds < 60) {
+                        round = `${stat.round_seconds}s`;
+                      } else if (stat.round_seconds < 3600) {
+                        round = `${Math.round(stat.round_seconds / 60)}m`;
+                      } else {
+                        round = `${(stat.round_seconds / 3600).toFixed(1)}h`;
+                      }
+                      if (!stat.exact) {
+                        round = "~" + round;
+                      }
+                      roundLines.push(`Test run: ${round}`);
+                      if (stat.scope === "full") {
+                        roundLines.push("Official checks, after each change");
+                      }
+                      if (stat.scope === "focused") {
+                        roundLines.push("Tests that cover the change, after each change");
+                      }
+                      if (stat.round_cpu_seconds !== null) {
+                        roundLines.push(`CPU: ${(stat.round_cpu_seconds / 3600).toFixed(1)}h`);
+                      }
+                      roundLines.push(`Runs: ${stat.rounds}`);
+                    }
+                    const ratingLines: string[] = [];
+                    if (stat !== undefined && stat.rating !== null) {
+                      ratingLines.push(`Rating: ${stat.rating.toFixed(1)} of 10`);
+                      if (stat.first_reply_hours !== null) {
+                        ratingLines.push(
+                          stat.first_reply_hours < 48
+                            ? `First reply: ${Math.round(stat.first_reply_hours)} hours`
+                            : `First reply: ${(stat.first_reply_hours / 24).toFixed(1)} days`,
+                        );
+                      }
+                      if (stat.merge_days !== null) {
+                        ratingLines.push(`Time to merge: ${stat.merge_days} days`);
+                      }
+                      if (stat.merge_rate !== null) {
+                        ratingLines.push(`Merged: ${Math.round(stat.merge_rate * 100)}%`);
+                      }
+                      if (stat.change_requests !== null) {
+                        ratingLines.push(`Change requests: ${stat.change_requests} per PR`);
+                      }
+                      if (stat.tone !== null) {
+                        ratingLines.push(`Tone: ${stat.tone} of 10`);
+                      }
+                    }
                     return (
                       <div
                         key={card.repo.full_name}
@@ -548,6 +615,18 @@ export default function RepositoryCards(props: { state: string }) {
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               ))}
+                            {round !== "" && (
+                              <span className="flex items-center gap-0.5 text-sky-500" title={roundLines.join("\n")}>
+                                <Clock className="size-3" />
+                                {round}
+                              </span>
+                            )}
+                            {column.contributed && ratingLines.length > 0 && (
+                              <span className="flex items-center gap-0.5 text-pink-500" title={ratingLines.join("\n")}>
+                                <ThumbsUp className="size-3" />
+                                {stat?.rating?.toFixed(1)}
+                              </span>
+                            )}
                           </div>
                         </div>
                         {menu && (

@@ -612,6 +612,28 @@ export type Feedback = {
   closed_at: string | null;
 };
 
+// Each repo's record with us (github_searcher/repo_stats.py), by its name in lower case: one round of its tests (the
+// median after run of the scope its rules ask for: seconds and CPU seconds; exact false: only rough times from before
+// 11-20; scope full: the project's official checks, focused: the tests that cover the change), and for a repo that merged a PR
+// of ours a 0-10 rating with its parts (first reply in hours, time to merge in days, merged share 0-1, change requests
+// per answered PR, tone 0-10). null: not known.
+export type RepoStats = Record<
+  string,
+  {
+    round_seconds: number | null;
+    round_cpu_seconds: number | null;
+    rounds: number;
+    exact: boolean;
+    scope: "full" | "focused" | null;
+    rating: number | null;
+    first_reply_hours: number | null;
+    merge_days: number | null;
+    merge_rate: number | null;
+    change_requests: number | null;
+    tone: number | null;
+  }
+>;
+
 // ---- The live store ----
 
 export type Topics = {
@@ -627,6 +649,7 @@ export type Topics = {
   automation: AutomationData;
   tokens: TokensData;
   problems: Feedback[];
+  repo_stats: RepoStats;
 };
 
 // Empty until the first message, so components never deal with "not loaded yet".
@@ -671,6 +694,7 @@ const store = {
     },
     tokens: { slices: [] },
     problems: [],
+    repo_stats: {},
   } as Topics,
   loaded: {} as Partial<Record<keyof Topics, boolean>>,
   connected: false,
