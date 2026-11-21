@@ -50,7 +50,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocketDisconnect, WebSocketDisconnected
 
 from backend import agents_api, artifacts_api, automation_api, errors_api, github_account_api, github_api, images_api, inbox_api, issues_api, problem_fixes_api, repo_automation_api, repos_api, secrets_api, updates_api, vms_api
-from backend.shared import agents, crashes, explore, images, inbox, issue_tags, jobs, pr_tracking, problems, repos, token_usage, updates, vms
+from backend.shared import agents, crashes, explore, images, inbox, issue_tags, jobs, pr_tracking, problems, repo_stats, repos, token_usage, updates, vms
 from github_searcher.token_balancer import BALANCER
 from github_searcher.updates import HOME
 
@@ -137,6 +137,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(keep_alive(issues_api.keep_catalog_agents)),
         asyncio.create_task(keep_alive(issues_api.keep_stale_prs)),
         asyncio.create_task(keep_alive(repos_api.keep_signals)),
+        asyncio.create_task(keep_alive(repos_api.keep_repo_stats)),
         asyncio.create_task(keep_alive(github_api.keep_prs)),
         asyncio.create_task(keep_alive(github_api.keep_branches_clean)),
         asyncio.create_task(keep_alive(github_api.keep_forks_trimmed)),
@@ -202,7 +203,7 @@ async def live(websocket: WebSocket) -> None:
 
 
 # The live feed's topics, by name: what the pages show.
-TOPICS = ["repos", "jobs", "inbox", "prs", "agents", "vms", "images", "updates", "automation", "tokens", "problems"]
+TOPICS = ["repos", "jobs", "inbox", "prs", "agents", "vms", "images", "updates", "automation", "tokens", "problems", "repo_stats"]
 # Topics older releases had. The live copy checks a new release with its own list of topics (updates.py TOPICS), so in
 # that check these go once too, empty, or a live copy from before the trim would refuse every new release.
 OLD_TOPICS = ["issues", "tracked", "explore", "github", "issue_drafts", "your_repos", "notifications", "resource", "projects", "crashes"]
@@ -260,13 +261,16 @@ def topic_data(topic: str):
     # The Feedback page: what the agents reported and what the app saw itself, open and closed (problems.py).
     if topic == "problems":
         return problems.list()
+    # Each repo's test run time and rating, for the Repositories cards (repo_stats.py).
+    if topic == "repo_stats":
+        return repo_stats.summary()
     raise ValueError(f"No topic {topic}: one of {', '.join(TOPICS)}")
 
 
 async def feed(websocket: WebSocket) -> None:
     """The live feed of one browser, until it goes away."""
     # The version of each topic this browser has; None until it is sent.
-    sent = {"repos": None, "jobs": None, "inbox": None, "prs": None, "agents": None, "vms": None, "images": None, "updates": None, "automation": None, "tokens": None, "problems": None}
+    sent = {"repos": None, "jobs": None, "inbox": None, "prs": None, "agents": None, "vms": None, "images": None, "updates": None, "automation": None, "tokens": None, "problems": None, "repo_stats": None}
     # When each big topic last went (time.monotonic()): again only BIG_TOPIC_SECONDS later, with every change since.
     sent_at = {"repos": 0.0, "jobs": 0.0, "inbox": 0.0, "prs": 0.0, "agents": 0.0, "problems": 0.0}
     if CHECK:
@@ -288,6 +292,7 @@ async def feed(websocket: WebSocket) -> None:
             "automation": issues_api.AUTOMATION_VERSION["version"],
             "tokens": token_usage.version,
             "problems": problems.version,
+            "repo_stats": repo_stats.version,
         }
         # The version is noted before the data is read: a change in between is sent again next tick, never lost.
         messages = []

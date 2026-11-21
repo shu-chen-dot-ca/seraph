@@ -1,5 +1,6 @@
 """The Repositories page's cards (frontend/src/RepositoryCards.tsx): the moves between Prioritized and Contributed, Add
-to Target, and Delete (Add to Removed for a repo with PRs of yours), and keeping the repos' signals fresh.
+to Target, and Delete (Add to Removed for a repo with PRs of yours), and keeping the repos' signals fresh, and their
+record with us for the cards' test run time and rating (keep_repo_stats, github_searcher/repo_stats.py).
 
 The list reaches the browser through /api/live (topic "repos"). The Automation fills it (backend/automation_api.py,
 through Explore).
@@ -19,13 +20,14 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.issues_api import auto_remove_issues
-from backend.shared import agents, pr_tracking, repo_signals, repos
+from backend.shared import agents, jobs, pr_tracking, repo_signals, repo_stats, repos
 from github_searcher.repo_signals import NEWCOMER_VERSION, NON_LATIN_SHARE, POLICY_VERSION
 from github_searcher.search import get_readme, get_repo_totals
 
 router = APIRouter(prefix="/api")
 
 SIGNALS_CHECK_SECONDS = 10
+REPO_STATS_SECONDS = 5 * 60
 SIGNALS_RETRY_SECONDS = 60 * 60
 # Repos whose signals are fetched at the same time in a full round.
 SIGNALS_AT_ONCE = 4
@@ -77,6 +79,14 @@ async def delete_repo(body: DeleteRequest) -> dict:
     repos.remove([body.name])
     auto_remove_issues()
     return {"deleted": body.name}
+
+
+async def keep_repo_stats() -> None:
+    """Runs as long as the backend: works out each repo's test run time and rating every REPO_STATS_SECONDS
+    (repo_stats.py)."""
+    while True:
+        await repo_stats.refresh(pr_tracking.summary()["items"], jobs.list())
+        await asyncio.sleep(REPO_STATS_SECONDS)
 
 
 async def keep_signals() -> None:

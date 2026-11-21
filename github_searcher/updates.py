@@ -59,7 +59,7 @@ STEP_SECONDS = 15 * 60
 CHECK_START_SECONDS = 120
 CHECK_FEED_SECONDS = 10
 # Every topic the live feed sends (backend/app.py): the check needs each of them.
-TOPICS = ["repos", "jobs", "inbox", "prs", "agents", "vms", "images", "updates", "automation", "tokens", "problems"]
+TOPICS = ["repos", "jobs", "inbox", "prs", "agents", "vms", "images", "updates", "automation", "tokens", "problems", "repo_stats"]
 
 
 class Updates:
