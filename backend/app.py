@@ -213,9 +213,17 @@ TEXTS = {}
 
 def topic_data(topic: str):
     """One topic of the live feed as the pages get it."""
-    # The Repositories cards: the list, and which are archived, planned or removed.
+    # The Repositories cards: the list, and which are archived, removed, prioritized or target.
     if topic == "repos":
-        return {"items": repos.items(), "can_undo": repos.can_undo(), "can_redo": repos.can_redo(), "archived": repos.archived(), "planned": repos.planned(), "removed": repos.removed()}
+        return {
+            "items": repos.items(),
+            "can_undo": repos.can_undo(),
+            "can_redo": repos.can_redo(),
+            "archived": repos.archived(),
+            "removed": repos.removed(),
+            "prioritized": repos.prioritized(),
+            "target": repos.target(),
+        }
     # Jobs without what no page shows (their evidence and timeline: half the topic), and a finished one with only the
     # start of its notes and no test runs: the topic goes out again on every change, and the jobs only grow.
     if topic == "jobs":

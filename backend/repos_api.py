@@ -1,5 +1,5 @@
-"""The Repositories page's cards (frontend/src/RepositoryCards.tsx): Planned and Delete, and keeping the repos' signals
-fresh.
+"""The Repositories page's cards (frontend/src/RepositoryCards.tsx): the moves between Prioritized and Contributed, Add
+to Target, and Delete (Add to Removed for a repo with PRs of yours), and keeping the repos' signals fresh.
 
 The list reaches the browser through /api/live (topic "repos"). The Automation fills it (backend/automation_api.py,
 through Explore).
@@ -31,31 +31,39 @@ SIGNALS_RETRY_SECONDS = 60 * 60
 SIGNALS_AT_ONCE = 4
 
 
-class PlanRequest(BaseModel):
-    names: list[str]
-    planned: bool
+class MoveRequest(BaseModel):
+    name: str
+    to: str
 
 
 class DeleteRequest(BaseModel):
     name: str
 
 
-@router.post("/repos/plan")
-def plan_repos(body: PlanRequest) -> dict:
-    """Add to Planned (planned true) or Remove from Planned (false) on the Repositories page: the repos you
-    want to contribute to. Repos not in the list are left out."""
-    listed = [item["full_name"] for item in repos.items()]
-    names = [name for name in body.names if name in listed]
-    repos.set_planned(names, body.planned)
-    return {"planned": repos.planned()}
+@router.post("/repos/move")
+def move_repo(body: MoveRequest) -> dict:
+    """Move to Prioritized or Contributed (its ⋯, or a drag), or Add to Target, on the Repositories page: to
+    "prioritized" or "target" puts the repo in that list (repo_list.py; Target from now, also again for a rejected one), to
+    "contributed" takes it out of Prioritized. Nothing takes one out of Target: the page moves it on by its PRs (merged,
+    or closed without a merge). Any name, also a repo with PRs of yours that isn't in the list: the page has a card for
+    it too."""
+    if body.to == "prioritized":
+        repos.set_prioritized([body.name], True)
+    elif body.to == "contributed":
+        repos.set_prioritized([body.name], False)
+    elif body.to == "target":
+        repos.set_target([body.name], True)
+    else:
+        raise HTTPException(status_code=400, detail="A repo moves to prioritized, contributed or target.")
+    return {"prioritized": repos.prioritized(), "target": repos.target()}
 
 
 @router.post("/repos/delete")
 async def delete_repo(body: DeleteRequest) -> dict:
-    """Delete in the ⋯ of a card on the Repositories page, at once, with no "are you sure?". Every agent working
-    on the repo stops now (Agents.stop_repo). A repo with pull requests of yours (merged, closed or open) is kept: it
-    moves to the page's Removed section, stopped, so no new work starts there (repo_list.py). Any other leaves Repos,
-    and its issues on the Issues board's Open and Catalog go."""
+    """Delete, or Add to Removed for a repo with pull requests of yours, in the ⋯ of a card on the Repositories page,
+    at once, with no "are you sure?". Every agent working on the repo stops now (Agents.stop_repo). A repo with pull
+    requests of yours (merged, closed or open) is kept: it moves to the page's Removed section, stopped, so no new work
+    starts there (repo_list.py). Any other leaves Repos, and its issues on the Issues board's Open and Catalog go."""
     listed = [item["full_name"] for item in repos.items()]
     if body.name not in listed:
         raise HTTPException(status_code=404, detail=f"{body.name} is not in Repos.")
@@ -64,7 +72,8 @@ async def delete_repo(body: DeleteRequest) -> dict:
     if history:
         repos.set_removed([body.name], True)
         return {"removed": body.name}
-    repos.set_planned([body.name], False)
+    repos.set_prioritized([body.name], False)
+    repos.set_target([body.name], False)
     repos.remove([body.name])
     auto_remove_issues()
     return {"deleted": body.name}
