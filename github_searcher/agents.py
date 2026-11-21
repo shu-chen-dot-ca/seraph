@@ -1373,23 +1373,30 @@ class Agents:
             self.notify(job["agent"], text)
 
     async def stop_repo(self, repo: str) -> None:
-        """The user deleted the repo on the Dashboard's Repository page (backend/repos_api.py): every open job on it is
-        cancelled now, and an agent working on one stops at once, as for Pause (its turn, its runs, what it runs in the
-        VM). The drafts of those jobs that wait in the Inbox are rejected, so nothing more goes out there. The agents
-        hear it with their next turn; this doesn't wake them."""
+        """The user deleted the repo on the Repositories page (backend/repos_api.py): every open job on it is stopped
+        now (stop_jobs)."""
+        ids = [job["id"] for job in self.jobs.list() if (job["repo"] or "").lower() == repo.lower()]
+        await self.stop_jobs(ids, f"{repo} was deleted")
+
+    async def stop_jobs(self, job_ids: list[str], why: str) -> None:
+        """The user stopped these jobs on the Repositories page (backend/repos_api.py: a deleted repo, Stop all on its
+        issues in progress, Close all on its open PRs): each still open is cancelled now, and an agent working on one
+        stops at once, as for Pause (its turn, its runs, what it runs in the VM). The drafts of those jobs that wait in the
+        Inbox are rejected, so nothing more goes out there. The agents hear it with their next turn; this doesn't wake
+        them. why: what the user did, in a few words ("owner/name was deleted")."""
         drafts = self.inbox.list()
         for job in self.jobs.list():
-            if job["status"] in ["done", "cancelled"] or (job["repo"] or "").lower() != repo.lower():
+            if job["status"] in ["done", "cancelled"] or job["id"] not in job_ids:
                 continue
             self.jobs.update(job["id"], status="cancelled")
-            self.jobs.add_timeline(job["id"], "status", f"Stopped by you: {repo} was deleted")
+            self.jobs.add_timeline(job["id"], "status", f"Stopped by you: {why}")
             for draft in drafts:
                 if draft["job"] == job["id"] and draft["status"] == "pending":
-                    self.inbox.decide(draft["id"], "rejected", f"{repo} was deleted")
+                    self.inbox.decide(draft["id"], "rejected", why)
             agent_id = job["agent"]
             if agent_id not in self.agents:
                 continue
-            text = f"The user deleted {repo}: {job['id']} ({job['title']}) is cancelled. Do nothing more for it."
+            text = f"The user stopped it ({why}): {job['id']} ({job['title']}) is cancelled. Do nothing more for it."
             self.pending[agent_id].append({"from": "System", "text": text, "shown": False})
             if job["status"] == "working":
                 agent = self.agents[agent_id]
