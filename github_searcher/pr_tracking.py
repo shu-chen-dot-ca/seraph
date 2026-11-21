@@ -87,7 +87,9 @@ answered_at, or (your PR) the checks failed on a newest commit no agent was give
 your PR since told: merged, closed or reopened, made a draft or ready for review, a new title, a new commit nobody
 drafted here (you or a maintainer pushed), its checks passed or wait for a maintainer, it conflicts with its base
 branch now (or no longer), labels added or removed, a bot wrote. backend/github_api.py gives each to its agent as a
-follow_up job, then calls mark_answered(). A closed or merged thread only has its end to hear about, once.
+follow_up job, then calls mark_answered(). A closed or merged thread only has its end to hear about, once, and
+someone else writing there after it (not a bot, a label or a title): agents.follow_up gives those to the closed PRs
+agent, not the thread's own.
 
 refresh() reads them all again, one GraphQL query each (and one Actions call per PR); a merged or closed one whose
 updated_at in the search didn't change isn't read again. The backend calls it every few minutes, soon after something
@@ -281,9 +283,10 @@ class PRTracking:
                     changes.append("it lost the label " + ", ".join(removed))
                 if signals["bot_at"] != told["bot_at"] and record["bot_activity"] is not None:
                     changes.append(f"@{record['bot_activity']['login']} {record['bot_activity']['what']}")
-            # A closed or merged thread only has its end to hear about, once.
-            if record["state"] != "open" and not changes:
-                continue
+            # A closed or merged thread only has its end to hear about, once, and someone else writing there (below), not a
+            # bot, a label or a title. agents.follow_up gives them to the closed PRs agent.
+            if record["state"] != "open":
+                changes = [change for change in changes if change.startswith("it was merged") or change.startswith("it was closed")]
             answered_at = setting.get("answered_at")
             activity = record["last_activity"]
             reasons = []
