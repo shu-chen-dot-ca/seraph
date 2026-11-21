@@ -11,7 +11,8 @@ past either one's level (a monotone cubic curve, Steffen's), so it shows no peak
 Under the top:
 - Opened, Merged, Closed, Merge rate, Time to merge (the median from opened to merged) and Tokens and cost (all the
   agents used, the cost in USD above the tokens): a big number, with the change from the previous range of the same
-  length, green when it is good, red when it is bad (Tokens and cost's stay gray). The previous one on hover.
+  length a little after it, always at the same place whatever the range, green when it is good, red when it is bad (for
+  Tokens and cost, less is good). The previous one on hover.
 - Limits: the Automation page's limits against what is used now, amber from 85%: pull requests opened today, open pull
   requests, the most open in one repository, agents working, and desktops in use of all the running VMs may have.
 - Pull requests: opened, merged and closed per period, as three lines in GitHub's colors; Open, the pull requests still
@@ -285,7 +286,8 @@ export default function Dashboard() {
   }
   const medianChange = median !== null && medianBefore !== null ? Number((median - medianBefore).toFixed(1)) : null;
   // The first row's cards: each one big number or more (Tokens and cost: the cost above the tokens). change: from the
-  // previous range (null when either has no number); better: which way is good ("": neither, it stays gray).
+  // previous range (null when either has no number); better: which way is good ("": neither, it stays gray). width: the
+  // characters the longest value takes, so the change after it stays put whatever the range.
   const numbers = [
     {
       title: "Opened",
@@ -294,6 +296,7 @@ export default function Dashboard() {
       rows: [
         {
           value: `${opened}`,
+          width: 4,
           change: opened - openedBefore,
           changeText: `${Math.abs(opened - openedBefore)}`,
           was: `Previous ${range.title}: ${openedBefore}`,
@@ -307,6 +310,7 @@ export default function Dashboard() {
       rows: [
         {
           value: `${merged}`,
+          width: 4,
           change: merged - mergedBefore,
           changeText: `${Math.abs(merged - mergedBefore)}`,
           was: `Previous ${range.title}: ${mergedBefore}`,
@@ -320,6 +324,7 @@ export default function Dashboard() {
       rows: [
         {
           value: `${closed}`,
+          width: 4,
           change: closed - closedBefore,
           changeText: `${Math.abs(closed - closedBefore)}`,
           was: `Previous ${range.title}: ${closedBefore}`,
@@ -333,6 +338,7 @@ export default function Dashboard() {
       rows: [
         {
           value: rate === null ? "–" : `${rate}%`,
+          width: 4,
           change: rate !== null && rateBefore !== null ? rate - rateBefore : null,
           changeText: rate !== null && rateBefore !== null ? `${Math.abs(rate - rateBefore)}` : "",
           was: `Previous ${range.title}: ${rateBefore === null ? "–" : `${rateBefore}%`}`,
@@ -346,6 +352,7 @@ export default function Dashboard() {
       rows: [
         {
           value: medianText,
+          width: 6,
           change: medianChange,
           changeText: medianChange === null ? "" : `${Math.abs(medianChange).toFixed(1)} d`,
           was: `Previous ${range.title}: ${medianBeforeText}`,
@@ -355,16 +362,18 @@ export default function Dashboard() {
     {
       title: "Tokens and cost",
       href: "",
-      better: "",
+      better: "down",
       rows: [
         {
           value: USD.format(cost),
+          width: 6,
           change: cost - costBefore,
           changeText: USD.format(Math.abs(cost - costBefore)),
           was: `Previous ${range.title}: ${USD.format(costBefore)}`,
         },
         {
           value: SHORT.format(tokens),
+          width: 6,
           change: tokens - tokensBefore,
           changeText: SHORT.format(Math.abs(tokens - tokensBefore)),
           was: `Previous ${range.title}: ${SHORT.format(tokensBefore)}`,
@@ -865,13 +874,15 @@ export default function Dashboard() {
                 </div>
                 <div className="flex flex-1 flex-col justify-end gap-2 px-3 pt-4 pb-3">
                   {number.rows.map((row, index) => (
-                    <div key={index} className="flex flex-wrap items-end gap-x-3">
-                      <span className="font-mono text-3xl font-light tabular-nums">{row.value}</span>
+                    <div key={index} className="flex items-end gap-x-3">
+                      <span className="font-mono text-3xl font-light whitespace-nowrap tabular-nums" style={{ minWidth: `${row.width}ch` }}>
+                        {row.value}
+                      </span>
                       {row.change !== null && (
                         <span
                           title={row.was}
                           className={cn(
-                            "mb-1 font-mono text-sm whitespace-nowrap tabular-nums",
+                            "mb-1 shrink-0 font-mono text-sm whitespace-nowrap tabular-nums",
                             row.change === 0 || number.better === ""
                               ? "text-muted-foreground"
                               : (row.change > 0) === (number.better === "up")
