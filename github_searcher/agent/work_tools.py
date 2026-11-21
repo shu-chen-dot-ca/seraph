@@ -177,7 +177,7 @@ from sandbox.agent.computer_use import Computer, ComputerError
 from sandbox.agent.tools import HIDE_MIN_LENGTH
 from sandbox.file_transfer import FileTransferError, to_vm
 from sandbox.images import load_inventory
-from sandbox.vms import VMsError
+from sandbox.vms import FIX_VM, VMsError
 
 # The job statuses an agent may set. "queued" and "waiting_on_user" are set by the app.
 AGENT_STATUSES = ["working", "done", "cancelled"]
@@ -3829,6 +3829,9 @@ class WorkTools:
         repo = (args.get("repo") or "").strip().lower()
         vms = []
         for vm_record in self.agents.vms.list():
+            # Seraph's own VM is for fixing the app: no agent gets it.
+            if vm_record.name == FIX_VM:
+                continue
             desktops = []
             for number, line in vm_record.desktops.items():
                 holder = line["holder"]

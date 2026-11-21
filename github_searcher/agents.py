@@ -160,7 +160,7 @@ from github_searcher.agent.work_tools import WorkTools
 from github_searcher.claude_models import BIG_REPO_MODEL, BIG_REPO_STARS, MODELS
 from sandbox.agent import long_runs
 from sandbox.agent.tools import ComputerTools
-from sandbox.vms import VMsError
+from sandbox.vms import FIX_VM, VMsError
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # override: the backend reloads itself on code changes, and .env changes should apply then too.
@@ -1037,8 +1037,10 @@ class Agents:
             raise ValueError(f"{agent.name} holds {queued_vm}; change its target VM after it releases it")
         if place is not None:
             raise ValueError(f"{agent.name} waits for {queued_vm}; change its target VM after it leaves the queue")
-        # Every name, so an agent that guessed one (choose_vm) can pick a real one.
-        names = [vm_record.name for vm_record in self.vms.list()]
+        if vm_name == FIX_VM:
+            raise ValueError(f"{FIX_VM} is Seraph's own VM, for fixing the app: pick another VM.")
+        # Every name, so an agent that guessed one (choose_vm) can pick a real one. Not Seraph's own VM: no agent gets it.
+        names = [vm_record.name for vm_record in self.vms.list() if vm_record.name != FIX_VM]
         if vm_name is not None and vm_name not in names:
             raise ValueError(f"No VM named {vm_name}. The VMs are: {', '.join(names) or 'none'}.")
 
@@ -1085,6 +1087,8 @@ class Agents:
         issue = matches[0]
         if vm_name is not None and vm_name not in [vm_record.name for vm_record in self.vms.list()]:
             raise ValueError(f"No VM named {vm_name}")
+        if vm_name == FIX_VM:
+            raise ValueError(f"{FIX_VM} is Seraph's own VM, for fixing the app: pick another VM.")
         if agent_id is None:
             agent_id = self.create()["id"]
         if agent_id not in self.agents:
