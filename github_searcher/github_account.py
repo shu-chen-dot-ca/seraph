@@ -1135,7 +1135,9 @@ class GithubAccount:
         }
 
     def manage(self, action: str, repo: str, number: int, sha: str = "", expected_head: str = "") -> str:
-        """One change on GitHub from the GitHub tab, as you. action: "close" or "reopen" your PR repo#number,
+        """One change on GitHub from the GitHub tab, as you. action: "close" or "reopen" your PR repo#number (reopen
+        only one you closed yourself, never one a maintainer closed; its branch is put back in your fork first when the
+        app deleted it, as GitHub's Restore branch does),
         "update_branch" (your open PR: GitHub merges its base in), "reset_branch" (your open PR's branch in your fork goes
         back to sha, force-pushed, only while its newest commit is still expected_head), "delete_branch" (a closed or
         merged PR's branch, from your fork), "delete_comment" (number is the comment's id on GitHub), "delete_fork"
@@ -1189,6 +1191,34 @@ class GithubAccount:
                 if action in ["close", "reopen"]:
                     if pull["merged"]:
                         raise SendError("It is merged already.")
+                    # Reopen only what you closed: a maintainer's close is their answer, and stays.
+                    if action == "reopen":
+                        closer = None
+                        page = 1
+                        while True:
+                            response = client.get(f"/repos/{repo}/issues/{number}/events", params={"per_page": 100, "page": page})
+                            response.raise_for_status()
+                            events = response.json()
+                            for event in events:
+                                if event["event"] == "closed" and event["actor"] is not None:
+                                    closer = event["actor"]["login"]
+                            if len(events) < 100:
+                                break
+                            page += 1
+                        if closer is not None and closer.lower() != account["login"].lower():
+                            raise SendError(f"{closer} closed it, not you: only a PR you closed yourself can be reopened.")
+                        # GitHub reopens a PR only with its branch there, and the app deletes a closed PR's branch
+                        # (backend/github_api.py keep_branches_clean): put it back where the PR ended.
+                        head = pull["head"]
+                        if head["repo"] is None:
+                            raise SendError("Its fork is gone, so it can't be reopened.")
+                        response = client.get(f"/repos/{head['repo']['full_name']}/branches/{head['ref']}")
+                        if response.status_code == 404:
+                            if head["repo"]["owner"]["login"].lower() != account["login"].lower():
+                                raise SendError(f"Its branch is gone from {head['repo']['full_name']}, which isn't your fork.")
+                            branch = {"ref": f"refs/heads/{head['ref']}", "sha": head["sha"]}
+                            response = client.post(f"/repos/{head['repo']['full_name']}/git/refs", json=branch)
+                        response.raise_for_status()
                     state = "closed"
                     if action == "reopen":
                         state = "open"
