@@ -2,7 +2,7 @@
 The left list (App.tsx): one place for the whole app. Every line is a link to a page; the open one is marked:
 - Dashboard (#/, Dashboard.tsx): numbers, limits, charts and tables.
 - Repositories (#/repos): the repositories as cards and your pull requests (RepositoryCards.tsx), with how many
-  repositories.
+  repositories: the list's, and those with a pull request of yours that aren't in it (they have cards too).
 - Blockers (#/blockers, Blockers.tsx), with how many wait for you.
 - Virtual machines: the VMs page (#/vms) and one child per VM (#/vms/<name>), which folds.
 - Automation (#/automation, Automation.tsx).
@@ -20,10 +20,17 @@ import { cn } from "@/lib/utils";
 export default function Sidebar(props: { page: string; id: string | null; onOpenSettings: () => void }) {
   const [vmsOpen, setVMsOpen] = useState(true);
   const repos = useLive("repos");
+  const prs = useLive("prs");
   const vms = useLive("vms");
   const inbox = useLive("inbox");
   const feedback = useLive("problems");
   const running = vms.filter((vm) => vm.status === "running").length;
+  const repoNames = repos.items.map((repo) => repo.full_name.toLowerCase());
+  for (const pr of prs.items) {
+    if (pr.relation === "author" && !repoNames.includes(pr.repo.toLowerCase())) {
+      repoNames.push(pr.repo.toLowerCase());
+    }
+  }
   const blockers = inbox.filter((draft) => draft.kind === "approval" && draft.status === "pending").length;
 
   const row = "flex h-8 items-center gap-2 rounded-md px-2 font-medium hover:bg-sidebar-accent hover:text-foreground";
@@ -40,7 +47,7 @@ export default function Sidebar(props: { page: string; id: string | null; onOpen
         <a href="#/repos" className={cn(row, "pl-6", props.page === "repos" && selected)}>
           <BookMarked className="size-4 text-muted-foreground" />
           Repositories
-          <span className="ml-auto text-muted-foreground tabular-nums">{repos.items.length}</span>
+          <span className="ml-auto text-muted-foreground tabular-nums">{repoNames.length}</span>
         </a>
 
         <a href="#/blockers" className={cn(row, "pl-6", props.page === "blockers" && selected)}>

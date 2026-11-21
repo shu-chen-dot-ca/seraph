@@ -11,9 +11,13 @@ bottom that scrolls on its own (on a narrow window the columns keep their width 
   stars.
 - Catalog: the rest (no PR of yours open, no issue in progress), grouped by owner: the owner with the most starred repo
   first, an owner's repos always together, by stars.
-- Removed: the ones you deleted that have pull requests of yours (the Repos list's removed), and the ones where every PR
-  of ours was closed, none merged or open, and no issue is in progress (unless you picked them for Planned). By stars.
+- Removed: the ones you deleted that have pull requests of yours (the Repos list's removed), and every other one with a
+  PR of yours closed that isn't in Contributed or Planned (none merged or open, no issue in progress, not picked). By
+  stars.
 In every column an owner's repos are together, where its first one comes.
+Every repo with a pull request of yours has a card, also one that isn't in the Repos list (a PR you opened by hand, a
+repo taken out of the list): made from its pull requests, so it goes to its column like any other (only closed ones:
+Removed). Its stars aren't known (–), and its ⋯ has Open on GitHub only.
 A card: the owner's picture as its logo, owner/name, and under it in GitHub's colors: its stars (yellow), then of your
 pull requests there how many it merged (purple), closed without a merge (red) and are still open (green). Gray instead:
 a closed count of 0, and outside Contributed the stars and every count of 0. Last, only when there are any, the issues
@@ -114,8 +118,28 @@ export default function RepositoryCards(props: { state: string }) {
 
   const cards = repos.items.map((repo) => {
     const key = repo.full_name.toLowerCase();
-    return { repo: repo, merged: merged[key] ?? 0, closed: closed[key] ?? 0, open: open[key] ?? 0, working: working[key] ?? 0 };
+    return { repo: repo, listed: true, merged: merged[key] ?? 0, closed: closed[key] ?? 0, open: open[key] ?? 0, working: working[key] ?? 0 };
   });
+  // A repo with pull requests of yours that isn't in the list: a card of its own, made from its pull requests.
+  const listedNames = repos.items.map((repo) => repo.full_name.toLowerCase());
+  for (const pr of prs.items) {
+    const key = pr.repo.toLowerCase();
+    if (pr.relation !== "author" || listedNames.includes(key)) {
+      continue;
+    }
+    listedNames.push(key);
+    const repo = {
+      full_name: pr.repo,
+      description: "",
+      stars: 0,
+      default_branch: "",
+      html_url: `https://github.com/${pr.repo}`,
+      note: "",
+      added_by: "",
+      added_at: "",
+    };
+    cards.push({ repo: repo, listed: false, merged: merged[key] ?? 0, closed: closed[key] ?? 0, open: open[key] ?? 0, working: working[key] ?? 0 });
+  }
   cards.sort((a, b) => b.repo.stars - a.repo.stars);
   // A repo deleted here with no pull requests of yours is gone; one with some goes to Removed.
   const shown = cards.filter((card) => !deleted.includes(card.repo.full_name) || card.merged + card.closed + card.open > 0);
@@ -287,7 +311,7 @@ export default function RepositoryCards(props: { state: string }) {
                           <div className="flex items-center gap-2.5 text-xs text-muted-foreground tabular-nums">
                             <span className={cn("flex items-center gap-0.5", column.contributed && "text-yellow-600 dark:text-yellow-400")} title="Stars">
                               <Star className="size-3" />
-                              {card.repo.stars.toLocaleString("en", { notation: "compact" })}
+                              {card.listed ? card.repo.stars.toLocaleString("en", { notation: "compact" }) : "–"}
                             </span>
                             <span className={cn("flex items-center gap-0.5", card.merged > 0 && "text-violet-500")} title="Your PRs merged">
                               <GitMerge className="size-3" />
@@ -355,13 +379,13 @@ export default function RepositoryCards(props: { state: string }) {
                             }}
                           >
                             <DropdownMenuItem onSelect={() => window.open(card.repo.html_url, "_blank", "noreferrer")}>Open on GitHub</DropdownMenuItem>
-                            {!column.contributed && !column.removed && repos.planned.includes(card.repo.full_name) && (
+                            {card.listed && !column.contributed && !column.removed && repos.planned.includes(card.repo.full_name) && (
                               <DropdownMenuItem onSelect={() => plan(card.repo.full_name, false)}>Remove from Planned</DropdownMenuItem>
                             )}
-                            {!column.contributed && !column.removed && !repos.planned.includes(card.repo.full_name) && (
+                            {card.listed && !column.contributed && !column.removed && !repos.planned.includes(card.repo.full_name) && (
                               <DropdownMenuItem onSelect={() => plan(card.repo.full_name, true)}>Add to Planned</DropdownMenuItem>
                             )}
-                            {!column.removed && (
+                            {card.listed && !column.removed && (
                               <DropdownMenuItem variant="destructive" onSelect={() => deleteRepo(card.repo.full_name)}>
                                 Delete
                               </DropdownMenuItem>
