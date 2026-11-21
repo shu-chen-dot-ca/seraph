@@ -39,7 +39,7 @@ When the user fills in empty env variables an agent added for a secret (env_var_
 (secrets_filled, from the env endpoints in backend/vms_api.py), so it never asks for them in the Inbox.
 Waiting messages are saved with the record, so a backend restart (it reloads on every code
 change) doesn't lose them. An agent with messages waiting is woken with them after the restart (not an archived one);
-one cut off in the middle of a turn gets one more saying so.
+one cut off in the middle of a turn gets one more saying so, when it has a job queued or working.
 
 After each turn the worker enforces the VM rule: an agent never holds a VM it has nothing to do in.
 - Holding a VM with no queued or working job for it: the VM is released for it, and what it left going on its desktop is
@@ -492,8 +492,10 @@ class Agents:
         for worker in self.workers.values():
             worker.cancel()
         for agent in self.agents.values():
-            # Its turn is cut off here: after the restart it is woken with this (start()).
-            if agent.busy:
+            # Its turn is cut off here: after the restart it is woken with this (start()), when it has open work. One with
+            # none was only looking (2026-11-21: 260 of those, woken again on every restart, all at once).
+            open_jobs = [job for job in self.jobs.for_agent(agent.id) if job["status"] in OPEN_STATUSES]
+            if agent.busy and open_jobs:
                 text = "The backend restarted in the middle of your turn; check my_jobs and carry on."
                 # Its runs go on in the VM through a restart (long_runs.py), but a log file of its own may still be empty
                 # then: it is told, so it doesn't take them for lost and start them again (reticle#1525).
