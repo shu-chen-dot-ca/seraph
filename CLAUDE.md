@@ -5,6 +5,7 @@
 - Don't create __init__.py if not nessasary, if its nessasary do not create it with content. Only if it is a must or break then __init__.py can be filled.
 
 - Name things the way an established product would: plain, common names people already know (Inbox, Pull requests, Issues, Settings, Account, Open, Closed, Approve, Reject). No made-up or cute labels like "Needs you" or "Everything". This goes for pages, tabs, buttons, sections and messages.
+  - This goes for names you suggest while we discuss too. No invented phrases like "Make live": use the word established products use (Deploy, Release, Update, Install).
 
 - Core folders are github_searcher/ and sandbox/. Do not change that without my knowledge. If we are working on something outside of those folders andn you have to change it, ask me first.
 
