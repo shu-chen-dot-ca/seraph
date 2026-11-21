@@ -3820,6 +3820,7 @@ class WorkTools:
                 "scope": scope,
                 "passed": passed,
                 "seconds": seconds,
+                "exact": ended.get("exact", False),
                 "cpu_seconds": ended.get("cpu_seconds"),
             }
             with TEST_RUNS_FILE.open("a") as file:
