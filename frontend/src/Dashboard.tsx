@@ -23,9 +23,10 @@ Under the top:
   header, and Total in front of them. Models by their names (Opus 5.5), kinds of work in plain words; Agents is the
   agents' work from before the log, when its kind wasn't kept.
   These two share one time axis: hovering a period in one marks it in both, with its numbers.
-- In progress: the fix_issue and follow_up jobs working now, longest on its step first: Issue or pull request (opens it
-  on GitHub), Step, On step, Agent (opens its chat), VM and desktop. The header counts working and queued, and says
-  Safe to shut down while no agent is busy (nothing otherwise).
+- In progress: the fix_issue and follow_up jobs working now, longest on its step first: Issue or pull request (its
+  repository and number only, opens it on GitHub), Step, On step, Tokens (all its agent used, in thousands: an agent is
+  made per issue, and its pull request's follow-ups go to it), Agent (opens its chat), VM and desktop. The header
+  counts working and queued, and says Safe to shut down while no agent is busy (nothing otherwise).
 - Virtual machines: every VM's band from the VMs tab (VMList in VMs.tsx) with only its CPU, Memory, Internet and Disk
   cards. The header counts the running ones.
 Charts keep fixed heights; a line breaks where there is no number. Lines are drawn back to front by their layer, each
@@ -839,6 +840,7 @@ export default function Dashboard() {
                       <th className={th}>Issue or pull request</th>
                       <th className={th}>Step</th>
                       <th className={cn(th, "text-right")}>On step</th>
+                      <th className={cn(th, "text-right")}>Tokens</th>
                       <th className={th}>Agent</th>
                       <th className={th}>VM</th>
                     </tr>
@@ -852,14 +854,16 @@ export default function Dashboard() {
                         <tr key={job.id} className="hover:bg-accent/40 [&:last-child>td]:border-b-0">
                           <td className={cn(td, "max-w-96 truncate")}>
                             <a href={`https://github.com/${repo}/issues/${number}`} target="_blank" rel="noreferrer" className="hover:underline">
-                              <span className="text-muted-foreground">{repo}</span> <span className="font-mono text-muted-foreground tabular-nums">#{number}</span>{" "}
-                              {job.title}
+                              {repo} <span className="font-mono tabular-nums">#{number}</span>
                             </a>
                           </td>
                           <td className={td}>
                             <JobProgressBar job={job} />
                           </td>
                           <td className={cn(td, "text-right font-mono text-xs tabular-nums")}>{since(job.step_at ?? job.started_at, now)}</td>
+                          <td className={cn(td, "text-right font-mono text-xs tabular-nums")}>
+                            {agent === undefined ? "–" : `${Math.round(agent.tokens_used / 1000).toLocaleString("en")}K`}
+                          </td>
                           <td className={td}>
                             <a href={`#/agents/${job.agent}`} className="text-primary hover:underline">
                               {agent?.name ?? job.agent}
