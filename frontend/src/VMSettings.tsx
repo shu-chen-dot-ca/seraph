@@ -1,6 +1,9 @@
 /*
-The Settings tab of a VM page: its name, CPU and memory, max desktops, internet, autostart, env vars, its image, and
-Delete.
+The Settings tab of a VM page: its name, CPU and memory, max desktops, internet, autostart, env vars, its image,
+Graceful shutdown and Delete.
+
+Graceful shutdown: no agent new to the VM gets a desktop, the ones holding one finish, then it shuts down by itself
+(Agents.watch_room). Start or Restart makes it a normal VM again; nothing is deleted.
 
 Most of it reads the live "vms" topic, so a change shows up as soon as the backend has made it.
 The env values are the one thing the live feed leaves out (it only carries the names, so agents and
@@ -16,7 +19,7 @@ Rename works running or not; the page moves to the new name (#/vms/<new name>). 
 Feedback page works (FIX_VM), keeps its name and can't be deleted.
 */
 
-import { Eye, EyeOff, Loader2, Plus, Save, Trash2, X } from "lucide-react";
+import { Eye, EyeOff, Loader2, Plus, Power, Save, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -169,6 +172,18 @@ export default function VMSettings(props: { name: string }) {
     setError("");
     try {
       await api(`/api/vms/${encodeURIComponent(vmName)}/autostart`, { method: "PUT", body: { enabled: enabled } });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+    setBusy("");
+  }
+
+  async function gracefulShutdown() {
+    setBusy("shutdown");
+    setError("");
+    try {
+      await api(`/api/vms/${encodeURIComponent(vmName)}/graceful_shutdown`, { method: "POST" });
+      toast.success(`${vmName} shuts down once the agents on it are done.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -452,6 +467,26 @@ export default function VMSettings(props: { name: string }) {
             </Button>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">Save as image makes a new image from this VM's disk as it is, for new VMs to start from. The VM must be stopped.</p>
+        </section>
+
+        <section>
+          <h2 className="mb-1.5 border-b pb-1 font-semibold">Shut down</h2>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={gracefulShutdown}
+              disabled={busy !== "" || vm.status !== "running" || vm.graceful_shutdown || vmName === FIX_VM}
+            >
+              {busy === "shutdown" ? <Loader2 className="animate-spin" /> : <Power />}
+              Graceful shutdown
+            </Button>
+            <span className="text-muted-foreground">
+              {vm.graceful_shutdown
+                ? "Shuts down once the agents on it are done. Restart cancels it."
+                : "No new agents get it. The ones on it finish, then it shuts down."}
+            </span>
+          </div>
         </section>
 
         <section>
