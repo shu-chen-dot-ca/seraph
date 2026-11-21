@@ -1,5 +1,6 @@
-"""Fix all (github_searcher/problem_fixes.py): what a run keeps when it fails or is cut off, the scope its fixes must
-keep to, and the release it makes (the next version from the commit titles since the last release, and its notes).
+"""Fix all (github_searcher/problem_fixes.py): what a run keeps when it fails or is cut off, the items it closes instead
+of trying again, the scope its fixes must keep to, and the release it makes (the next version from the commit titles
+since the last release, and its notes).
 
 Nothing here runs Claude Code, starts a VM or reaches GitHub: VMs are fakes, GitHub is an httpx.MockTransport, the scope
 is checked in a git repo made in pytest's temporary folder, and everything is kept there, never in DATA_DIR."""
@@ -11,7 +12,7 @@ import httpx
 import pytest
 
 from github_searcher import problem_fixes
-from github_searcher.problem_fixes import LOCKED, PROMPT, FixError, ProblemFixes
+from github_searcher.problem_fixes import LOCKED, MAX_TRIES, PROMPT, FixError, ProblemFixes
 from sandbox.vms import FIX_VM, VMsError
 
 
@@ -117,11 +118,45 @@ def test_closed_problems_are_not_given_to_a_run(fixes):
     assert fixes.data["runs"][0]["state"] == "done"
 
 
-def test_the_prompt_names_what_may_never_change():
-    text = PROMPT.format(locked=", ".join(LOCKED))
+def test_an_item_tried_in_max_tries_runs_is_closed_not_given_again(fixes):
+    item = {"id": "prb_stuck1", "at": "2026-11-15T10:00:00+00:00", "about": None, "text": "x", "closed_at": None}
+    fixes.problems = FakeProblems([item])
+    fixes.data["runs"] = [{"started_at": f"2026-11-1{n}T20:00:00+00:00", "state": "done", "tried": ["prb_stuck1"]} for n in range(MAX_TRIES)]
+    given = []
+
+    def remember(run, open_problems):
+        given.extend(each["id"] for each in open_problems)
+
+    fixes.fix = remember
+    fixes.run()
+
+    assert given == []
+    assert fixes.problems.closed == ["prb_stuck1"]
+    assert fixes.data["runs"][0]["given_up"] == [{"id": "prb_stuck1", "why": f"Not fixed in {MAX_TRIES} runs."}]
+
+
+def test_an_item_tried_fewer_times_is_given_again(fixes):
+    item = {"id": "prb_again1", "at": "2026-11-15T10:00:00+00:00", "about": None, "text": "x", "closed_at": None}
+    fixes.problems = FakeProblems([item])
+    fixes.data["runs"] = [{"started_at": "2026-11-15T20:00:00+00:00", "state": "done", "tried": ["prb_again1"]}]
+    given = []
+
+    def remember(run, open_problems):
+        given.extend(each["id"] for each in open_problems)
+
+    fixes.fix = remember
+    fixes.run()
+
+    assert given == ["prb_again1"]
+    assert fixes.problems.closed == []
+
+
+def test_the_prompt_names_what_may_never_change_and_the_tries():
+    text = PROMPT.format(locked=", ".join(LOCKED), tries=MAX_TRIES)
 
     for path in LOCKED:
         assert path in text
+    assert f"after {MAX_TRIES} runs it is closed too" in text
 
 
 def git(repo, *args):

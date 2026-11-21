@@ -28,15 +28,17 @@ A run:
 5. Passed with fixes: they are pushed to main and the items they fixed are closed. Passed: when main has commits since
    the latest release, release() makes the next one, and the live copy gets it ready, checks it and installs it. So with
    no open feedback, Fix all releases what you pushed.
-Fixes that are dropped (Claude failed, or they broke the rules or the gate) leave their items open for the next run.
+Fixes that are dropped (Claude failed, or they broke the rules or the gate) leave their items open. An item given to
+MAX_TRIES runs whose Claude Code answered, and still open, is closed when the next run starts (given_up): none is tried
+forever.
 
 Kept in DATA_DIR/problem_fixes.json:
 
     {"runs": [Run, ...] (the newest first, MAX_RUNS at most)}
 
     Run: {"started_at", "ended_at" | None, "state": "running" | "done" | "failed",
-          "problems": [ids given], "fixed": [ids closed], "no_change": [{"id", "why"}] (closed too),
-          "not_fixed": [{"id", "why"}],
+          "problems": [ids given], "tried": [ids Claude Code answered for], "fixed": [ids closed],
+          "no_change": [{"id", "why"}] (closed too), "not_fixed": [{"id", "why"}], "given_up": [{"id", "why"}] (closed),
           "commits": ["<sha> <title>"], "release": the tag released | None,
           "error": why it failed, or why the fixes were dropped | "", "output": the end of the failing step's output | "",
           "cost_usd": Claude Code's cost | None}
@@ -79,6 +81,8 @@ FIX_DIR = Path(os.environ.get("SERAPH_HOME") or Path.home() / "seraph") / "fixer
 VM_FILES_DIR = FIX_DIR.parent / "fixer-vm"
 API = "https://api.github.com"
 MAX_RUNS = 30
+# An item given to this many runs whose Claude Code answered, and still open, is closed (given_up).
+MAX_TRIES = 2
 # The most a step may take (an install, the tests, the build), Claude Code's whole run, and making or starting the VM.
 STEP_SECONDS = 30 * 60
 CLAUDE_SECONDS = 4 * 60 * 60
@@ -175,7 +179,7 @@ weakening it. Commits that break any of this are all dropped.
 At the end `uv run pytest` and `npm --prefix frontend run build` must pass, and nothing may be left uncommitted. An item
 where nothing in the app could do better (a one-off, not a real problem, a secret or a setting only the user can change,
 fixed already) goes in no_change with why: it is closed. One you can't fix safely now goes in not_fixed with why: it
-stays open for the next run.
+stays open, and after {tries} runs it is closed too.
 
 Answer with the ids of the items you fixed (fixed), the ones that need no change with why (no_change), and the others
 with why (not_fixed).
@@ -287,14 +291,26 @@ class ProblemFixes:
     def run(self) -> None:
         """One run (module docstring). Takes as long as it takes: call it in a thread. Does nothing while one runs."""
         open_problems = [item for item in self.problems.list() if item["closed_at"] is None]
+        with self.lock:
+            past = copy.deepcopy(self.data["runs"])
+        # Tried MAX_TRIES times already: closed, not given again.
+        given_up = []
+        for item in open_problems:
+            tries = len([each for each in past if item["id"] in each.get("tried", [])])
+            if tries >= MAX_TRIES:
+                given_up.append({"id": item["id"], "why": f"Not fixed in {tries} runs."})
+        gone = [each["id"] for each in given_up]
+        open_problems = [item for item in open_problems if item["id"] not in gone]
         run = {
             "started_at": datetime.now(UTC).isoformat(),
             "ended_at": None,
             "state": "running",
             "problems": [item["id"] for item in open_problems],
+            "tried": [],
             "fixed": [],
             "no_change": [],
             "not_fixed": [],
+            "given_up": given_up,
             "commits": [],
             "release": None,
             "error": "",
@@ -307,6 +323,7 @@ class ProblemFixes:
             self.data["runs"].insert(0, run)
             del self.data["runs"][MAX_RUNS:]
             self.save()
+        self.problems.close(gone)
         try:
             self.fix(run, open_problems)
             run["state"] = "done"
@@ -462,7 +479,7 @@ class ProblemFixes:
             show = "(" + DESKTOP_ENV + "gnome-terminal --title 'Fix all' -- bash -c 'tail -n +1 -F ~/fix/claude.jsonl 2> /dev/null | python3 ~/fix/show.py') > /dev/null 2>&1 < /dev/null &"
             vm.exec(show, timeout=60)
 
-            lines = [PROMPT.format(locked=", ".join(LOCKED))]
+            lines = [PROMPT.format(locked=", ".join(LOCKED), tries=MAX_TRIES)]
             for item in open_problems:
                 lines.append(f"- {item['id']} ({item['at'][:10]}, about {item['about'] or 'nothing in particular'}): {item['text']}")
             variables = f"model={shlex.quote(MODELS['fix_problems'])}; side_model={shlex.quote(SIDE_MODEL)}; schema={shlex.quote(json.dumps(ANSWER))}; "
@@ -490,6 +507,7 @@ class ProblemFixes:
             if fixes_ok:
                 answer = result["structured_output"]
                 given = [item["id"] for item in open_problems]
+                run["tried"] = given
                 run["not_fixed"] = [each for each in answer["not_fixed"] if each["id"] in given]
                 # Nothing to change in the app: closed now, whatever happens to the fixes.
                 run["no_change"] = [each for each in answer["no_change"] if each["id"] in given]
