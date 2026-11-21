@@ -28,7 +28,7 @@ Under the top:
   These two share one time axis: hovering a period in one marks it in both, with its numbers.
 - In progress: the fix_issue and follow_up jobs working now, the most VM time first: Issue or pull request (its
   repository and number only, opens it on GitHub), Step, VM time (how long its agent held a VM desktop for it: tests,
-  builds and all it did there, counted since 11-20; jobs.py vm_seconds), Tokens (all its agent used, in thousands: an
+  builds and all it did there, counted since 11-20; jobs.py vm_seconds), Tokens (all its agent used, in millions: an
   agent is made per issue, and its pull request's follow-ups go to it), Agent (opens its chat), VM and desktop. The
   header counts working and queued, and says Safe to shut down while no agent is busy (nothing otherwise).
 - Virtual machines: every VM's band from the VMs tab (VMList in VMs.tsx) with only its CPU, Memory, Internet and Disk
@@ -939,7 +939,7 @@ export default function Dashboard() {
                           </td>
                           <td className={cn(td, "text-right font-mono text-xs tabular-nums")}>{vmTime}</td>
                           <td className={cn(td, "text-right font-mono text-xs tabular-nums")}>
-                            {agent === undefined ? "–" : `${Math.round(agent.tokens_used / 1000).toLocaleString("en")}K`}
+                            {agent === undefined ? "–" : `${(agent.tokens_used / 1_000_000).toFixed(1)}M`}
                           </td>
                           <td className={td}>
                             <a href={`#/agents/${job.agent}`} className="text-primary hover:underline">
