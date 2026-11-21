@@ -2,15 +2,16 @@
 # Sets up the forwarder, run from this computer once the server exists (README.md here). Safe to run again.
 #
 # It makes this computer's tunnel key (data/remote_access/tunnel_key) if there is none, then logs in to the server as
-# its admin user (REMOTE_ACCESS_SERVER_ADMIN, with data/remote_access/admin_key) and sets it up so that the tunnel
+# its admin user (ADMIN, with data/remote_access/admin_key) and sets it up so that the tunnel
 # key, and only it, may open the server's ports 443 and 80 and send them back here. That key can do nothing else
 # there: no shell, no other ports. The server runs nothing but SSH.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SERVER=$(grep '^REMOTE_ACCESS_SERVER=' .env | cut -d= -f2)
-TUNNEL_USER=$(grep '^REMOTE_ACCESS_SERVER_USER=' .env | cut -d= -f2)
-ADMIN=$(grep '^REMOTE_ACCESS_SERVER_ADMIN=' .env | cut -d= -f2)
+# The user the tunnel logs in as, and the admin user the server came with (ubuntu on Lightsail's Ubuntu).
+TUNNEL_USER=seraph
+ADMIN=ubuntu
 
 if [[ -z "$SERVER" ]]; then
     echo "Set REMOTE_ACCESS_SERVER in .env first: the server's address."

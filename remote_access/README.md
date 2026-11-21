@@ -16,7 +16,7 @@ phone ──► seraph.example.com ──► forwarder (small server) ◄── 
 ## Setup (once)
 
 1. **A server.** The smallest Linux plan with Ubuntu is enough. Give it a static IP, and open ports 22, 80 and 443 in its firewall. Put the private key it was made with in `data/remote_access/admin_key` (`chmod 600`).
-2. **`.env`.** Fill in `REMOTE_ACCESS_DOMAIN` (the address, e.g. `seraph.example.com`) and `REMOTE_ACCESS_SERVER` (the server's IP). The other `REMOTE_ACCESS_*` values can stay as they are.
+2. **`.env`.** Fill in `REMOTE_ACCESS_DOMAIN` (the address, e.g. `seraph.example.com`) and `REMOTE_ACCESS_SERVER` (the server's IP).
 3. **DNS.** At your domain's DNS, add an `A` record for the address pointing to the server's IP.
 4. **The server's side.** Run `remote_access/set_up_server.sh`. It makes this computer's tunnel key and lets only that key pass the ports through.
 5. **This computer's side.** Install Caddy (`sudo dnf install caddy` on Fedora), then run `remote_access/set_up_laptop.sh`. It starts `seraph-caddy` and `seraph-tunnel` as your own services, which restart by themselves. Within a minute Caddy has its certificate.

@@ -1,5 +1,5 @@
-# Caddy on this computer, for remote access (README.md here). start_caddy.sh runs it and fills in the {$...} values
-# from .env. It listens only on this computer: the forwarder's ports 443 and 80 arrive here through the SSH
+# Caddy on this computer, for remote access (README.md here). start_caddy.sh runs it and fills in the {$...}
+# values. It listens only on this computer: the forwarder's ports 443 and 80 arrive here through the SSH
 # connection (start_tunnel.sh), still encrypted. It gets and renews the domain's certificate itself (Let's Encrypt)
 # and keeps it in data/remote_access/caddy.
 #

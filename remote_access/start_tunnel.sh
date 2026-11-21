@@ -7,9 +7,10 @@ cd "$(dirname "$0")/.."
 DATA=$(grep '^DATA_DIR=' .env | cut -d= -f2)
 
 SERVER=$(grep '^REMOTE_ACCESS_SERVER=' .env | cut -d= -f2)
-TUNNEL_USER=$(grep '^REMOTE_ACCESS_SERVER_USER=' .env | cut -d= -f2)
-HTTPS_PORT=$(grep '^REMOTE_ACCESS_HTTPS_PORT=' .env | cut -d= -f2)
-HTTP_PORT=$(grep '^REMOTE_ACCESS_HTTP_PORT=' .env | cut -d= -f2)
+TUNNEL_USER=seraph
+# Where Caddy listens on this computer (start_caddy.sh): the server's 443 and 80 arrive here.
+HTTPS_PORT=8443
+HTTP_PORT=8080
 
 if [[ -z "$SERVER" ]]; then
     echo "REMOTE_ACCESS_SERVER in .env is empty: remote access isn't set up."

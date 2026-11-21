@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Runs Caddy for remote access (the Caddyfile here), with its values from .env. The service that runs it
+# Runs Caddy for remote access (the Caddyfile here), with its values. The service that runs it
 # (set_up_laptop.sh) starts it again whenever it stops. Its certificates and state go in data/remote_access.
 cd "$(dirname "$0")/.."
 # data/ is DATA_DIR: ~/seraph/data in the live copy (deploy/), data in the dev copy.
 DATA=$(grep '^DATA_DIR=' .env | cut -d= -f2)
 
 export REMOTE_ACCESS_DOMAIN=$(grep '^REMOTE_ACCESS_DOMAIN=' .env | cut -d= -f2)
-export REMOTE_ACCESS_HTTPS_PORT=$(grep '^REMOTE_ACCESS_HTTPS_PORT=' .env | cut -d= -f2)
-export REMOTE_ACCESS_HTTP_PORT=$(grep '^REMOTE_ACCESS_HTTP_PORT=' .env | cut -d= -f2)
+# On 127.0.0.1 only: the forwarder's 443 and 80 arrive here (start_tunnel.sh).
+export REMOTE_ACCESS_HTTPS_PORT=8443
+export REMOTE_ACCESS_HTTP_PORT=8080
 export BACKEND_PORT=$(grep '^BACKEND_PORT=' .env | cut -d= -f2)
 export XDG_DATA_HOME="$(realpath "$DATA")/remote_access"
 export XDG_CONFIG_HOME="$(realpath "$DATA")/remote_access"
