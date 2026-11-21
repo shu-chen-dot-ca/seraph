@@ -4,7 +4,7 @@ with one desktop, and agents (or you, with the + above it) add more up to max de
 in the VM's Settings. Each desktop has its own screen, mouse, keyboard and home folder, so that many agents can work
 in the VM at the same time; each one also takes some memory (about 1 GB with its browser).
 
-The choices and defaults come from GET /api/vms/options (they live in .env), including the first free
+The choices and defaults come from GET /api/vms/options (they live in sandbox/vms.py), including the first free
 name (vm1, vm2, ...). POST /api/vms answers at once with status "creating"; the VM shows up in the list
 right away through the live feed, and becomes "running" after about a minute. A new VM is empty:
 agents clone what they need. The image starts at the default one (set in the VMs page's Images tab).
