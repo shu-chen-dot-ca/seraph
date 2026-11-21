@@ -26,14 +26,15 @@ Under the top:
 - In progress: the fix_issue and follow_up jobs working now, longest on its step first: Issue or pull request (opens it
   on GitHub), Step, On step, Agent (opens its chat), VM and desktop. The header counts working and queued, and says
   Safe to shut down while no agent is busy (nothing otherwise).
-- CPU and Memory: a line per running VM over the last minute, the only VM history the live feed has (its detail says
-  so), as a share of the VM's CPUs and of its memory. Hovering a second marks it in both.
+- Virtual machines: every VM's band from the VMs tab (VMList in VMs.tsx) with only its CPU, Memory, Internet and Disk
+  cards. The header counts the running ones.
 Charts keep fixed heights; a line breaks where there is no number. Lines are drawn back to front by their layer, each
 with a thin edge in the card's color, so where two cross the one in front clearly covers the one behind. Big numbers are short: 1.2K, 3.4M.
 */
 
 import { useState } from "react";
 
+import { VMList } from "@/VMs";
 import { JobProgressBar, since, useNow } from "@/components/ui/job-progress";
 import { useConnected, useLive } from "@/live";
 import { cn } from "@/lib/utils";
@@ -48,7 +49,6 @@ const RANGES = [
   { key: "30d", title: "30 d", length: 30 * DAY, period: DAY, per: "Per day" },
   { key: "90d", title: "90 d", length: 90 * DAY, period: DAY, per: "Per day" },
 ];
-const SAMPLES = 60;
 // "Nov 18", "Nov 18, 14:05", "14:05" and "14:32:05"
 const DATE: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
 const DATE_TIME: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
@@ -60,8 +60,7 @@ const SHORT = new Intl.NumberFormat("en", { notation: "compact", maximumFraction
 const OPENED = "text-[oklch(62.7%_0.155_149.214)] dark:text-[oklch(72.3%_0.175_149.579)]";
 const MERGED = "text-[oklch(55.8%_0.23_302.321)] dark:text-[oklch(62.7%_0.212_303.9)]";
 const CLOSED = "text-[oklch(57.7%_0.196_27.325)] dark:text-[oklch(63.7%_0.19_25.331)]";
-// A color per running VM, in the VM list's order, and per model or kind of work, in the order they first show up.
-const VM_COLORS = ["text-sky-500", "text-violet-500", "text-teal-500", "text-orange-500", "text-pink-500", "text-lime-500"];
+// A color per model or kind of work, in the order they first show up.
 const TOKEN_COLORS = ["text-sky-500", "text-amber-500", "text-teal-500", "text-pink-500", "text-lime-500", "text-violet-500", "text-orange-500", "text-rose-500"];
 // The Tokens chart's names: models (others as they are) and kinds of work (github_searcher/claude_models.py).
 const MODEL_NAMES: Record<string, string> = {
@@ -105,8 +104,8 @@ export default function Dashboard() {
   const [smooth, setSmooth] = useState(true);
   // The Tokens chart's lines: per "model" or per "work".
   const [tokensBy, setTokensBy] = useState("model");
-  // What the mouse is on, and in which charts: a period ("prs") or a VM second ("vms").
-  const [hovered, setHovered] = useState<{ group: string; index: number } | null>(null);
+  // The period the mouse is on, in both charts.
+  const [hovered, setHovered] = useState<number | null>(null);
 
   const range = RANGES.find((each) => each.key === rangeKey) ?? RANGES[2];
   const mine = prs.items.filter((pr) => pr.relation === "author");
@@ -393,36 +392,6 @@ export default function Dashboard() {
     index: index,
     text: index === count - 1 ? "Now" : new Date(periods[index].start).toLocaleString("en", range.length <= DAY ? TIME : DATE),
   }));
-  const vmLabels: string[] = [];
-  for (let index = 0; index < SAMPLES; index++) {
-    vmLabels.push(index === SAMPLES - 1 ? "Now" : `${SAMPLES - 1 - index} s ago`);
-  }
-  const vmAxis = [
-    { index: 0, text: "1 min ago" },
-    { index: SAMPLES / 2 - 1, text: "30 s ago" },
-    { index: SAMPLES - 1, text: "Now" },
-  ];
-
-  // The VMs' lines: each running VM's last minute, the newest sample at the right edge.
-  const cpuLines: Line[] = [];
-  const memoryLines: Line[] = [];
-  vms
-    .filter((vm) => vm.status === "running")
-    .forEach((vm, index) => {
-      const cpu: (number | null)[] = [];
-      const memory: (number | null)[] = [];
-      for (let missing = vm.samples.length; missing < SAMPLES; missing++) {
-        cpu.push(null);
-        memory.push(null);
-      }
-      for (const sample of vm.samples.slice(-SAMPLES)) {
-        cpu.push(sample.cpu_percent);
-        memory.push(sample.memory_used_gb === null ? null : (sample.memory_used_gb / vm.memory_gb) * 100);
-      }
-      const color = VM_COLORS[index % VM_COLORS.length];
-      cpuLines.push({ title: vm.name, color: color, values: cpu, pieces: [], right: false, layer: 0 });
-      memoryLines.push({ title: vm.name, color: color, values: memory, pieces: [], right: false, layer: 0 });
-    });
   // The tokens' lines: Total, then a line per model or per kind of work. None before the first tokens arrive.
   const tokenLines: Line[] = [];
   if (usage.length > 0) {
@@ -458,7 +427,6 @@ export default function Dashboard() {
   // the right axis (none without rightTicks). empty: what it says without lines.
   const charts: {
     key: string;
-    group: string;
     title: string;
     href: string;
     detail: string;
@@ -476,7 +444,6 @@ export default function Dashboard() {
   }[] = [
     {
       key: "prs",
-      group: "prs",
       title: "Pull requests",
       href: "#/pulls",
       detail: range.per,
@@ -500,7 +467,6 @@ export default function Dashboard() {
     },
     {
       key: "tokens",
-      group: "prs",
       title: "Tokens",
       href: "",
       detail: range.per,
@@ -515,42 +481,6 @@ export default function Dashboard() {
       axis: prAxis,
       lines: tokenLines,
       empty: "No tokens used.",
-    },
-    {
-      key: "cpu",
-      group: "vms",
-      title: "CPU",
-      href: "#/vms",
-      detail: "Last minute",
-      top: 100,
-      ticks: percentTicks,
-      unit: "%",
-      log: false,
-      rightTop: 100,
-      rightTicks: [],
-      rightUnit: "",
-      labels: vmLabels,
-      axis: vmAxis,
-      lines: cpuLines,
-      empty: "No running virtual machines.",
-    },
-    {
-      key: "memory",
-      group: "vms",
-      title: "Memory",
-      href: "#/vms",
-      detail: "Last minute",
-      top: 100,
-      ticks: percentTicks,
-      unit: "%",
-      log: false,
-      rightTop: 100,
-      rightTicks: [],
-      rightUnit: "",
-      labels: vmLabels,
-      axis: vmAxis,
-      lines: memoryLines,
-      empty: "No running virtual machines.",
     },
   ];
   // Each line's points, at the middle of their column, in runs broken where a value is missing; each run a path. A
@@ -621,12 +551,10 @@ export default function Dashboard() {
   const th = "h-8 border-b px-3 text-left text-xs font-medium whitespace-nowrap text-muted-foreground";
   const td = "h-10 border-b px-3 whitespace-nowrap";
 
-  // A pair of charts side by side (pull requests and tokens, or the VMs'): drawn the same way, only their data differs.
-  const chartPairs = [charts.slice(0, 2), charts.slice(2, 4)];
-  const drawn = chartPairs.map((pair) => (
-    <div key={pair[0].key} className="grid grid-cols-2 gap-3 max-lg:grid-cols-1">
-      {pair.map((chart) => {
-        const at = hovered !== null && hovered.group === chart.group ? hovered.index : null;
+  // The two charts side by side: drawn the same way, only their data differs.
+  const drawn = (
+    <div className="grid grid-cols-2 gap-3 max-lg:grid-cols-1">
+      {charts.map((chart) => {
         return (
           <div key={chart.key} className={WIDGET}>
             <div className={WIDGET_HEADER}>
@@ -719,26 +647,26 @@ export default function Dashboard() {
                   {chart.lines.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">{chart.empty}</div>}
                   <div className="absolute inset-0 flex" onMouseLeave={() => setHovered(null)}>
                     {chart.labels.map((_, index) => (
-                      <div key={index} className="relative h-full min-w-0 flex-1" onMouseEnter={() => setHovered({ group: chart.group, index: index })}>
-                        {at === index && <div className="absolute inset-y-0 left-1/2 w-px bg-foreground/40" />}
+                      <div key={index} className="relative h-full min-w-0 flex-1" onMouseEnter={() => setHovered(index)}>
+                        {hovered === index && <div className="absolute inset-y-0 left-1/2 w-px bg-foreground/40" />}
                       </div>
                     ))}
                   </div>
-                  {at !== null && chart.lines.length > 0 && (
+                  {hovered !== null && chart.lines.length > 0 && (
                     <div
                       className={cn(
                         "pointer-events-none absolute top-0 z-10 w-44 rounded-md border bg-popover px-2.5 py-2 text-xs shadow-overlay",
-                        at < chart.labels.length / 2 ? "ml-3" : "-ml-3 -translate-x-full",
+                        hovered < chart.labels.length / 2 ? "ml-3" : "-ml-3 -translate-x-full",
                       )}
-                      style={{ left: `${((at + 0.5) / chart.labels.length) * 100}%` }}
+                      style={{ left: `${((hovered + 0.5) / chart.labels.length) * 100}%` }}
                     >
-                      <div className="font-medium">{chart.labels[at]}</div>
+                      <div className="font-medium">{chart.labels[hovered]}</div>
                       {chart.lines.map((line) => (
                         <div key={line.title} className="mt-1 flex items-center gap-1.5">
                           <span className={cn("size-2 shrink-0 rounded-full bg-current", line.color)} />
                           <span className="truncate text-muted-foreground">{line.title}</span>
                           <span className="ml-auto font-mono tabular-nums">
-                            {line.values[at] === null ? "–" : `${SHORT.format(Math.round(line.values[at] ?? 0))}${line.right ? chart.rightUnit : chart.unit}`}
+                            {line.values[hovered] === null ? "–" : `${SHORT.format(Math.round(line.values[hovered] ?? 0))}${line.right ? chart.rightUnit : chart.unit}`}
                           </span>
                         </div>
                       ))}
@@ -787,7 +715,7 @@ export default function Dashboard() {
         );
       })}
     </div>
-  ));
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -890,7 +818,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {drawn[0]}
+          {drawn}
 
           <div className={WIDGET}>
             <div className={WIDGET_HEADER}>
@@ -950,7 +878,20 @@ export default function Dashboard() {
             )}
           </div>
 
-          {drawn[1]}
+          <div className={WIDGET}>
+            <div className={WIDGET_HEADER}>
+              <a href="#/vms" className={TITLE}>
+                Virtual machines
+              </a>
+              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                {vms.filter((vm) => vm.status === "running").length} of {vms.length} running
+              </span>
+            </div>
+            {vms.length === 0 && <div className="p-3 text-muted-foreground">No VMs yet.</div>}
+            <div className="[&>div:last-child]:border-b-0">
+              <VMList usageOnly={true} />
+            </div>
+          </div>
         </div>
       </div>
     </div>
