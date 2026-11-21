@@ -2046,7 +2046,9 @@ class WorkTools:
         owned = []
         for draft in self.agents.inbox.list():
             sent = draft["sent"]
-            if draft["agent"] == self.agent_id and draft["kind"] == "pr" and sent is not None and not sent.get("update"):
+            # The closed PRs agent (agents.py follow_up) looks after every PR whose agent is done with it.
+            mine = draft["agent"] == self.agent_id or self.record["role"] == "closed_prs"
+            if mine and draft["kind"] == "pr" and sent is not None and not sent.get("update"):
                 owned.append(f"{sent['repo']}#{sent['number']}".lower())
         if pr.lower() not in owned:
             return {"content": [{"type": "text", "text": f"{pr} isn't a PR of yours (one the app opened from your draft)."}], "is_error": True}

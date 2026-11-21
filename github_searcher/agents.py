@@ -7,7 +7,7 @@ DATA_DIR/agents/<id>.json:
      "history": [HistoryEntry, ...], "context_used", "context_max", "cost_usd", "compactions", "tokens_used", "created_at",
      "pending": [message, ...], "awake": bool, "archived_at": null | when it was archived,
      "name_by": "auto" | "user" | "agent", "priority": bool,
-     "role": "reviewer" | null, "reviews": "owner/name" (a reviewer's repo, give_review)}
+     "role": "reviewer" | "closed_prs" | null, "reviews": "owner/name" (a reviewer's repo, give_review)}
 
 name_by says who gave the name. Every agent is called "agent-N", the first free number (auto): agents don't name
 themselves, and the app gives its own agents (reviewers, the ones it assigns issues to) no names either. Only the user renames
@@ -18,6 +18,8 @@ conversation stays, so it can pick up where it left off (an update on its PR). T
 archived agent wait without waking it; a message from the user, a job given to it, or a reply to one of
 its drafts brings it back (unarchive), and those messages go in then. An agent that made PRs (a PR draft
 that waits for the user or was approved: Inbox.pr_owners) can't be deleted, only archived.
+When a PR or issue is merged or closed, its agent's open jobs on it are cancelled and it is archived (follow_up), and
+it never comes back for it: what happens there afterwards goes to one agent for all of them (role "closed_prs").
 
 Every agent has a worker (an asyncio task) that waits for messages, joins the waiting ones into
 one prompt, each starting with [User] (the user typed it) or [System] (the app: a new job, a VM
@@ -104,6 +106,10 @@ on that PR's branch (draft_pr with pr: Approve pushes it there and posts its tex
 nothing (it marks the job done). It never posts anything itself. It answers only the project's maintainers and the
 PR's reviewers (anyone else, a bot too, only when the merge needs it), in one comment of ours per round
 (agent/work_tools.py).
+A merged or closed thread's news never goes to its agent (archived then, above). It goes to the closed PRs agent as a
+follow_up job: the end alone is only noted on a job marked done; when someone wrote there, it reads it and does nothing,
+replies (draft_comment), opens an issue for more work, which a new agent takes (open_issue), or reopens a PR we closed
+ourselves (reopen_pr, which lets it reopen any agent's). It never works in a VM.
 
 Every PR draft is reviewed before it reaches the Inbox: give_review() hands each to its repo's own reviewer (record
 "role": "reviewer", "reviews": the repo, made the first time), which checks it the way the repo's maintainers will,
@@ -1432,7 +1438,64 @@ class Agents:
         or a rebase, and only the user's own PR or issue a new title or description). The agent's open follow_up job for
         that thread hears about it; else a new one is made, but not on a stopped repo (the button on its card, repo_list.py).
         When an open job of any agent has the PR's next version waiting (draft_pr with pr), that job hears it instead: one
-        agent per PR at a time. Returns the job, or None when the agent is gone or the repo is stopped. Any thread."""
+        agent per PR at a time. Returns the job, or None when the agent is gone or the repo is stopped. Any thread.
+        A merged or closed one never goes to its agent: that agent is done with it (below)."""
+        thread = entry["id"]
+        repo = thread.split("#")[0]
+        what = "issue"
+        if entry["kind"] == "pr":
+            what = "PR"
+        # Merged or closed: its agent's work on it is over. Its open jobs on it are cancelled, and it is archived unless it
+        # has others, never to come back for this thread. What happens there from now on goes to the one agent that looks
+        # after every merged or closed PR and issue (role "closed_prs", made the first time), as a job: a turn only when
+        # someone wrote there; the end alone is only noted. Not on a removed repo either.
+        if entry.get("state", "open") != "open":
+            owner = self.agents.get(entry["agent"])
+            if owner is not None and owner.record["role"] is None:
+                cancelled = []
+                for job in self.jobs.for_agent(owner.id):
+                    if job["status"] not in ["done", "cancelled"] and job["thread"] == thread:
+                        self.jobs.update(job["id"], status="cancelled", notes=f"{thread} is {entry['state']}")
+                        cancelled.append(job["id"])
+                left = [job for job in self.jobs.for_agent(owner.id) if job["status"] not in ["done", "cancelled"]]
+                if not left:
+                    asyncio.run_coroutine_threadsafe(self.archive(owner.id), self.loop)
+                elif cancelled:
+                    self.notify(owner.id, f"{thread} is {entry['state']} now, so {', '.join(cancelled)} is cancelled: nothing more goes there. Go on with your other jobs.")
+            keeper = None
+            for agent in self.agents.values():
+                if agent.record["role"] == "closed_prs":
+                    keeper = agent
+            if keeper is None:
+                keeper = self.agents[self.create()["id"]]
+                keeper.record["role"] = "closed_prs"
+                self.save(keeper)
+            title = f"Follow up on {thread}"
+            job = self.jobs.create("follow_up", title, keeper.id, "user", repo=repo, thread=thread, agent_name=keeper.name)
+            removed = [name.lower() for name in self.repos.removed()]
+            if entry["at"] is None or repo.lower() in removed:
+                self.jobs.update(job["id"], status="done", notes=f"{entry['reason']}; nothing more goes there")
+                return job
+            if threading.get_ident() == self.loop_thread:
+                self.unarchive(keeper.id)
+            else:
+                self.loop.call_soon_threadsafe(self.unarchive, keeper.id)
+            text = (
+                f"New job {job['id']}: {title}\n{entry['reason']} on the {what} {thread} ({entry['title']}): {entry['url']}\n"
+                f"It is {entry['state']}, and the agent that had it is done with it: you look after every merged or closed PR "
+                "and issue of the user's. Read the whole thread with read_issue, then do at most one of these, and mark "
+                f"{job['id']} done (job_update) with a note on what you did and why:\n"
+                "- Nothing, which is most of the time: a thanks, a note, a release, people talking among themselves, anyone "
+                "who isn't one of its maintainers or reviewers.\n"
+                f"- A maintainer or a reviewer asked us something: one short reply, draft_comment with target {thread}.\n"
+                "- They report a bug in our change, or ask for more work: open_issue for it, and a new agent takes it and "
+                "fixes it. When the repo doesn't let you open issues, put it in the note.\n"
+                "- A PR we closed ourselves (close_pr), and the reason is gone now: reopen_pr, with a comment saying why.\n"
+                "You never work in a VM: anything that needs one goes to a new agent through open_issue."
+            )
+            self.notify(keeper.id, text)
+            return job
+
         # One agent per PR at a time: when an open job's next version of this PR waits (in review, in the Inbox, or
         # approved and not sent yet), the news goes to that job and its agent, which hold the work, instead of a second
         # agent starting on it (openmed#5511: a follow-up on the PR went to its owner while another agent's version, drafted
@@ -1452,17 +1515,11 @@ class Agents:
         agent = self.agents.get(agent_id)
         if agent is None:
             return None
-        thread = entry["id"]
-        repo = thread.split("#")[0]
         number = thread.split("#")[1]
         head = entry["head"]
-        what = "issue"
-        if entry["kind"] == "pr":
-            what = "PR"
         # A new version goes on the PR's own branch, which only the user's own open PR has (not one they only commented on).
         own = entry.get("relation", "author") == "author"
-        ended = entry.get("state", "open") != "open"
-        own_pr = entry["kind"] == "pr" and head is not None and own and not ended
+        own_pr = entry["kind"] == "pr" and head is not None and own
         # A removed repo gets no new work: only a job already open on it hears it.
         removed = [name.lower() for name in self.repos.removed()]
         if repo.lower() in removed and holder_job is None:
@@ -1497,11 +1554,6 @@ class Agents:
                     "commit. When it conflicts with the branch it goes into, adding commits doesn't settle that: rebase it "
                     "onto the newest one (with your change, if you have one) and draft_pr with rebase: true."
                 )
-            if ended:
-                text += (
-                    f" It is {entry['state']} now, so nothing more goes there: mark {job['id']} done with a note, and tidy up "
-                    "what you left for it in a VM (its branch's note)."
-                )
             if job["status"] == "waiting_on_user":
                 text += " Your draft for it still waits in the user's Inbox; if it no longer fits, draft a new one and say why in it."
             self.notify(agent.id, text)
@@ -1511,16 +1563,6 @@ class Agents:
         vm_name = agent.record["target_vm"]
         job = self.jobs.create("follow_up", title, agent.id, "user", repo=repo, vm=vm_name, thread=thread, agent_name=agent.name)
         text = f"New job {job['id']}: {title}\n{entry['reason']} on the {what} {thread} ({entry['title']}): {entry['url']}"
-        # Merged or closed: only its end to take in.
-        if ended:
-            text += (
-                f"\nIt is {entry['state']} now, so nothing more goes there. You own it for the user: read it with read_issue, "
-                f"then mark {job['id']} done (job_update) with a note on how it ended, and tidy up what you left for it in a "
-                "VM (its branch's note) the next time you hold that VM. If a maintainer asked something on the way out, a short "
-                f"reply is still fine: draft_comment with target {thread}."
-            )
-            self.notify(agent.id, text)
-            return job
         # The user's own pull request that is out there waits on it: that comes before new work.
         if own_pr:
             text += (
