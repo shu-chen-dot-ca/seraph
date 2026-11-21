@@ -23,10 +23,8 @@ Under the top:
   a dashed blue line at that count, and the axis goes up to it. Back to front: Open PR limit, Merge rate, Open, Closed,
   Opened, Merged.
 - Tokens and cost: the tokens every Claude run used per period (input, cache written, cache read and output, from the
-  usage log: github_searcher/token_usage.py), a line per model (Model, the default) or per kind of work (Work), picked
-  in its header, no total; and Cost, what they all cost in USD, white (black when light), in front on its own axis on
-  the right. Models by their names (Opus 5.5), kinds of work in plain words; Agents is the agents' work from before the
-  log, when its kind wasn't kept.
+  usage log: github_searcher/token_usage.py), a line per model, no total; and Cost, what they all cost in USD, white
+  (black when light), in front on its own axis on the right. Models by their names (Opus 5.5).
   These two share one time axis: hovering a period in one marks it in both, with its numbers.
 - In progress: the fix_issue and follow_up jobs working now, the most VM time first: Issue or pull request (its
   repository and number only, opens it on GitHub), Step, VM time (how long its agent held a VM desktop for it: tests,
@@ -71,27 +69,14 @@ const USD = new Intl.NumberFormat("en", { style: "currency", currency: "USD", no
 const OPENED = "text-[oklch(62.7%_0.155_149.214)] dark:text-[oklch(72.3%_0.175_149.579)]";
 const MERGED = "text-[oklch(55.8%_0.23_302.321)] dark:text-[oklch(62.7%_0.212_303.9)]";
 const CLOSED = "text-[oklch(57.7%_0.196_27.325)] dark:text-[oklch(63.7%_0.19_25.331)]";
-// A color per model or kind of work, in the order they first show up.
+// A color per model, in the order they first show up.
 const TOKEN_COLORS = ["text-sky-500", "text-amber-500", "text-teal-500", "text-pink-500", "text-lime-500", "text-violet-500", "text-orange-500", "text-rose-500"];
-// The Tokens chart's names: models (others as they are) and kinds of work (github_searcher/claude_models.py).
+// The Tokens chart's names for models (others as they are; github_searcher/claude_models.py).
 const MODEL_NAMES: Record<string, string> = {
   "claude-fable-5-2": "Fable 5.2",
   "claude-opus-5-5": "Opus 5.5",
   "claude-sonnet-5-5": "Sonnet 5.5",
   "claude-haiku-5-5": "Haiku 5.5",
-};
-const WORK_NAMES: Record<string, string> = {
-  fix_issue: "Fixing issues",
-  follow_up: "Follow-ups",
-  review: "Reviews",
-  chat: "Chat",
-  task: "Other jobs",
-  judgment: "Judgments",
-  explore: "Explore",
-  explore_reader: "Explore readers",
-  image: "Images",
-  fix_problems: "Fix all",
-  agent: "Agents",
 };
 const WIDGET = "flex min-w-0 flex-col rounded-sm border bg-card";
 const WIDGET_HEADER = "flex h-9 shrink-0 items-center gap-3 border-b px-3";
@@ -114,8 +99,6 @@ export default function Dashboard() {
   const now = useNow();
   const [rangeKey, setRangeKey] = useState("7d");
   const [smooth, setSmooth] = useState(true);
-  // The Tokens chart's lines: per "model" or per "work".
-  const [tokensBy, setTokensBy] = useState("model");
   // The period the mouse is on, in both charts.
   const [hovered, setHovered] = useState<number | null>(null);
   // The Open PR limit as you type it, until the live topic has it (null: the saved one).
@@ -165,7 +148,6 @@ export default function Dashboard() {
     rate: number | null;
     cost: number;
     byModel: Record<string, number>;
-    byWork: Record<string, number>;
   }[] = [];
   for (let index = 0; index < count; index++) {
     const at = start + index * range.period;
@@ -179,7 +161,6 @@ export default function Dashboard() {
       rate: null,
       cost: 0,
       byModel: {},
-      byWork: {},
     });
   }
 
@@ -251,10 +232,9 @@ export default function Dashboard() {
     period.rate = mergedWeek + closedWeek > 0 ? (mergedWeek / (mergedWeek + closedWeek)) * 100 : null;
   }
 
-  // Tokens Claude runs used and what they cost, per model, kind of work and stretch of time (at: its start): each stretch
+  // Tokens Claude runs used and what they cost, per model and stretch of time (at: its start): each stretch
   // added to the period it starts in.
   const models: string[] = [];
-  const works: string[] = [];
   let tokens = 0;
   let tokensBefore = 0;
   let cost = 0;
@@ -271,14 +251,10 @@ export default function Dashboard() {
     }
     periods[index].cost += each.cost_usd;
     periods[index].byModel[each.model] = (periods[index].byModel[each.model] ?? 0) + each.tokens;
-    periods[index].byWork[each.work] = (periods[index].byWork[each.work] ?? 0) + each.tokens;
     tokens += each.tokens;
     cost += each.cost_usd;
     if (!models.includes(each.model)) {
       models.push(each.model);
-    }
-    if (!works.includes(each.work)) {
-      works.push(each.work);
     }
   }
 
@@ -454,7 +430,7 @@ export default function Dashboard() {
   // most four equal steps.
   let tokenHighest = 1;
   for (const period of periods) {
-    const values = Object.values(tokensBy === "model" ? period.byModel : period.byWork);
+    const values = Object.values(period.byModel);
     tokenHighest = Math.max(tokenHighest, ...values);
   }
   const power = Math.pow(10, Math.max(0, Math.floor(Math.log10(tokenHighest / 4))));
@@ -481,34 +457,19 @@ export default function Dashboard() {
     index: index,
     text: index === count - 1 ? "Now" : new Date(periods[index].start).toLocaleString("en", range.length <= DAY ? TIME : DATE),
   }));
-  // The tokens' lines: one per model or per kind of work, then Cost in front. None before the first tokens arrive.
+  // The tokens' lines: one per model, then Cost in front. None before the first tokens arrive.
   const tokenLines: Line[] = [];
-  if (tokensBy === "model") {
-    models.forEach((model, index) => {
-      tokenLines.push({
-        title: MODEL_NAMES[model] ?? model,
-        color: TOKEN_COLORS[index % TOKEN_COLORS.length],
-        values: periods.map((period) => period.byModel[model] ?? 0),
-        pieces: [],
-        right: false,
-        dashed: false,
-        layer: 0,
-      });
+  models.forEach((model, index) => {
+    tokenLines.push({
+      title: MODEL_NAMES[model] ?? model,
+      color: TOKEN_COLORS[index % TOKEN_COLORS.length],
+      values: periods.map((period) => period.byModel[model] ?? 0),
+      pieces: [],
+      right: false,
+      dashed: false,
+      layer: 0,
     });
-  }
-  if (tokensBy === "work") {
-    works.forEach((work, index) => {
-      tokenLines.push({
-        title: WORK_NAMES[work] ?? work,
-        color: TOKEN_COLORS[index % TOKEN_COLORS.length],
-        values: periods.map((period) => period.byWork[work] ?? 0),
-        pieces: [],
-        right: false,
-        dashed: false,
-        layer: 0,
-      });
-    });
-  }
+  });
   if (usage.length > 0) {
     tokenLines.push({
       title: "Cost",
@@ -694,26 +655,6 @@ export default function Dashboard() {
                 </label>
               )}
               <span className={DETAIL}>{chart.detail}</span>
-              {chart.key === "tokens" && (
-                <div className="flex shrink-0 overflow-hidden rounded-sm border">
-                  {[
-                    { key: "model", title: "Model" },
-                    { key: "work", title: "Work" },
-                  ].map((each) => (
-                    <button
-                      key={each.key}
-                      type="button"
-                      className={cn(
-                        "h-6 border-l px-2 text-xs font-medium text-muted-foreground first:border-l-0 hover:bg-accent hover:text-foreground",
-                        tokensBy === each.key && "bg-selected text-foreground hover:bg-selected",
-                      )}
-                      onClick={() => setTokensBy(each.key)}
-                    >
-                      {each.title}
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
             <div className="p-3">
               <div className="flex h-44 gap-2">
