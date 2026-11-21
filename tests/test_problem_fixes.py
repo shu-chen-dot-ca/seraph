@@ -1,6 +1,6 @@
 """Fix all (github_searcher/problem_fixes.py): what a run keeps when it fails or is cut off, the items it closes instead
 of trying again, the scope its fixes must keep to, its push to main (never forced), and the release it makes (the next
-version from the commit titles since the last release, and its notes).
+patch after the last release, and its notes).
 
 Nothing here runs Claude Code, starts a VM or reaches GitHub: VMs are fakes, GitHub is an httpx.MockTransport, the scope
 is checked in a git repo made in pytest's temporary folder, and everything is kept there, never in DATA_DIR."""
@@ -251,14 +251,14 @@ def github(latest, titles, made):
     return httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(answer))
 
 
-def test_a_feature_since_the_last_release_is_the_next_minor(fixes):
+def test_a_feature_since_the_last_release_is_still_only_the_next_patch(fixes):
     made = []
     titles = ["fix(agents): stop claiming a taken issue", "feat(settings): add fix problems", "docs(readme): say so"]
 
-    tag = fixes.release(github("v0.1.0", titles, made))
+    tag = fixes.release(github("v1.0.0", titles, made))
 
-    assert tag == "v0.2.0"
-    assert made[0]["tag_name"] == "v0.2.0"
+    assert tag == "v1.0.1"
+    assert made[0]["tag_name"] == "v1.0.1"
     assert made[0]["target_commitish"] == "main"
     assert made[0]["body"] == (
         "## Features\n\n- feat(settings): add fix problems\n\n"
@@ -273,6 +273,23 @@ def test_only_fixes_since_the_last_release_is_the_next_patch(fixes):
     tag = fixes.release(github("v0.3.4", ["fix(search): skip archived repos", "test(search): cover archived repos"], made))
 
     assert tag == "v0.3.5"
+
+
+def test_a_tag_without_v_gets_the_next_patch_without_v(fixes):
+    made = []
+
+    tag = fixes.release(github("1.0.0", ["fix(search): skip archived repos"], made))
+
+    assert tag == "1.0.1"
+
+
+@pytest.mark.parametrize("latest, expected", [("v1", "v1.0.1"), ("v.1", "v1.0.1"), ("v1.2", "v1.2.1")])
+def test_a_tag_with_fewer_numbers_counts_the_missing_ones_as_zero(fixes, latest, expected):
+    made = []
+
+    tag = fixes.release(github(latest, ["fix(search): skip archived repos"], made))
+
+    assert tag == expected
 
 
 def test_the_push_to_main_is_never_forced():

@@ -26,8 +26,9 @@ A run:
 4. The gate, run here and not by Claude: the whole test suite (uv run pytest) and the frontend build (npm run build), as
    CI runs them. When the fixes fail it they are dropped, and main alone goes through it.
 5. Passed with fixes: they are pushed to main and the items they fixed are closed. Passed: when main has commits since
-   the latest release, release() makes the next one, and the live copy gets it ready, checks it and installs it. So with
-   no open feedback, Fix all releases what you pushed. The push is never forced (PUSH).
+   the latest release, release() makes the next patch (1.0.0, then 1.0.1: the bigger steps are yours), and the live copy
+   gets it ready, checks it and installs it. So with no open feedback, Fix all releases what you pushed. The push is
+   never forced (PUSH).
 Fixes that are dropped (Claude failed, or they broke the rules or the gate) leave their items open. An item given to
 MAX_TRIES runs whose Claude Code answered, and still open, is closed when the next run starts (given_up): none is tried
 forever.
@@ -641,9 +642,13 @@ class ProblemFixes:
         return ""
 
     def release(self, client: httpx.Client) -> str | None:
-        """Releases main when it has commits since the latest release: the next version (feat in a commit title since
-        then: minor one up, else patch one up; v0.1.0 without a release), with the commit titles as its notes, grouped
-        like Releases groups them (projects.py SECTIONS). Returns the new tag, or None when there is nothing new."""
+        """Releases main when it has commits since the latest release: the next patch, with the commit titles as its
+        notes, grouped like Releases groups them (projects.py SECTIONS). Returns the new tag, or None when there is
+        nothing new.
+
+        Only the last number goes up (1.0.0, then 1.0.1), in the latest's style (with or without v), whatever the
+        commits are: the bigger steps (1.0.0, 1.1.0) are yours, made by hand on GitHub. A tag with fewer numbers counts
+        the missing ones as 0 (v1 is v1.0.0). Without any release, v0.1.0."""
         response = client.get(f"/repos/{SELF_REPO}/releases/latest")
         if response.status_code == 404:
             latest = None
@@ -665,13 +670,13 @@ class ProblemFixes:
             return None
 
         tag = "v0.1.0"
-        match = None
+        numbers = []
         if latest is not None:
-            match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", latest)
-        if match is not None and any(title.startswith("feat") for title in titles):
-            tag = f"v{match.group(1)}.{int(match.group(2)) + 1}.0"
-        elif match is not None:
-            tag = f"v{match.group(1)}.{match.group(2)}.{int(match.group(3)) + 1}"
+            numbers = [int(number) for number in re.findall(r"\d+", latest)][:3]
+        if numbers:
+            numbers = numbers + [0] * (3 - len(numbers))
+            prefix = "v" if latest.lower().startswith("v") else ""
+            tag = f"{prefix}{numbers[0]}.{numbers[1]}.{numbers[2] + 1}"
         notes = []
         for kind, heading in SECTIONS:
             lines = []
