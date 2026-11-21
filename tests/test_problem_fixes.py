@@ -1,6 +1,6 @@
 """Fix all (github_searcher/problem_fixes.py): what a run keeps when it fails or is cut off, the items it closes instead
-of trying again, the scope its fixes must keep to, and the release it makes (the next version from the commit titles
-since the last release, and its notes).
+of trying again, the scope its fixes must keep to, its push to main (never forced), and the release it makes (the next
+version from the commit titles since the last release, and its notes).
 
 Nothing here runs Claude Code, starts a VM or reaches GitHub: VMs are fakes, GitHub is an httpx.MockTransport, the scope
 is checked in a git repo made in pytest's temporary folder, and everything is kept there, never in DATA_DIR."""
@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 from github_searcher import problem_fixes
-from github_searcher.problem_fixes import LOCKED, MAX_TRIES, PROMPT, FixError, ProblemFixes
+from github_searcher.problem_fixes import LOCKED, MAX_TRIES, PROMPT, PUSH, FixError, ProblemFixes
 from sandbox.vms import FIX_VM, VMsError
 
 
@@ -273,6 +273,11 @@ def test_only_fixes_since_the_last_release_is_the_next_patch(fixes):
     tag = fixes.release(github("v0.3.4", ["fix(search): skip archived repos", "test(search): cover archived repos"], made))
 
     assert tag == "v0.3.5"
+
+
+def test_the_push_to_main_is_never_forced():
+    assert "push" in PUSH
+    assert not any(part.startswith("-") or part.startswith("+") for part in PUSH)
 
 
 def test_nothing_new_since_the_last_release_makes_none(fixes):

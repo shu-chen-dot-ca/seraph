@@ -27,7 +27,7 @@ A run:
    CI runs them. When the fixes fail it they are dropped, and main alone goes through it.
 5. Passed with fixes: they are pushed to main and the items they fixed are closed. Passed: when main has commits since
    the latest release, release() makes the next one, and the live copy gets it ready, checks it and installs it. So with
-   no open feedback, Fix all releases what you pushed.
+   no open feedback, Fix all releases what you pushed. The push is never forced (PUSH).
 Fixes that are dropped (Claude failed, or they broke the rules or the gate) leave their items open. An item given to
 MAX_TRIES runs whose Claude Code answered, and still open, is closed when the next run starts (given_up): none is tried
 forever.
@@ -122,6 +122,9 @@ DATA_LEFT_OUT = [
     "agent_home",
     "sherpa_home",
 ]
+# How the fixes go to main: never forced (no -f, no --force, no + in the refspec). When main moved on GitHub since the
+# run put its fixes on top, GitHub refuses it and the run fails, instead of anything on main being overwritten.
+PUSH = ["git", "push", "origin", "HEAD:main"]
 # The gate: what CI runs (.github/workflows/ci.yml), in the clone.
 GATE = [
     ["uv", "sync", "--locked"],
@@ -600,7 +603,7 @@ class ProblemFixes:
         # 5. Pushed, the fixed items closed, and main released.
         if commits:
             pushed = subprocess.run(["git", "log", "--reverse", "--format=%h %s", "origin/main..HEAD"], cwd=FIX_DIR, capture_output=True, text=True).stdout.splitlines()
-            done = subprocess.run(["git", "push", "origin", "HEAD:main"], cwd=FIX_DIR, env=git_env, capture_output=True, text=True, timeout=STEP_SECONDS)
+            done = subprocess.run(PUSH, cwd=FIX_DIR, env=git_env, capture_output=True, text=True, timeout=STEP_SECONDS)
             if done.returncode != 0:
                 raise FixError("Couldn't push the fixes to main.", done.stdout + done.stderr)
             run["commits"] = pushed
