@@ -1,7 +1,8 @@
 /*
 Every VM's band, on the Dashboard's Virtual machines (its VMs tab), split by a line. On top, the VM's name (#/vms/<name>:
 the Dashboard opens its page in a dialog, App.tsx), Halt, Shutdown or Start, and a ⋯ that opens the VM's settings
-(VMSettings, as on its page's Settings tab) in a dialog.
+(VMSettings, as on its page's Settings tab) in a dialog, titled with the VM's name and, in gray, the image it was made
+from (its name now, as images can be renamed).
 - Halt stops agents new to the VM from getting a desktop (the ones on it go on; record.suspended in the backend). The
   button then says Halting while anyone still holds a desktop or a run still goes, and Halted once nothing does, both
   solid gray. Clicking either takes the halt off. Not on Seraph's own VM (FIX_VM): no agent gets it anyway.
@@ -50,6 +51,7 @@ function formatBytes(bytes: number): string {
 
 export default function VMList() {
   const vms = useLive("vms");
+  const imagesData = useLive("images");
   // The VM whose settings are open from its ⋯, or null.
   const [settingsFor, setSettingsFor] = useState<string | null>(null);
   // The VM whose Halt (or taking it off) is on its way, or "".
@@ -75,6 +77,13 @@ export default function VMList() {
       toast.error(`Could not ${action === "start" ? "start" : "shut down"} ${name}: ${err instanceof Error ? err.message : err}`);
     }
     setPowering("");
+  }
+
+  // The image the VM whose settings are open was made from: its name now, or the one it had then.
+  const settingsVM = vms.find((each) => each.name === settingsFor);
+  let settingsImage = "";
+  if (settingsVM !== undefined) {
+    settingsImage = imagesData.images.find((image) => image.fingerprint === settingsVM.image_fingerprint)?.name ?? settingsVM.image;
   }
 
   return (
@@ -270,7 +279,9 @@ export default function VMList() {
         }}
       >
         <DialogContent className="gap-0 p-0 sm:max-w-2xl">
-          <DialogTitle className="px-4 pt-4">{settingsFor} settings</DialogTitle>
+          <DialogTitle className="px-4 pt-4">
+            {settingsFor} <span className="font-normal text-muted-foreground">{settingsImage}</span>
+          </DialogTitle>
           <div className="max-h-[75vh] overflow-auto">{settingsFor !== null && <VMSettings name={settingsFor} />}</div>
         </DialogContent>
       </Dialog>

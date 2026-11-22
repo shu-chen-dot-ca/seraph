@@ -418,7 +418,6 @@ export type VMSummary = {
   incus_name: string;
   image: string; // the image's name when the VM was made ("" for older VMs); see image_fingerprint
   image_fingerprint: string; // the exact image it was made from: images can be renamed or rebuilt
-  secrets_in_vm: string[]; // env variables whose values are written in the VM's files now
   forked_from: string; // the VM this one is a copy of, or ""
   cpus: number;
   memory_gb: number;
@@ -507,13 +506,12 @@ export type ImageAgentEntry =
 
 export type ImageAgentChat = { history: ImageAgentEntry[]; busy: boolean; cost_usd: number };
 
-// A build (Build, Rebuild or the image agent), a VM being saved as an image, or an inspect.
+// A build (Build, Rebuild or the image agent) or an inspect.
 // Tasks that worked disappear once their image is listed; failed ones stay until dismissed.
 export type ImageTask = {
   id: string;
-  kind: "build" | "save" | "inspect";
+  kind: "build" | "inspect";
   name: string;
-  vm: string | null; // the VM being saved
   status: "running" | "failed";
   error: string | null;
   started_at: string;

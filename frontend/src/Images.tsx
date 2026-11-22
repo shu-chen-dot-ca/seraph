@@ -13,8 +13,7 @@ New image (NewImageDialog) only saves an image.yaml, the defaults with a system,
 is built and no agent runs. Such an image is listed below the built ones as "not built", with Build (its first
 build) and a menu: Edit image.yaml (the same editor, with Check, as an image's Definition), Rename and Delete.
 Names may have capitals; two names that differ only in capitals count as the same.
-A VM's Settings can save it as an image, its disk as it is (a few
-minutes). Build and Rebuild build image.yaml mechanically, with no agent; only what changed since the last build
+Build and Rebuild build image.yaml mechanically, with no agent; only what changed since the last build
 runs again. Several images can build at the same time, each in its own builder VM, as long as memory allows; one
 image has one task at a time. Tasks run in the background, shown above the list with their last log lines until the
 image is listed; the whole log opens in a dialog, and a build also shows its image.yaml. Everything comes from the
@@ -51,7 +50,7 @@ import { cn } from "@/lib/utils";
 const COLUMNS =
   "grid grid-cols-[minmax(0,200px)_minmax(0,170px)_minmax(0,1fr)_80px_150px_56px_96px_32px] items-center gap-3 max-md:grid-cols-[minmax(0,1fr)_64px_80px_32px]";
 
-const TASK_TITLE: Record<string, string> = { build: "Building", save: "Saving", inspect: "Listing what it has:" };
+const TASK_TITLE: Record<string, string> = { build: "Building", inspect: "Listing what it has:" };
 
 // tabs: Virtual machines' tabs (Dashboard.tsx), which share the header row with the buttons here.
 export default function Images(props: { tabs: ReactNode }) {
@@ -148,7 +147,7 @@ export default function Images(props: { tabs: ReactNode }) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-medium">
-                    {task.kind === "save" ? `Saving ${task.vm} as ${task.name}` : `${TASK_TITLE[task.kind] ?? task.kind} ${task.name}`}
+                    {TASK_TITLE[task.kind] ?? task.kind} {task.name}
                     {task.status === "failed" && " failed"}
                   </span>
                   <span className="text-xs text-muted-foreground">
@@ -549,7 +548,7 @@ function LogDialog(props: { task: ImageTask; onClose: () => void }) {
       <DialogContent className="sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>
-            {props.task.kind === "save" ? `Saving ${props.task.vm} as ${props.task.name}` : `${TASK_TITLE[props.task.kind] ?? props.task.kind} ${props.task.name}`}
+            {TASK_TITLE[props.task.kind] ?? props.task.kind} {props.task.name}
           </DialogTitle>
           <DialogDescription>{running ? "Still running; this follows along." : "Failed. The last lines say why."}</DialogDescription>
         </DialogHeader>

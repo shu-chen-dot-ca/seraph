@@ -1,6 +1,6 @@
 /*
 The Settings tab of a VM page (and the Dashboard's ⋯ on a VM): its name, Shut down, CPU and memory, max desktops,
-internet, env vars, its image and Delete.
+internet, env vars and Delete. The image it was made from shows in gray by its name in the dialog's title (VMList).
 
 Shut down shuts the VM down right away (POST /api/vms/{name}/stop, as the page's Stop), without waiting for the agents
 on it; nothing is deleted.
@@ -19,11 +19,10 @@ Rename works running or not; the page moves to the new name (#/vms/<new name>). 
 Feedback dialog works (FIX_VM), keeps its name and can't be deleted.
 */
 
-import { Eye, EyeOff, Loader2, Plus, Power, Save, Trash2, X } from "lucide-react";
+import { Eye, EyeOff, Loader2, Plus, Power, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import SaveImageDialog from "@/SaveImageDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,8 +61,6 @@ export default function VMSettings(props: { name: string }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [savingImage, setSavingImage] = useState(false);
-  const imagesData = useLive("images");
 
   const vmName = props.name;
   const envNames = vm === undefined ? "" : vm.env_names.join("\n");
@@ -435,22 +432,6 @@ export default function VMSettings(props: { name: string }) {
         </section>
 
         <section>
-          <h2 className="mb-1.5 border-b pb-1 font-semibold">Image</h2>
-          <div className="flex items-center gap-3">
-            <span>
-              Made from{" "}
-              <a href="#/vms?tab=images" className="font-medium text-primary hover:underline">
-                {imagesData.images.find((image) => image.fingerprint === vm.image_fingerprint)?.name ?? (vm.image || "an image that is gone now")}
-              </a>
-            </span>
-            <Button variant="outline" size="sm" className="ml-auto" onClick={() => setSavingImage(true)}>
-              <Save /> Save as image
-            </Button>
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">Save as image makes a new image from this VM's disk as it is, for new VMs to start from. The VM must be stopped.</p>
-        </section>
-
-        <section>
           <h2 className="mb-1.5 border-b pb-1 font-semibold">Delete</h2>
           <div className="flex items-center gap-3">
             <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)} disabled={busy !== "" || vmName === FIX_VM}>
@@ -461,8 +442,6 @@ export default function VMSettings(props: { name: string }) {
           </div>
         </section>
       </div>
-
-      {savingImage && <SaveImageDialog vm={vmName} onClose={() => setSavingImage(false)} />}
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
