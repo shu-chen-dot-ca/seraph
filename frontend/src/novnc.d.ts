@@ -7,6 +7,7 @@ declare module "@novnc/novnc" {
     focusOnClick: boolean;
     background: string;
     disconnect(): void;
+    blur(): void;
     // keysym: the X keysym; code: the physical key, or null; down left out: pressed and let go.
     sendKey(keysym: number, code: string | null, down?: boolean): void;
     // The messages noVNC sends to the VM; sock is its websocket.

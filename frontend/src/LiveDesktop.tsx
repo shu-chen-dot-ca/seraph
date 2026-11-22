@@ -1,9 +1,10 @@
 /*
 A VM's screen, live: noVNC's client (RFB) draws only the screen into the box, scaled to fit, none of noVNC's page
 around it. A dropped connection tries again every 2 seconds. viewOnly keeps the mouse and keyboard out; it can change
-without connecting again (a lock comes and goes while the agent works).
+without connecting again (a lock comes and goes while the agent works, a desktop opened from the VM page's grid).
 
-The agent page's Desktop (AgentChat.tsx) uses it view-only. rfbRef, when given, hands the caller the client.
+The VM page (VMPage.tsx) and the agent page's Desktop (AgentChat.tsx) use it. rfbRef, when given, hands the caller
+the client.
 
 Every screen shown here gets at most 30 updates a second, to keep the browser and the VM light. noVNC asks the VM for
 the next update as soon as one arrives; each ask waits until FRAME_MS after the one before. TigerVNC (desktops 2 and
@@ -43,6 +44,11 @@ export default function LiveDesktop(props: { url: string; viewOnly: boolean; cla
     viewOnlyRef.current = props.viewOnly;
     if (rfbRef.current !== null) {
       rfbRef.current.viewOnly = props.viewOnly;
+      rfbRef.current.focusOnClick = !props.viewOnly;
+      // Keys go back to the page.
+      if (props.viewOnly) {
+        rfbRef.current.blur();
+      }
     }
   }, [props.viewOnly, rfbRef]);
 

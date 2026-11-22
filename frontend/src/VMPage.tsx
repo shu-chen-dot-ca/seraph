@@ -2,53 +2,45 @@
 One VM's page, in a dialog over the Dashboard (#/vms/<name>, Dashboard.tsx): a header with its state and power
 buttons, and three tabs. The header leaves room on its right for the dialog's close button.
 
-Overview is the VM's desktop (noVNC in an iframe), the whole page.
+Overview is the VM's desktops, the whole page. A VM has one desktop or more, up to its max desktops (Settings). The
+app adds and removes them by itself (github_searcher/agents.py): one is added when an agent needs one and none is free,
+and one nobody used for a while shuts down (its home stays). Each has its own screen, mouse, keyboard and home folder,
+so agents on different desktops work at the same time without getting in each other's way. Each keeps its number:
+removing desktop 1 leaves desktops 2 and 3 as they are.
 
-A VM has one desktop or more, up to its max desktops (Settings). Each has its own screen, mouse, keyboard and home folder, so agents on different
-desktops work at the same time without getting in each other's way. Each keeps its number: removing desktop 1 leaves
-desktops 2 and 3 as they are, and the next new one is desktop 1 again (the lowest number free). With more than one,
-buttons Desktop 1, Desktop 2, ... above the desktop pick which one the desktop area and its Lock are about; each
-button's tooltip says who holds it, and its dot is green while the desktop is free, amber while someone (an agent or
-you) holds it. × removes the desktop shown (it asks first). + after them adds a desktop and shows it once it is up
-(while the VM runs it is set up right away: under a minute the first time; it is gone once the VM has its max
-desktops). Both work running or not. A desktop's iframe stays mounted once opened, so switching back is instant.
+With more than one, the Overview shows them all, two to a row, live and view-only (LiveDesktop.tsx, at most 30
+updates a second). Each one's caption has its dot (green while free, amber while someone, an agent or you, holds it),
+who holds it, and a lock while it is locked. Clicking one fills the Overview with it, on the same connection, and gives
+it your mouse and keyboard; the left arrow above it goes back to all of them. With one desktop, the Overview is that
+desktop. A dropped connection comes back by itself (LiveDesktop.tsx tries again every 2 seconds).
 Resources is VMResources: copy files and folders between this computer and the VM (only you; agents can't).
 Settings is VMSettings. Fork (only while stopped) makes a new VM that starts as a copy of this one (ForkVMDialog).
 
-The Overview stays mounted while the Resources or Settings tab is open, so the desktop iframe doesn't reload; the
-dialog opens on the Overview every time. The iframe only
-exists while the VM runs; its address comes from GET /api/vms/{name}/viewer?desktop=n, asked again (every 3 s)
-until the VM has one. A VM from a terminal-only image has no desktop: the same area shows its terminal (ttyd).
+Desktops are connected only while they are on screen: closing the dialog, opening Resources or Settings, or filling
+the Overview with one desktop disconnects the others. The dialog opens on the Overview every time. Desktops exist only
+while the VM runs; their addresses come from GET /api/vms/{name}/viewer?desktop=n, asked again (every 3 s) until the
+VM has them. A VM from a terminal-only image has no desktop: the Overview shows its terminal (ttyd, in an iframe).
 
-When the desktop is locked (by an agent while it works, or by you), a cover stops clicks and keys from reaching it,
-with an Unlock button. Over the desktop, the agent's cursor (AgentCursor.tsx) shows where the agent on it clicks, with
+When the desktop filling the Overview is locked (by an agent while it works), a cover stops clicks and keys from
+reaching it, with an Unlock button. Over each desktop, the agent's cursor (AgentCursor.tsx) shows where the agent on it clicks, with
 its name: white while it works, gray while it doesn't.
 
 When the VM runs but doesn't answer (still booting, or frozen: Incus still says Running), a notice over
 the desktop says so and offers Restart. Once it answers again after more than a few seconds, the desktop
-reloads by itself: noVNC's own reconnect can't recover a page that failed to load while the VM was down.
+reconnects by itself: a connection the VM dropped while it was down can wait forever without noticing.
 */
 
-import { Copy, ExternalLink, Loader2, Lock, Monitor, Play, Plus, Power, RotateCw, Square, Unlock, X } from "lucide-react";
+import { ArrowLeft, Copy, Loader2, Lock, Monitor, Play, Power, RotateCw, Square, Unlock } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import AgentCursor from "@/AgentCursor";
 import ForkVMDialog from "@/ForkVMDialog";
+import LiveDesktop from "@/LiveDesktop";
 import VMResources from "@/VMResources";
 import VMSettings from "@/VMSettings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { StatusDot, VM_TONE } from "@/components/ui/status-dot";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, useLive, useLoaded } from "@/live";
@@ -74,17 +66,13 @@ export default function VMPage(props: { name: string }) {
   const [desktopUrls, setDesktopUrls] = useState<Record<number, string>>({});
   // The VM has no desktop (a terminal-only image): desktopUrls[1] is its terminal.
   const [terminalOnly, setTerminalOnly] = useState(false);
-  // The desktop shown, and the ones opened since the page loaded (their iframes stay, so switching back is instant).
-  const [desk, setDesk] = useState(1);
-  const [opened, setOpened] = useState<number[]>([1]);
+  // The desktop clicked in the grid, filling the Overview, or null for the grid.
+  const [open, setOpen] = useState<number | null>(null);
   const [viewerError, setViewerError] = useState("");
-  // Bumped by Reconnect: a new iframe key loads the desktop again.
+  // Bumped when the VM answers again after a while: a new key connects the desktops again.
   const [reload, setReload] = useState(0);
-  // The button whose request is on its way, e.g. "start" or "lock".
+  // The button whose request is on its way, e.g. "start" or "unlock".
   const [busy, setBusy] = useState("");
-  // × after the last desktop asks "are you sure?" now.
-  const [confirmRemove, setConfirmRemove] = useState(false);
-  const frameRef = useRef<HTMLIFrameElement>(null);
   const [forking, setForking] = useState(false);
   // When the VM stopped answering (Date.now()), or null while it answers.
   const silentSince = useRef<number | null>(null);
@@ -96,16 +84,16 @@ export default function VMPage(props: { name: string }) {
   // The VM's desktops by number, e.g. [2, 3] after desktop 1 was removed.
   const numbers = vm !== undefined ? vm.desktops.map((each) => each.number) : [1];
   const numbersKey = numbers.join(",");
-  // A desktop that went away falls back to the VM's first one.
-  const shown = numbers.includes(desk) ? desk : numbers[0];
-  // The number the next new desktop gets: the lowest one free.
-  let nextNumber = 1;
-  while (numbers.includes(nextNumber)) {
-    nextNumber++;
+  // The desktop filling the Overview: the only one, or the one clicked (while it's still there). null: the grid.
+  let full: number | null = null;
+  if (count === 1) {
+    full = numbers[0];
   }
-  const lockedBy = vm !== undefined ? (vm.locked_by[shown] ?? null) : null;
-  const locked = lockedBy !== null;
-  const desktopUrl = desktopUrls[shown] ?? null;
+  if (count > 1 && open !== null && numbers.includes(open)) {
+    full = open;
+  }
+  const fullUrl = full !== null ? (desktopUrls[full] ?? null) : null;
+  const ready = Object.keys(desktopUrls).length > 0;
   const silent = running && vm.usage !== null && vm.usage.on && !vm.usage.responding;
 
   // Ask where each desktop is once the VM runs; forget them when it stops.
@@ -166,13 +154,6 @@ export default function VMPage(props: { name: string }) {
     silentSince.current = null;
   }, [silent]);
 
-  // When the desktop gets locked, take the keyboard away from it too.
-  useEffect(() => {
-    if (locked && frameRef.current !== null && document.activeElement === frameRef.current) {
-      frameRef.current.blur();
-    }
-  }, [locked]);
-
   if (!loaded) {
     return <div className="p-3 text-muted-foreground">Loading…</div>;
   }
@@ -191,6 +172,17 @@ export default function VMPage(props: { name: string }) {
   for (const agent of agents) {
     agentById[agent.id] = agent;
   }
+  // Who holds each desktop, by its number: "" while it's free.
+  const holders: Record<number, string> = {};
+  for (const each of vm.desktops) {
+    holders[each.number] = "";
+    if (each.holder === "user") {
+      holders[each.number] = "You";
+    }
+    if (each.holder !== null && each.holder !== "user") {
+      holders[each.number] = agentById[each.holder]?.name ?? each.holder;
+    }
+  }
   const error = vm.error;
   // The image's name now (it may have been renamed since), or the name it was made with.
   const madeFrom = imagesData.images.find((image) => image.fingerprint === vm.image_fingerprint);
@@ -206,49 +198,17 @@ export default function VMPage(props: { name: string }) {
     setBusy("");
   }
 
-  async function setLock(enabled: boolean) {
-    if (enabled && frameRef.current !== null) {
-      frameRef.current.blur();
-    }
-    setBusy("lock");
+  async function unlock() {
+    setBusy("unlock");
     try {
-      await api(`/api/vms/${encodeURIComponent(name)}/lock`, { method: "PUT", body: { enabled: enabled, desktop: shown } });
+      await api(`/api/vms/${encodeURIComponent(name)}/lock`, { method: "PUT", body: { enabled: false, desktop: full } });
     } catch (err) {
-      toast.error(`Could not ${enabled ? "lock" : "unlock"} the desktop: ${err instanceof Error ? err.message : err}`);
+      toast.error(`Could not unlock the desktop: ${err instanceof Error ? err.message : err}`);
     }
     setBusy("");
   }
 
   const canStart = vm.status === "stopped" || vm.status === "failed";
-
-  function showDesktop(number: number) {
-    setDesk(number);
-    if (!opened.includes(number)) {
-      setOpened([...opened, number]);
-    }
-  }
-
-  // Answers once the new desktop is up, then shows it.
-  async function addDesktop() {
-    setBusy("add_desktop");
-    try {
-      const answer = await api<{ desktop: number }>(`/api/vms/${encodeURIComponent(name)}/desktops`, { method: "POST" });
-      showDesktop(answer.desktop);
-    } catch (err) {
-      toast.error(`Could not add desktop ${nextNumber}: ${err instanceof Error ? err.message : err}`);
-    }
-    setBusy("");
-  }
-
-  async function removeDesktop(number: number) {
-    setBusy("remove_desktop");
-    try {
-      await api(`/api/vms/${encodeURIComponent(name)}/desktops/${number}`, { method: "DELETE" });
-    } catch (err) {
-      toast.error(`Could not remove desktop ${number}: ${err instanceof Error ? err.message : err}`);
-    }
-    setBusy("");
-  }
 
   return (
     <div className="flex h-full flex-col">
@@ -299,170 +259,134 @@ export default function VMPage(props: { name: string }) {
         </Tabs>
       </div>
 
-      {/* Hidden, not unmounted, while another tab is open: the desktop keeps its connection. */}
-      <div className={tab === "overview" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
-        <div className="flex h-7 shrink-0 items-center gap-1 border-b bg-muted/40 px-2 text-xs">
-          {terminalOnly && <span className="font-medium text-muted-foreground">Terminal</span>}
-          {!terminalOnly && count === 1 && (
-            <span
-              className="flex items-center gap-1.5 font-medium text-muted-foreground"
-              title={vm.desktops[0].holder === null ? "Free" : "Held"}
-            >
-              <span className={cn("size-2 shrink-0 rounded-full", vm.desktops[0].holder === null ? "bg-ok" : "bg-warn")} />
-              {numbers[0] === 1 ? "Desktop" : `Desktop ${numbers[0]}`}
-            </span>
-          )}
-          {!terminalOnly &&
-            count > 1 &&
-            vm.desktops.map((each) => {
-              const number = each.number;
-              let heldBy = "Free";
-              if (each.holder === "user") {
-                heldBy = "Held by you";
-              }
-              if (each.holder !== null && each.holder !== "user") {
-                heldBy = `Held by ${agentById[each.holder]?.name ?? each.holder}`;
-              }
-              return (
-                <Button
-                  key={number}
-                  variant={number === shown ? "secondary" : "ghost"}
-                  size="xs"
-                  title={heldBy}
-                  onClick={() => showDesktop(number)}
-                >
-                  <span className={cn("size-2 shrink-0 rounded-full", each.holder === null ? "bg-ok" : "bg-warn")} />
-                  Desktop {number}
-                </Button>
-              );
-            })}
-          {!terminalOnly && count > 1 && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              title={`Remove desktop ${shown}`}
-              aria-label={`Remove desktop ${shown}`}
-              disabled={busy !== ""}
-              onClick={() => setConfirmRemove(true)}
-            >
-              {busy === "remove_desktop" ? <Loader2 className="animate-spin" /> : <X />}
-            </Button>
-          )}
-          {!terminalOnly && count < vm.max_desktops && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              title={busy === "add_desktop" ? `Setting up desktop ${nextNumber}…` : "New desktop"}
-              aria-label="New desktop"
-              disabled={busy !== ""}
-              onClick={addDesktop}
-            >
-              {busy === "add_desktop" ? <Loader2 className="animate-spin" /> : <Plus />}
-            </Button>
-          )}
-          {running && desktopUrl !== null && (
-            <div className="ml-auto flex items-center gap-0.5">
-              {!terminalOnly && (
-                <Button variant="ghost" size="xs" disabled={busy === "lock"} onClick={() => setLock(!locked)}>
-                  {locked ? <Unlock /> : <Lock />}
-                  {locked ? "Unlock" : "Lock"}
-                </Button>
-              )}
-              <Button variant="ghost" size="xs" title="Connect again" onClick={() => setReload(reload + 1)}>
-                <RotateCw /> Reconnect
-              </Button>
-              <Button variant="ghost" size="xs" asChild>
-                <a href={desktopUrl} target="_blank" rel="noreferrer" title="Open it in its own tab">
-                  <ExternalLink /> New tab
-                </a>
+      {/* Only while the Overview is open: the desktops connect when it shows and disconnect when it doesn't. */}
+      {tab === "overview" && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          {full !== null && count > 1 && (
+            <div className="flex h-7 shrink-0 items-center border-b bg-muted/40 px-1">
+              <Button variant="icon" size="icon-xs" title="All desktops" aria-label="All desktops" onClick={() => setOpen(null)}>
+                <ArrowLeft />
               </Button>
             </div>
           )}
-        </div>
-        <div className="relative min-h-0 flex-1 bg-muted/30">
-          {running &&
-            (opened.includes(shown) ? opened : [...opened, shown]).map((number) => {
-              const url = desktopUrls[number];
-              if (url === undefined || !numbers.includes(number)) {
-                return null;
-              }
-              return (
-                <iframe
-                  key={`${url}-${reload}`}
-                  ref={number === shown ? frameRef : undefined}
-                  src={url}
-                  title={terminalOnly ? `Terminal of ${vm.name}` : `Desktop ${number} of ${vm.name}`}
-                  allow="clipboard-write"
-                  className={cn("absolute inset-0 size-full border-0 bg-black", number !== shown && "hidden")}
-                />
-              );
-            })}
+          <div className="relative min-h-0 flex-1 bg-muted/30">
+            {running && terminalOnly && fullUrl !== null && (
+              <iframe
+                key={`${fullUrl}-${reload}`}
+                src={fullUrl}
+                title={`Terminal of ${vm.name}`}
+                allow="clipboard-write"
+                className="absolute inset-0 size-full border-0 bg-black"
+              />
+            )}
 
-          {/* The agent's cursor where it clicks; a new one for each desktop, so switching doesn't glide. */}
-          {running && desktopUrl !== null && !terminalOnly && <AgentCursor key={shown} vm={vm} desktop={shown} />}
-
-          {silent && (
-            <div className="absolute inset-x-0 top-2 z-10 flex justify-center px-2">
-              <div className="flex items-center gap-2 rounded-md border bg-background py-1 pr-1 pl-2.5">
-                <Loader2 className="size-3.5 animate-spin text-warn" />
-                {vm.name} isn't answering: it is still booting, or it froze.
-                <Button size="xs" variant="outline" disabled={busy !== ""} onClick={() => power("restart")}>
-                  <RotateCw /> Restart
-                </Button>
+            {/* The grid, or the one desktop filling it. The same element either way, so opening one keeps its connection. */}
+            {running && !terminalOnly && (
+              <div className={full === null ? "absolute inset-0 grid grid-cols-2 content-start gap-3 overflow-y-auto p-3" : "absolute inset-0"}>
+                {numbers.map((number) => {
+                  const url = desktopUrls[number];
+                  if (url === undefined || (full !== null && number !== full)) {
+                    return null;
+                  }
+                  const lockedBy = vm.locked_by[number];
+                  const holder = holders[number];
+                  return (
+                    <div
+                      key={number}
+                      className={full === null ? "group flex min-w-0 cursor-pointer flex-col gap-1" : "h-full"}
+                      onClick={full === null ? () => setOpen(number) : undefined}
+                    >
+                      {full === null && (
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                          <span className={cn("size-2 shrink-0 rounded-full", holder === "" ? "bg-ok" : "bg-warn")} />
+                          Desktop {number}
+                          {holder !== "" && <span className="truncate font-normal">· {holder}</span>}
+                          {lockedBy !== undefined && <Lock className="size-3 shrink-0 text-warn" />}
+                        </div>
+                      )}
+                      <div
+                        className={
+                          full === null
+                            ? "relative aspect-[16/10] overflow-hidden rounded-md border bg-black group-hover:ring-2 group-hover:ring-primary"
+                            : "relative h-full"
+                        }
+                      >
+                        <LiveDesktop
+                          key={reload}
+                          url={`ws://${new URL(url).host}/websockify`}
+                          viewOnly={full === null || lockedBy !== undefined}
+                          className={cn("absolute inset-0 bg-black", full === null && "pointer-events-none")}
+                        />
+                        <AgentCursor vm={vm} desktop={number} />
+                        {full !== null && lockedBy !== undefined && (
+                          <div className="absolute inset-0 cursor-not-allowed">
+                            <div className="absolute top-2 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-background py-1 pr-1 pl-2.5 whitespace-nowrap">
+                              <Lock className="size-3.5 text-warn" />
+                              {lockedBy === "agent" ? "Locked by the agent while it works" : "You locked your mouse and keyboard out"}
+                              <Button size="xs" variant="outline" disabled={busy === "unlock"} onClick={unlock}>
+                                <Unlock /> Unlock
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-          )}
+            )}
 
-          {running && desktopUrl !== null && locked && !terminalOnly && (
-            <div className="absolute inset-0 cursor-not-allowed">
-              <div className="absolute top-2 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-md border bg-background py-1 pr-1 pl-2.5 whitespace-nowrap">
-                <Lock className="size-3.5 text-warn" />
-                {lockedBy === "agent" ? "Locked by the agent while it works" : "You locked your mouse and keyboard out"}
-                <Button size="xs" variant="outline" disabled={busy === "lock"} onClick={() => setLock(false)}>
-                  <Unlock /> Unlock
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {running && desktopUrl === null && (
-            <div className="flex h-full flex-col items-center justify-center gap-1 text-muted-foreground">
-              <span className="flex items-center gap-2">
-                <Loader2 className="size-3.5 animate-spin" /> Connecting…
-              </span>
-              {viewerError !== "" && <span className="text-xs">{viewerError} Trying again.</span>}
-            </div>
-          )}
-
-          {!running && (
-            <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-muted-foreground">
-              {(vm.status === "creating" || vm.status === "starting" || vm.status === "stopping") && (
-                <span className="flex items-center gap-2">
-                  <Loader2 className="size-3.5 animate-spin" />
-                  {vm.status === "creating" && `Creating ${vm.name}. This takes about a minute.`}
-                  {vm.status === "starting" && `Starting ${vm.name}…`}
-                  {vm.status === "stopping" && `Stopping ${vm.name}…`}
-                </span>
-              )}
-              {(vm.status === "stopped" || vm.status === "failed") && (
-                <>
-                  <Power className="size-6" />
-                  <span>{vm.status === "stopped" ? `${vm.name} is off.` : `${vm.name} failed.`}</span>
-                  {error !== null && <span className="max-w-lg text-xs text-destructive">{error}</span>}
-                  <Button size="sm" disabled={busy !== ""} onClick={() => power("start")}>
-                    {busy === "start" ? <Loader2 className="animate-spin" /> : <Play />} Start
+            {silent && (
+              <div className="absolute inset-x-0 top-2 z-10 flex justify-center px-2">
+                <div className="flex items-center gap-2 rounded-md border bg-background py-1 pr-1 pl-2.5">
+                  <Loader2 className="size-3.5 animate-spin text-warn" />
+                  {vm.name} isn't answering: it is still booting, or it froze.
+                  <Button size="xs" variant="outline" disabled={busy !== ""} onClick={() => power("restart")}>
+                    <RotateCw /> Restart
                   </Button>
-                </>
-              )}
-              {vm.status === "missing" && (
-                <span>
-                  The Incus VM {vm.incus_name} is gone. Delete {vm.name} in Settings, or bring the Incus VM back.
+                </div>
+              </div>
+            )}
+
+            {running && !ready && (
+              <div className="flex h-full flex-col items-center justify-center gap-1 text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Loader2 className="size-3.5 animate-spin" /> Connecting…
                 </span>
-              )}
-            </div>
-          )}
+                {viewerError !== "" && <span className="text-xs">{viewerError} Trying again.</span>}
+              </div>
+            )}
+
+            {!running && (
+              <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-muted-foreground">
+                {(vm.status === "creating" || vm.status === "starting" || vm.status === "stopping") && (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="size-3.5 animate-spin" />
+                    {vm.status === "creating" && `Creating ${vm.name}. This takes about a minute.`}
+                    {vm.status === "starting" && `Starting ${vm.name}…`}
+                    {vm.status === "stopping" && `Stopping ${vm.name}…`}
+                  </span>
+                )}
+                {(vm.status === "stopped" || vm.status === "failed") && (
+                  <>
+                    <Power className="size-6" />
+                    <span>{vm.status === "stopped" ? `${vm.name} is off.` : `${vm.name} failed.`}</span>
+                    {error !== null && <span className="max-w-lg text-xs text-destructive">{error}</span>}
+                    <Button size="sm" disabled={busy !== ""} onClick={() => power("start")}>
+                      {busy === "start" ? <Loader2 className="animate-spin" /> : <Play />} Start
+                    </Button>
+                  </>
+                )}
+                {vm.status === "missing" && (
+                  <span>
+                    The Incus VM {vm.incus_name} is gone. Delete {vm.name} in Settings, or bring the Incus VM back.
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {tab === "resources" && (
         <div className="min-h-0 flex-1">
@@ -475,23 +399,6 @@ export default function VMPage(props: { name: string }) {
           <VMSettings name={vm.name} />
         </div>
       )}
-
-      <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove desktop {shown} of {vm.name}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {running && "Its windows close. "}
-              The other desktops keep their numbers. Its home folder stays, with everything in it, for when {vm.name} gets
-              a desktop {shown} again.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => removeDesktop(shown)}>Remove</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {forking && <ForkVMDialog vm={vm.name} onClose={() => setForking(false)} />}
     </div>
