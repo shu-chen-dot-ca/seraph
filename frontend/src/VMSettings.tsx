@@ -1,6 +1,6 @@
 /*
 The Settings tab of a VM page (and the Dashboard's ⋯ on a VM): its name, Shut down, CPU and memory, max desktops,
-internet, autostart, env vars, its image and Delete.
+internet, env vars, its image and Delete.
 
 Shut down shuts the VM down right away (POST /api/vms/{name}/stop, as the page's Stop), without waiting for the agents
 on it; nothing is deleted.
@@ -58,8 +58,7 @@ export default function VMSettings(props: { name: string }) {
   const [rows, setRows] = useState<EnvRow[]>([]);
   const [envLoaded, setEnvLoaded] = useState(false);
   const [envEdited, setEnvEdited] = useState(false);
-  // Which change is on its way: "rename", "shutdown", "resources", "max_desktops", "internet", "autostart", "env" or
-  // "delete".
+  // Which change is on its way: "rename", "shutdown", "resources", "max_desktops", "internet", "env" or "delete".
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -162,17 +161,6 @@ export default function VMSettings(props: { name: string }) {
     setError("");
     try {
       await api(`/api/vms/${encodeURIComponent(vmName)}/internet`, { method: "PUT", body: { enabled: enabled } });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-    setBusy("");
-  }
-
-  async function setAutostart(enabled: boolean) {
-    setBusy("autostart");
-    setError("");
-    try {
-      await api(`/api/vms/${encodeURIComponent(vmName)}/autostart`, { method: "PUT", body: { enabled: enabled } });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -336,7 +324,7 @@ export default function VMSettings(props: { name: string }) {
         </section>
 
         <section>
-          <h2 className="mb-1.5 border-b pb-1 font-semibold">Network and start</h2>
+          <h2 className="mb-1.5 border-b pb-1 font-semibold">Network</h2>
           <div className="grid grid-cols-[140px_minmax(0,1fr)] items-start gap-x-3 gap-y-2">
             <label htmlFor={`internet-${vmName}`} className="pt-0.5 text-muted-foreground">
               Internet
@@ -355,22 +343,6 @@ export default function VMSettings(props: { name: string }) {
                 Off blocks everything the VM starts itself. The desktop keeps working. This computer and your local network are never
                 reachable from the VM.
               </p>
-            </div>
-
-            <label htmlFor={`autostart-${vmName}`} className="pt-0.5 text-muted-foreground">
-              Autostart
-            </label>
-            <div>
-              <div className="flex h-5 items-center gap-2">
-                <Switch
-                  id={`autostart-${vmName}`}
-                  checked={vm.autostart}
-                  disabled={busy !== ""}
-                  onCheckedChange={setAutostart}
-                />
-                {busy === "autostart" && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">Start this VM when the computer starts.</p>
             </div>
           </div>
         </section>

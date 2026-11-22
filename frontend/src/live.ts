@@ -425,7 +425,6 @@ export type VMSummary = {
   disk_gb: number;
   internet: boolean;
   env_names: string[];
-  autostart: boolean;
   status: VMStatus;
   created_at: string;
   max_desktops: number; // the most desktops it may have (the user sets it)
@@ -557,7 +556,6 @@ export type VMSettings = {
   memory_gb: number;
   disk_gb: number;
   internet: boolean;
-  autostart: boolean;
   env: Record<string, string>;
 };
 
