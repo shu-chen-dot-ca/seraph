@@ -2,9 +2,11 @@
 (frontend/src/GitHub.tsx).
 
 Which ones: every PR the Inbox's Approve sent (a draft's "sent", github_account.py), and, with your GitHub account
-connected, four searches on other people's projects, the 50 most recently updated of each: PRs you opened (author:<you>),
-PRs you only commented on (commenter:<you> -author:<you>), issues you opened and issues you only commented on. So the
-ones you sent by hand are there too. Read with the search tokens (token_balancer.py), never your own.
+connected, four searches on other people's projects: every PR you opened (author:<you>, up to GitHub's 1000, a page of
+100 at a time), and the 50 most recently updated of the PRs you only commented on (commenter:<you> -author:<you>), the
+issues you opened and the issues you only commented on. So the ones you sent by hand are there too, and none of yours
+drops out of the Dashboard's counts (only the 50 newest were read before 11-21: older ones sent by hand went, and
+Merged said 115 of 121). Read with the search tokens (token_balancer.py), never your own.
 
 It keeps, in DATA_DIR/pr_tracking.json, by "owner/name#number", each PR in "prs":
 
@@ -555,15 +557,26 @@ class PRTracking:
                 ("issue", "commented", f"is:issue commenter:{you} -author:{you} -user:{you}"),
             ]
         for kind, relation, query in searches:
-            try:
-                result = search_issues(query, sort="updated")
-            except Exception as problem:
-                error = f"Could not search GitHub for your PRs and issues: {problem}"
-                continue
+            # Your own PRs page after page, all of them; the others, the first page only.
+            pages = 1
+            per_page = 50
+            if kind == "pr" and relation == "author":
+                pages = 10
+                per_page = 100
+            items = []
+            for page in range(1, pages + 1):
+                try:
+                    result = search_issues(query, sort="updated", per_page=per_page, page=page)
+                except Exception as problem:
+                    error = f"Could not search GitHub for your PRs and issues: {problem}"
+                    break
+                items += result["items"]
+                if len(result["items"]) < per_page or len(items) >= result["total_count"]:
+                    break
             follow = follow_prs
             if kind == "issue":
                 follow = follow_issues
-            for item in result["items"]:
+            for item in items:
                 repo = item["repository_url"].removeprefix("https://api.github.com/repos/")
                 thread_id = f"{repo}#{item['number']}"
                 if thread_id in follow:

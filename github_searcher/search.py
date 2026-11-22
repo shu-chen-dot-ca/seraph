@@ -295,9 +295,10 @@ def search_code(q: str) -> dict:
     return response.json()
 
 
-def search_issues(q: str, sort: str = "") -> dict:
-    # sort "updated": the most recently updated first (pr_tracking.py); else GitHub's best match.
-    params = {"q": q, "per_page": 50}
+def search_issues(q: str, sort: str = "", per_page: int = 50, page: int = 1) -> dict:
+    # sort "updated": the most recently updated first (pr_tracking.py); else GitHub's best match. GitHub gives at most
+    # 100 a page, and 1000 in all.
+    params = {"q": q, "per_page": per_page, "page": page}
     if sort != "":
         params["sort"] = sort
         params["order"] = "desc"
