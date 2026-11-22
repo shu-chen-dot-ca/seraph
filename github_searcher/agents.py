@@ -60,9 +60,9 @@ or being archived. How long it has been out: since the newest entry in its histo
 A blocker waiting for the user on the Blockers page (ask_approval) is tried again by its agent every
 BLOCKER_RETRY_SECONDS (keep_going): what held the job up may have gone away by itself (the agreement shows signed). Then
 the agent takes it back (clear_blocker, "cleared") and goes on, and the user never has to look at it.
-A VM steps down when it runs out of room (watch_room, every ROOM_CHECK_SECONDS, from the VM's load, free memory and free
-disk). Full (the load of the last minute at its number of CPUs or more, less than ROOM_MEMORY_PERCENT of its memory free,
-or less than ROOM_DISK_GB of its disk free), it takes nobody new (VMQueue.full, with why): agents wait in its line instead
+A VM steps down when it runs out of room (watch_room, every ROOM_CHECK_SECONDS, from the VM's free memory and free
+disk; the CPU load holds nobody back). Full (less than ROOM_MEMORY_PERCENT of its memory free, or less than ROOM_DISK_GB
+of its disk free), it takes nobody new (VMQueue.full, with why): agents wait in its line instead
 of getting a free desktop or adding one, and are told why. When its disk runs low, the agents holding its desktops are
 told once to free what they can in their own homes (the folders of jobs that are over, caches).
 The app also clears agents' leftovers itself (clean_disks, every CLEAN_SECONDS), so it never rests on agents remembering:
@@ -77,8 +77,7 @@ and the Dashboard shows it waiting. keep_going wakes it once a VM takes agents a
 A VM the user shuts down gracefully (graceful_shutdown, sandbox/vms.py) takes nobody new: the agents holding its desktops
 finish (none is taken back), whoever still waits for it is sent to pick another VM, and once nobody holds a desktop and
 no run goes, watch_room shuts it down. A VM the user suspended (suspended, sandbox/vms.py) is the same, but stays on.
-Overloaded (the load of the last 5 minutes at OVERLOAD_TIMES its CPUs, or less than OVERLOAD_MEMORY_PERCENT free), it
-also takes one desktop back from its agent, at most every STEP_DOWN_SECONDS, and removes that desktop
+Overloaded (less than OVERLOAD_MEMORY_PERCENT of its memory free), it also takes one desktop back from its agent, at most every STEP_DOWN_SECONDS, and removes that desktop
 (VMQueue.step_down): the agent goes to the front of the line asking for it (behind the work that goes first, below),
 and nothing it runs is stopped (its runs, servers and files stay). Never an agent the user gave priority; one on a pull
 request that needs action only when nobody else is left, one reviewing a PR draft only when nobody else but those is;
@@ -212,15 +211,14 @@ HEARTBEAT_SECONDS = 10 * 60
 HEARTBEAT_CHECK_SECONDS = 60
 # A blocker waiting for the user is tried again by its agent this often (keep_going).
 BLOCKER_RETRY_SECONDS = 60 * 60
-# How often each running VM's load, free memory and free disk are read (watch_room). Full: the load of the last minute at
-# its number of CPUs or more, less than ROOM_MEMORY_PERCENT of its memory free, or less than ROOM_DISK_GB of its disk free
-# (a fresh clone and build of a big project, or a long test run's files, need about that). Overloaded: the load of the
-# last 5 minutes at OVERLOAD_TIMES its CPUs or more, or less than OVERLOAD_MEMORY_PERCENT free; then a desktop is taken
-# back from its agent, at most every STEP_DOWN_SECONDS, so the load has time to show it.
+# How often each running VM's free memory and free disk are read (watch_room). Full: less than ROOM_MEMORY_PERCENT of
+# its memory free, or less than ROOM_DISK_GB of its disk free (a fresh clone and build of a big project, or a long test
+# run's files, need about that). Overloaded: less than OVERLOAD_MEMORY_PERCENT of its memory free; then a desktop is taken
+# back from its agent, at most every STEP_DOWN_SECONDS, so the memory has time to show it. The CPU load counts for
+# neither: agents add desktops as long as memory allows, up to the VM's max desktops.
 ROOM_CHECK_SECONDS = 60
 ROOM_MEMORY_PERCENT = 20
 ROOM_DISK_GB = 20
-OVERLOAD_TIMES = 2
 OVERLOAD_MEMORY_PERCENT = 10
 STEP_DOWN_SECONDS = 15 * 60
 # How often the desktops nobody needs anymore are looked for (watch_desktops): they shut down right away.
@@ -2110,8 +2108,8 @@ class Agents:
             unused = seen
 
     async def watch_room(self) -> None:
-        """A VM steps down when it runs out of room (module docstring), every ROOM_CHECK_SECONDS: each running VM's load,
-        free memory and free disk are read in it. Full: nobody new gets a desktop (VMQueue.full, with why). Overloaded: one
+        """A VM steps down when it runs out of room (module docstring), every ROOM_CHECK_SECONDS: each running VM's free
+        memory and free disk are read in it. Full: nobody new gets a desktop (VMQueue.full, with why). Overloaded: one
         desktop is taken back from its agent and removed. Low on disk: its holders are told once to free room in their
         homes. Room again: whoever waits gets a desktop, one a check."""
         while True:
@@ -2164,21 +2162,14 @@ class Agents:
                     self.queue.full.pop(vm_record.name, None)
                     self.disk_low.discard(vm_record.name)
                     continue
-                # The load of the last 1 and 5 minutes, the number of CPUs, the memory in all and free (kB), then the disk
-                # the desktops' homes are on, in all and free (kB).
-                script = (
-                    "cut -d ' ' -f 1,2 /proc/loadavg; nproc; awk '/^MemTotal:|^MemAvailable:/ {print $2}' /proc/meminfo; "
-                    "df -Pk /home | awk 'NR == 2 {print $2, $4}'"
-                )
+                # The memory in all and free (kB), then the disk the desktops' homes are on, in all and free (kB).
+                script = "awk '/^MemTotal:|^MemAvailable:/ {print $2}' /proc/meminfo; df -Pk /home | awk 'NR == 2 {print $2, $4}'"
                 try:
                     result = await asyncio.to_thread(vm_record.vm.exec_root, script, 30)
                     numbers = result.stdout.split()
-                    load = float(numbers[0])
-                    load_5 = float(numbers[1])
-                    cpus = int(numbers[2])
-                    free = int(numbers[4]) * 100 / int(numbers[3])
-                    disk_gb = int(numbers[5]) / 1024 / 1024
-                    disk_free_gb = int(numbers[6]) / 1024 / 1024
+                    free = int(numbers[1]) * 100 / int(numbers[0])
+                    disk_gb = int(numbers[2]) / 1024 / 1024
+                    disk_free_gb = int(numbers[3]) / 1024 / 1024
                 except Exception:
                     # The VM doesn't answer right now: look again next time.
                     continue
@@ -2206,7 +2197,9 @@ class Agents:
                     for holder in holders:
                         self.notify(holder, text)
 
-                if load < cpus and free >= ROOM_MEMORY_PERCENT and not disk_short:
+                # Room is memory: the CPU load holds nobody back (the user: agents add desktops as long as memory allows,
+                # up to the VM's max desktops).
+                if free >= ROOM_MEMORY_PERCENT and not disk_short:
                     self.queue.full.pop(vm_record.name, None)
                     # Room: a free desktop goes to whoever waits.
                     try:
@@ -2235,14 +2228,12 @@ class Agents:
                 # Full, with why, for the agents that wait (queue_for_vm, desktop_add). A full disk alone takes no desktop
                 # back: that frees no room.
                 why = []
-                if load >= cpus:
-                    why.append(f"a load of {load:g} on {cpus} CPUs")
                 if free < ROOM_MEMORY_PERCENT:
                     why.append(f"{free:.0f}% of its memory free")
                 if disk_short:
                     why.append(f"{disk_free_gb:.1f} GB of its disk free")
                 self.queue.full[vm_record.name] = ", ".join(why)
-                if load_5 < cpus * OVERLOAD_TIMES and free >= OVERLOAD_MEMORY_PERCENT:
+                if free >= OVERLOAD_MEMORY_PERCENT:
                     continue
                 last = vm_record.stepped_down_at
                 if last is not None and datetime.now(UTC) - datetime.fromisoformat(last) < timedelta(seconds=STEP_DOWN_SECONDS):
@@ -2287,7 +2278,7 @@ class Agents:
                 except (ValueError, VMsError):
                     continue
                 text = (
-                    f"{vm_record.name} ran out of room (a load of {load_5:g} on {cpus} CPUs, {free:.0f}% of its memory free), so "
+                    f"{vm_record.name} ran out of room ({free:.0f}% of its memory free), so "
                     f"the app took desktop {number} back for now. Nothing you started there was stopped: your runs, servers and "
                     "files are all still there. You are at the front of its queue (behind the work that goes first) and get the "
                     "desktop back, with a message, once there is room. End your turn now."
