@@ -753,6 +753,9 @@ class Agents:
                     "target_vm": agent.record["target_vm"],
                     "status": status,
                     "busy": agent.busy,
+                    # Messages wait to wake it, out of its turn: it waits for a place among the agents in a turn
+                    # (MAX_AGENTS_AT_ONCE), or is about to start.
+                    "waiting": not agent.busy and self.wake[agent.id].is_set() and agent.record["archived_at"] is None,
                     "vm": vm_name,
                     # The desktop of that VM it holds or asked for (None: it waits for any).
                     "desktop": desktop,
@@ -778,8 +781,11 @@ class Agents:
                     "prs": prs.get(agent.id, 0),
                     # Goes up on every change to its artifacts, so an open Artifacts tab reads its folder again.
                     "artifacts_stamp": self.artifacts.stamps.get(agent.id, 0),
-                    # "reviewer" for a repo's reviewer (give_review), else None.
+                    # "reviewer" for a repo's reviewer (give_review), "closed_prs" for the closed PRs agent (follow_up),
+                    # else None.
                     "role": agent.record["role"],
+                    # The Claude model of its turn, or of its last one (claude_models.py, picked per job in work).
+                    "model": agent.model,
                     # The user gave it priority until its tasks are over (set_priority).
                     "priority": agent.record["priority"],
                 }
