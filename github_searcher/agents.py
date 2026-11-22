@@ -1462,10 +1462,10 @@ class Agents:
         what = "issue"
         if entry["kind"] == "pr":
             what = "PR"
-        # Merged or closed: its agent's work on it is over. Its open jobs on it are cancelled, and it is archived unless it
-        # has others, never to come back for this thread. What happens there from now on goes to the one agent that looks
-        # after every merged or closed PR and issue (role "closed_prs", made the first time), as a job: a turn only when
-        # someone wrote there; the end alone is only noted. Not on a removed repo either.
+        # Merged or closed: its agent's work on it is over. Its open jobs on it are cancelled, and keep_going archives it
+        # once it has no other work, never to come back for this thread. What happens there from now on goes to the one
+        # agent that looks after every merged or closed PR and issue (role "closed_prs", made the first time), as a job: a
+        # turn only when someone wrote there; the end alone is only noted. Not on a removed repo either.
         if entry.get("state", "open") != "open":
             owner = self.agents.get(entry["agent"])
             if owner is not None and owner.record["role"] is None:
@@ -1474,11 +1474,11 @@ class Agents:
                     if job["status"] not in ["done", "cancelled"] and job["thread"] == thread:
                         self.jobs.update(job["id"], status="cancelled", notes=f"{thread} is {entry['state']}")
                         cancelled.append(job["id"])
-                left = [job for job in self.jobs.for_agent(owner.id) if job["status"] not in ["done", "cancelled"]]
-                if not left:
-                    asyncio.run_coroutine_threadsafe(self.archive(owner.id), self.loop)
-                elif cancelled:
-                    self.notify(owner.id, f"{thread} is {entry['state']} now, so {', '.join(cancelled)} is cancelled: nothing more goes there. Go on with your other jobs.")
+                # Not archived from here: an archive sent from here ran after the next entry had brought the agent back
+                # with a new job, and cancelled that job too (linq2db#6435: the follow-up on its issue #6137, where the
+                # maintainer asked to reopen the PR, was lost that way). keep_going archives it once its work is over.
+                if cancelled:
+                    self.notify(owner.id, f"{thread} is {entry['state']} now, so {', '.join(cancelled)} is cancelled: nothing more goes there. Go on with your other jobs, if you have any.")
             keeper = None
             for agent in self.agents.values():
                 if agent.record["role"] == "closed_prs":
