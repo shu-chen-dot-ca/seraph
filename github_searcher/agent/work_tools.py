@@ -923,7 +923,8 @@ class WorkTools:
                 "home folder, and agents on different desktops work at the same time. Either a desktop is yours at once, or you "
                 "get your place in the VM's line: then end your turn, and you get a message when it is yours (even while the VM is "
                 "off, you keep your place). desktop: the one to work on, e.g. where your project is already set up (the notes "
-                "say which desktop); leave it out to get any desktop, the first one free.",
+                "say which desktop); leave it out to get any desktop, the first one free. With none free, one is added for you, up "
+                "to the VM's max desktops; a desktop shut down while nobody used it (its home stays) comes back when you ask for it.",
                 {"type": "object", "properties": {"desktop": {"type": "integer"}}, "required": []},
             )(self.queue_for_vm),
             tool(
@@ -4008,8 +4009,7 @@ class WorkTools:
         if vm_name is None:
             text = "You have no target VM. Pick the VM that suits your jobs with vms_list and choose_vm, then queue again."
             return {"content": [{"type": "text", "text": text}], "is_error": True}
-        # A desktop it asked for that was taken away (its notes may still name it): another one, with the project set up
-        # there again. Not one the app took back from it in a full VM: it waits in line for that one.
+        # The desktop it asked for (where its project is set up), or None for the first free one.
         wanted = args.get("desktop") or None
 
         # Its target VM is gone, off, full or has every desktop taken at its max, and nothing of its jobs is set up there
@@ -4070,14 +4070,19 @@ class WorkTools:
         except VMsError:
             text = f"{vm_name} is gone. Pick another VM with vms_list and choose_vm, then queue again."
             return {"content": [{"type": "text", "text": text}], "is_error": True}
-        if wanted is not None and wanted not in vm_record.desktops and self.agent_id not in vm_record.queue:
-            numbers = ", ".join(str(number) for number in vm_record.desktops)
-            text = (
-                f"{vm_name} has no desktop {wanted} anymore (its desktops are {numbers}): it was taken away, with what was set "
-                "up on it. Queue for another desktop, or leave desktop out for the first free one (desktop_add when all are "
-                "taken), and set your project up there again."
-            )
-            return {"content": [{"type": "text", "text": text}], "is_error": True}
+        # No desktop free for it: every one is taken, or the one it asked for was shut down while nobody used it (its home
+        # is still there, with the project). One is added first, up to the VM's max desktops, so it gets it right away.
+        # Not while others wait (the app adds one for them in their order, Agents.watch_room), or the VM is full, busy or
+        # at its max: then it waits in line, and the app adds the desktop once it can.
+        free = [number for number, line in vm_record.desktops.items() if line["holder"] is None]
+        lacking = wanted not in vm_record.desktops if wanted is not None else not free
+        add = lacking and not vm_record.queue and queued_vm is None
+        add = add and vm_name != FIX_VM and vm_name not in self.agents.queue.full and not vm_record.graceful_shutdown and not vm_record.suspended
+        if add and len(vm_record.desktops) < vm_record.max_desktops:
+            try:
+                await asyncio.to_thread(vm_record.add_desktop, self.agents.queue.lock, wanted)
+            except VMsError:
+                pass
         try:
             place = self.agents.queue.join(vm_name, self.agent_id, wanted)
             vm_record = self.agents.vms.get(vm_name)

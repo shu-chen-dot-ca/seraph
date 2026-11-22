@@ -82,6 +82,11 @@ request that needs action only when nobody else is left, one reviewing a PR draf
 one out of its turn first, then the highest desktop.
 With room again, whoever waits gets a free desktop, or the desktop they wait for is added back (one that was taken
 back, or a new one for an agent that asked for none), one a check, up to the VM's max desktops.
+A desktop nobody needs anymore (nobody holds it or has a run on it) shuts down right away (watch_desktops, within
+DESKTOP_CHECK_SECONDS or two), so its session and browser give their memory and CPU back. Not while agents wait for the
+VM: it goes to them. The VM keeps one desktop (its lowest, when none is in use). Its home stays, and queue_for_vm adds
+it again when an agent asks for it (or adds a new one when none is free, as long as memory allows, up to the VM's max
+desktops).
 The VM queue (sandbox/vm_queue.py: one line per desktop of each VM, and agents on different desktops work at
 the same time) tells Agents when an agent's turn comes (on_grant: a message
 that wakes it, with the user's GitHub name and noreply address to commit with, then the VM's notes on what earlier agents
@@ -215,6 +220,8 @@ ROOM_DISK_GB = 20
 OVERLOAD_TIMES = 2
 OVERLOAD_MEMORY_PERCENT = 10
 STEP_DOWN_SECONDS = 15 * 60
+# How often the desktops nobody needs anymore are looked for (watch_desktops): they shut down right away.
+DESKTOP_CHECK_SECONDS = 5
 # How often the app clears agents' leftovers off each running VM's disk (clean_disks): a clone nobody touched for
 # CLEAN_UNTOUCHED_DAYS, of a repo with no open job or PR. With less than CLEAN_LOW_DISK_PERCENT of the disk free, also
 # Docker's unused images (not the ones its image came with), volumes and build cache, and these download caches in each
@@ -347,6 +354,7 @@ class Agents:
         self.run_watcher = None
         self.heartbeat = None
         self.room_watcher = None
+        self.desktop_watcher = None
         self.disk_cleaner = None
         self.vm_timer = None
         queue.on_grant = self.on_grant
@@ -473,6 +481,7 @@ class Agents:
         self.run_watcher = asyncio.create_task(self.watch_runs())
         self.heartbeat = asyncio.create_task(self.keep_going())
         self.room_watcher = asyncio.create_task(self.watch_room())
+        self.desktop_watcher = asyncio.create_task(self.watch_desktops())
         self.disk_cleaner = asyncio.create_task(self.clean_disks())
         self.vm_timer = asyncio.create_task(self.count_vm_time())
 
@@ -485,6 +494,8 @@ class Agents:
             self.heartbeat.cancel()
         if self.room_watcher is not None:
             self.room_watcher.cancel()
+        if self.desktop_watcher is not None:
+            self.desktop_watcher.cancel()
         if self.disk_cleaner is not None:
             self.disk_cleaner.cancel()
         if self.vm_timer is not None:
@@ -2040,6 +2051,39 @@ class Agents:
                 if job["status"] != "working":
                     continue
                 self.jobs.add_vm_seconds(job_id, VM_TIME_SECONDS)
+
+    async def watch_desktops(self) -> None:
+        """Desktops nobody needs anymore shut down right away (module docstring), every DESKTOP_CHECK_SECONDS: one nobody
+        holds or has a run on, seen so on two checks in a row (a desktop queue_for_vm just added is given out in between).
+        An agent keeps its desktop while it holds it, also asleep or while its long runs go. Not while agents wait for
+        the VM (the desktop goes to them), it is off, or it shuts down gracefully. vm1 kept 4 desktops for 1 agent while
+        this waited 10 minutes: the user wants them gone as soon as nobody needs them."""
+        # The desktops seen unused on the last check: (VM name, number).
+        unused = set()
+        while True:
+            await asyncio.sleep(DESKTOP_CHECK_SECONDS)
+            seen = set()
+            for vm_record in self.vms.list():
+                if vm_record.status != "running" or vm_record.name == FIX_VM or vm_record.graceful_shutdown or vm_record.queue:
+                    continue
+                runs = [run.get("desktop", 1) for run in vm_record.runs]
+                # The VM keeps one desktop: the lowest, when none is in use.
+                kept = min(vm_record.desktops)
+                for number, line in vm_record.desktops.items():
+                    if line["holder"] is not None or number in runs:
+                        kept = None
+                for number, line in vm_record.desktops.items():
+                    if line["holder"] is None and number not in runs and number != kept:
+                        seen.add((vm_record.name, number))
+                for number in list(vm_record.desktops):
+                    if (vm_record.name, number) not in seen or (vm_record.name, number) not in unused:
+                        continue
+                    try:
+                        await asyncio.to_thread(vm_record.remove_desktop, number, self.queue.lock)
+                    except VMsError:
+                        # Busy, or someone took it meanwhile: again next check.
+                        pass
+            unused = seen
 
     async def watch_room(self) -> None:
         """A VM steps down when it runs out of room (module docstring), every ROOM_CHECK_SECONDS: each running VM's load,
