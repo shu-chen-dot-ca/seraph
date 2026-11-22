@@ -212,19 +212,19 @@ export default function VMPage(props: { name: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b pr-10 pl-3 max-md:h-auto max-md:min-h-9 max-md:flex-wrap max-md:py-1">
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b pr-10 pl-3">
         <Monitor className="size-4 text-muted-foreground" />
         <h1 className="font-semibold">{vm.name}</h1>
         <Badge variant="secondary" title={error ?? undefined}>
           <StatusDot tone={VM_TONE[vm.status]} />
           {STATUS_TEXT[vm.status] ?? vm.status}
         </Badge>
-        <span className="text-muted-foreground max-md:hidden">
+        <span className="text-muted-foreground">
           {imageName}
           {vm.forked_from !== "" && ` · forked from ${vm.forked_from}`}
           {vm.internet ? "" : " · no internet"}
         </span>
-        <div className="ml-2 flex items-center gap-1 max-md:ml-0">
+        <div className="ml-2 flex items-center gap-1">
           <Button variant="outline" size="sm" disabled={!canStart || busy !== ""} onClick={() => power("start")}>
             {busy === "start" ? <Loader2 className="animate-spin" /> : <Play />} Start
           </Button>
@@ -244,7 +244,7 @@ export default function VMPage(props: { name: string }) {
             <Copy /> Fork
           </Button>
         </div>
-        <Tabs value={tab} onValueChange={setTab} className="ml-auto max-w-full overflow-x-auto max-md:ml-0">
+        <Tabs value={tab} onValueChange={setTab} className="ml-auto max-w-full overflow-x-auto">
           <TabsList>
             <TabsTrigger value="overview" className="px-2.5">
               Overview

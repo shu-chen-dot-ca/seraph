@@ -30,7 +30,7 @@ opens. Then, from the live "repo_stats" topic (github_searcher/repo_stats.py): o
 the median after run, the one every change needs before its PR, of the scope its rules ask for; "~" when only rough
 times from before 11-20 are known). None of these has a tooltip.
 A click on a card's owner/name (the text itself, with no tooltip) opens the repo on GitHub in a new tab; elsewhere on a
-card it does nothing yet. A card has a ⋯, whose menu opens when the mouse is on it (a tap or click on a phone): Move to
+card it does nothing yet. A card has a ⋯, whose menu opens when the mouse is on it: Move to
 Contributed in Prioritized and back; in Catalog Add to Target, in Target Remove from Target; and outside Removed Delete, or Add to Removed for a repo
 with pull requests of yours (merged, closed or open), at once, with no "are you sure?" (POST /api/repos/delete): every
 agent working on the repo stops, and one with pull requests of yours goes to Removed, any other leaves the page and the
@@ -94,8 +94,8 @@ export default function RepositoryCards(props: { state: string; onState: (state:
   const stats = useLive("repo_stats");
   const loaded = useLoaded("repos");
   // The card whose ⋯ menu is open: the mouse on the ⋯ opens it at once, and it closes once the mouse left both the ⋯
-  // and the menu (closeTimer: a tenth of a second, to go from one to the other). A tap or a key opens and closes it as
-  // a click does.
+  // and the menu (closeTimer: a tenth of a second, to go from one to the other). A key opens and closes it as a click
+  // does.
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const closeTimer = useRef<number | undefined>(undefined);
   // The repos deleted here, until the live feed has it (it comes every few seconds).
@@ -487,21 +487,15 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                                       title=""
                                       className={cn("-mx-0.5 flex items-center gap-0.5 rounded-sm px-0.5 hover:bg-accent data-[state=open]:bg-accent", each.color)}
                                       aria-label={each.title}
-                                      onPointerEnter={(event) => {
-                                        if (event.pointerType === "mouse") {
-                                          window.clearTimeout(closeTimer.current);
-                                          setMenuOpen(`${card.repo.full_name}:${each.key}`);
-                                        }
+                                      onPointerEnter={() => {
+                                        window.clearTimeout(closeTimer.current);
+                                        setMenuOpen(`${card.repo.full_name}:${each.key}`);
                                       }}
-                                      onPointerLeave={(event) => {
-                                        if (event.pointerType === "mouse") {
-                                          closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
-                                        }
+                                      onPointerLeave={() => {
+                                        closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
                                       }}
                                       onPointerDown={(event) => {
-                                        if (event.pointerType === "mouse") {
-                                          event.preventDefault();
-                                        }
+                                        event.preventDefault();
                                       }}
                                     >
                                       <each.icon className="size-3" />
@@ -513,10 +507,8 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                                     sideOffset={0}
                                     style={{ animation: "none" }}
                                     onPointerEnter={() => window.clearTimeout(closeTimer.current)}
-                                    onPointerLeave={(event) => {
-                                      if (event.pointerType === "mouse") {
-                                        closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
-                                      }
+                                    onPointerLeave={() => {
+                                      closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
                                     }}
                                   >
                                     <DropdownMenuItem
@@ -549,22 +541,16 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                                 title=""
                                 className="flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover-line data-[state=open]:bg-accent"
                                 aria-label={`Settings for ${card.repo.full_name}`}
-                                onPointerEnter={(event) => {
-                                  if (event.pointerType === "mouse") {
-                                    window.clearTimeout(closeTimer.current);
-                                    setMenuOpen(card.repo.full_name);
-                                  }
+                                onPointerEnter={() => {
+                                  window.clearTimeout(closeTimer.current);
+                                  setMenuOpen(card.repo.full_name);
                                 }}
-                                onPointerLeave={(event) => {
-                                  if (event.pointerType === "mouse") {
-                                    closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
-                                  }
+                                onPointerLeave={() => {
+                                  closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
                                 }}
                                 onPointerDown={(event) => {
                                   // The mouse opened it already: a click doesn't close it again.
-                                  if (event.pointerType === "mouse") {
-                                    event.preventDefault();
-                                  }
+                                  event.preventDefault();
                                 }}
                               >
                                 <MoreHorizontal className="size-4" />
@@ -576,10 +562,8 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                               // At once, with no fade or zoom in or out.
                               style={{ animation: "none" }}
                               onPointerEnter={() => window.clearTimeout(closeTimer.current)}
-                              onPointerLeave={(event) => {
-                                if (event.pointerType === "mouse") {
-                                  closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
-                                }
+                              onPointerLeave={() => {
+                                closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
                               }}
                             >
                               {column.moveTo !== "" && (

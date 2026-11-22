@@ -1004,7 +1004,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
           <span className={cn("size-1.5 rounded-full", connected ? "bg-ok" : "bg-destructive")} />
           <span className={cn(!connected && "text-destructive")}>{connected ? "Live" : "Offline"}</span>
-          {prs.checked_at !== null && <span className="max-md:hidden">· Updated {new Date(prs.checked_at).toLocaleTimeString("en", CLOCK)}</span>}
+          {prs.checked_at !== null && <span>· Updated {new Date(prs.checked_at).toLocaleTimeString("en", CLOCK)}</span>}
         </span>
         <div className="ml-auto flex overflow-hidden rounded-sm border">
           {RANGES.map((each) => (
@@ -1026,7 +1026,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
 
       <div className="min-h-0 flex-1 overflow-y-auto bg-muted/40">
         <div className="space-y-3 p-3">
-          <div className="grid grid-cols-6 gap-3 max-2xl:grid-cols-3 max-md:grid-cols-2">
+          <div className="grid grid-cols-6 gap-3 max-2xl:grid-cols-3">
             {numbers.map((number) => (
               <div key={number.title} className={WIDGET}>
                 <div className={WIDGET_HEADER}>
@@ -1069,14 +1069,14 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
 
           {drawn}
 
-          <div className="grid grid-cols-7 gap-3 max-xl:grid-cols-5 max-md:grid-cols-2">
-            <div className={cn(WIDGET, "col-span-2 max-xl:col-span-5 max-md:col-span-2")}>
+          <div className="grid grid-cols-7 gap-3 max-xl:grid-cols-5">
+            <div className={cn(WIDGET, "col-span-2 max-xl:col-span-5")}>
               <div className={WIDGET_HEADER}>
                 <button type="button" className={TITLE} onClick={() => props.onOpenSettings("automation")}>
                   Limits
                 </button>
               </div>
-              <div className="grid flex-1 content-center gap-x-6 gap-y-1.5 px-3 py-2 text-xs max-xl:grid-cols-3 max-md:grid-cols-1">
+              <div className="grid flex-1 content-center gap-x-6 gap-y-1.5 px-3 py-2 text-xs max-xl:grid-cols-3">
                 {limits.map((each) => {
                   const full = each.limit !== null && each.limit > 0 ? each.used / each.limit : 0;
                   return (

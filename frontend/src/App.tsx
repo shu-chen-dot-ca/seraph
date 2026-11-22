@@ -11,8 +11,6 @@ from git's origin remote (vite.config.ts), so no account name is written here; n
 Back from GitHub's sign-in page, the backend sends the browser to #/?signed_in=<login> or #/?error=<text>: App says
 which in a toast, reloads the account (the "github-account" window event) and takes the query out of the address.
 
-On a narrow screen (under 768px, a phone) your @login is left out, only your picture shows.
-
 The page lives in the URL hash, so refresh and back/forward work and switching pages never reloads:
   #/ (Dashboard.tsx)
   #/vms?tab=images (the Dashboard on the Images tab of its Virtual machines)
@@ -201,8 +199,7 @@ export default function App() {
           onClick={() => openSettings("account")}
         >
           <img src={`https://github.com/${account.login}.png?size=40`} alt="" className="size-5 rounded-full" />
-          {/* On a phone: only the picture. */}
-          <span className="max-md:hidden">@{account.login}</span>
+          <span>@{account.login}</span>
         </button>
       )}
       {__REPO_URL__ !== "" && (
