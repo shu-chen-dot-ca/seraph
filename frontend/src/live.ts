@@ -611,9 +611,7 @@ export type Feedback = {
 
 // Each repo's record with us (github_searcher/repo_stats.py), by its name in lower case: one round of its tests (the
 // median after run of the scope its rules ask for: seconds and CPU seconds; exact false: only rough times from before
-// 11-20; scope full: the project's official checks, focused: the tests that cover the change), and for a repo that merged a PR
-// of ours a 0-10 rating with its parts (first reply in hours, time to merge in days, merged share 0-1, change requests
-// per answered PR, tone 0-10). null: not known.
+// 11-20; scope full: the project's official checks, focused: the tests that cover the change). null: not known.
 export type RepoStats = Record<
   string,
   {
@@ -622,12 +620,6 @@ export type RepoStats = Record<
     rounds: number;
     exact: boolean;
     scope: "full" | "focused" | null;
-    rating: number | null;
-    first_reply_hours: number | null;
-    merge_days: number | null;
-    merge_rate: number | null;
-    change_requests: number | null;
-    tone: number | null;
   }
 >;
 

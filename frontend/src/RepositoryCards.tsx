@@ -7,8 +7,8 @@ Repositories: the repos in the repo list (repo_list.py) as cards, in five column
 bottom that scrolls on its own (on a narrow window the columns keep their width and the page scrolls sideways):
 - Prioritized: the Contributed ones you moved here (the Repos list's prioritized, repo_list.py). By stars.
 - Contributed: repos that merged a pull request of yours. By stars, most first, or by the pick in the column's sort
-  menu (Sort by stars, merged PRs, open PRs, closed PRs, in-progress PRs, rating or test run time, always the most
-  first, the unknown last; then by stars).
+  menu (Sort by stars, merged PRs, open PRs, closed PRs, in-progress PRs or test run time, always the most first, the
+  unknown last; then by stars).
 - Target: repos you hunt, to become a contributor there (an NVIDIA one, say), added from Catalog (Add to Target, the
   Repos list's target, with when each went there). Remove from Target takes one back to Catalog; besides, one leaves by
   its PRs: once one of yours is merged there it is in Contributed, and once one is closed without a merge after it went
@@ -28,8 +28,7 @@ count opens a menu with Close all (every open PR of yours there closed on GitHub
 in-progress one Stop all (those jobs stopped and their issues dropped, POST /api/repos/stop_in_progress), as the ⋯
 opens. Then, from the live "repo_stats" topic (github_searcher/repo_stats.py): one round of its tests (blue, a clock:
 the median after run, the one every change needs before its PR, of the scope its rules ask for; "~" when only rough
-times from before 11-20 are known), and in Prioritized and Contributed its rating of how our PRs are received there
-(pink, 0 to 10). None of these has a tooltip.
+times from before 11-20 are known). None of these has a tooltip.
 A click on a card's owner/name (the text itself, with no tooltip) opens the repo on GitHub in a new tab; elsewhere on a
 card it does nothing yet. A card has a ⋯, whose menu opens when the mouse is on it (a tap or click on a phone): Move to
 Contributed in Prioritized and back; in Catalog Add to Target, in Target Remove from Target; and outside Removed Delete, or Add to Removed for a repo
@@ -48,7 +47,7 @@ Your pull requests are the ones the app follows (github_searcher/pr_tracking.py)
 numbers update themselves.
 */
 
-import { ChevronDown, Clock, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MoreHorizontal, Star, ThumbsUp } from "lucide-react";
+import { ChevronDown, Clock, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MoreHorizontal, Star } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -65,7 +64,7 @@ import PullRequests from "@/PullRequests";
 import { api, useLive, useLoaded } from "@/live";
 import { cn } from "@/lib/utils";
 
-type Sort = "stars" | "merged" | "open" | "closed" | "working" | "rating" | "round";
+type Sort = "stars" | "merged" | "open" | "closed" | "working" | "round";
 
 const OPEN_JOB = ["queued", "working", "waiting_on_user", "waiting_on_maintainers"];
 // The page's tabs: the cards (state "") and the pull requests' tables.
@@ -84,7 +83,6 @@ const SORT_TITLE: Record<Sort, string> = {
   open: "Sort by open PRs",
   closed: "Sort by closed PRs",
   working: "Sort by in-progress PRs",
-  rating: "Sort by rating",
   round: "Sort by test run time",
 };
 
@@ -236,9 +234,6 @@ export default function RepositoryCards(props: { state: string; onState: (state:
       return b.working - a.working;
     }
     // Not known yet: last.
-    if (sort === "rating") {
-      return (stats[b.repo.full_name.toLowerCase()]?.rating ?? -1) - (stats[a.repo.full_name.toLowerCase()]?.rating ?? -1);
-    }
     if (sort === "round") {
       return (stats[b.repo.full_name.toLowerCase()]?.round_seconds ?? -1) - (stats[a.repo.full_name.toLowerCase()]?.round_seconds ?? -1);
     }
@@ -250,11 +245,11 @@ export default function RepositoryCards(props: { state: string; onState: (state:
   const catalog = shown.filter((card) => !removed.includes(card) && !prioritized.includes(card) && !contributed.includes(card) && !target.includes(card));
   // moveTo: the column a card here can move to (its ⋯ or a drag), and back. key: its switch in take_from ("" for none).
   const columns = [
-    { title: "Prioritized", key: "prioritized", contributed: true, removed: false, moveTo: "Contributed", cards: prioritized },
-    { title: "Contributed", key: "contributed", contributed: true, removed: false, moveTo: "Prioritized", cards: contributed },
-    { title: "Target", key: "target", contributed: false, removed: false, moveTo: "", cards: target },
-    { title: "Catalog", key: "catalog", contributed: false, removed: false, moveTo: "", cards: catalog },
-    { title: "Removed", key: "", contributed: false, removed: true, moveTo: "", cards: removed },
+    { title: "Prioritized", key: "prioritized", removed: false, moveTo: "Contributed", cards: prioritized },
+    { title: "Contributed", key: "contributed", removed: false, moveTo: "Prioritized", cards: contributed },
+    { title: "Target", key: "target", removed: false, moveTo: "", cards: target },
+    { title: "Catalog", key: "catalog", removed: false, moveTo: "", cards: catalog },
+    { title: "Removed", key: "", removed: true, moveTo: "", cards: removed },
   ];
 
   // The tabs, each with its count. Like the header's tabs (App.tsx): quiet until hovered; the open one in full color
@@ -387,7 +382,6 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                           <DropdownMenuRadioItem value="open">{SORT_TITLE.open}</DropdownMenuRadioItem>
                           <DropdownMenuRadioItem value="closed">{SORT_TITLE.closed}</DropdownMenuRadioItem>
                           <DropdownMenuRadioItem value="working">{SORT_TITLE.working}</DropdownMenuRadioItem>
-                          <DropdownMenuRadioItem value="rating">{SORT_TITLE.rating}</DropdownMenuRadioItem>
                           <DropdownMenuRadioItem value="round">{SORT_TITLE.round}</DropdownMenuRadioItem>
                         </DropdownMenuRadioGroup>
                       </DropdownMenuContent>
@@ -406,7 +400,7 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                   {column.cards.map((card) => {
                     // Its ⋯ has a move, Remove from Target, or Delete or Add to Removed (and in Catalog Add to Target).
                     const menu = column.moveTo !== "" || column.title === "Target" || (card.listed && !column.removed);
-                    // Its record with us: one round of its tests, as text ("~": only rough times), and the rating.
+                    // Its record with us: one round of its tests, as text ("~": only rough times).
                     const stat = stats[card.repo.full_name.toLowerCase()];
                     let round = "";
                     if (stat !== undefined && stat.round_seconds !== null) {
@@ -538,12 +532,6 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                               <span className="flex items-center gap-0.5 text-sky-500">
                                 <Clock className="size-3" />
                                 {round}
-                              </span>
-                            )}
-                            {column.contributed && stat !== undefined && stat.rating !== null && (
-                              <span className="flex items-center gap-0.5 text-pink-500">
-                                <ThumbsUp className="size-3" />
-                                {stat?.rating?.toFixed(1)}
                               </span>
                             )}
                           </div>
