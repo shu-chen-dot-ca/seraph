@@ -589,12 +589,11 @@ export type AutomationData = {
   max_open_prs: number | null;
   max_open_per_repo: number | null;
   max_agents: number; // at least 1
-  min_stars: number | null; // null: any
   ai_policies: string[]; // the AI policies whose repositories may be worked on: "welcome", "disclose", "none", "unclear"
-  // Explore's Include and Exclude: the kinds of repositories you want and don't, in your own words. Not sent by the
-  // backend yet (a stub).
-  include?: string;
-  exclude?: string;
+  // Explore's Include and Exclude: the kinds of repositories you want and don't, in your own words (kept in the data,
+  // never in the code; PUT sets them only when given).
+  include: string;
+  exclude: string;
   // The Repositories dialog's column switches (PUT /api/automation/take_from): off, no new issues of its repos.
   take_from: Record<"target" | "prioritized" | "contributed" | "catalog", boolean>;
 };
@@ -695,8 +694,9 @@ const store = {
       max_open_prs: null,
       max_open_per_repo: null,
       max_agents: 1,
-      min_stars: null,
       ai_policies: [],
+      include: "",
+      exclude: "",
       take_from: { target: true, prioritized: true, contributed: true, catalog: true },
     },
     tokens: { slices: [] },

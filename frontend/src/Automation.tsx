@@ -4,8 +4,8 @@ controls on the right. It starts from the live "automation" topic and keeps your
 with every field: the Explore dialog's as they are), which is enabled only when something changed. Your edits stay shown
 until the live topic has them, so nothing flips back while it comes. Discard changes drops them, and so does closing
 Settings.
-- Activities: one switch each. Manage repositories (on: archives the repositories that don't merge ours, and adds what
-  Explore finds while the Explore dialog's Add repositories is on), Take new issues (take_new), Create pull requests
+- Activities: one switch each. Manage repositories (on: archives the repositories that don't merge ours and later closes
+  our PRs there; adding new ones is the Explore dialog's switch), Take new issues (take_new), Create pull requests
   (send_prs), Reply to reviews and comments (send_comments).
 - Limits: Pull requests per day, Open pull requests and Open pull requests per repository, each a number and a switch;
   off means no limit (null) and its number can't be changed. Concurrent agents is a number only, at least 1.
@@ -74,7 +74,7 @@ export default function Automation(props: { open: boolean; scrollTo: boolean }) 
   const form = edited ?? saved;
 
   // What Save sends, and the same from the backend, to tell whether anything changed. The Explore dialog's fields go
-  // back as they are.
+  // back as they are (its Include and Exclude are left out, so they stay).
   const body = {
     on: form.activities.on,
     add_repos: automation.add_repos,
@@ -85,7 +85,6 @@ export default function Automation(props: { open: boolean; scrollTo: boolean }) 
     max_open_prs: form.limitOn.max_open_prs ? Number(form.numbers.max_open_prs) : null,
     max_open_per_repo: form.limitOn.max_open_per_repo ? Number(form.numbers.max_open_per_repo) : null,
     max_agents: Number(form.numbers.max_agents),
-    min_stars: automation.min_stars,
     ai_policies: automation.ai_policies,
   };
   const current = {
@@ -98,7 +97,6 @@ export default function Automation(props: { open: boolean; scrollTo: boolean }) 
     max_open_prs: automation.max_open_prs,
     max_open_per_repo: automation.max_open_per_repo,
     max_agents: automation.max_agents,
-    min_stars: automation.min_stars,
     ai_policies: automation.ai_policies,
   };
   const changed = JSON.stringify(body) !== JSON.stringify(current);
