@@ -28,18 +28,16 @@ How images come and change. Builds, saves and inspects run in the background, as
   (image_build.check_definition). Nothing changes in the image until it is rebuilt: definition_changed (in the live
   feed) says image.yaml differs from what the image was built from, and the Images tab shows a dot. Changing the
   defaults changes no image: they are only where new ones start.
-- save a VM: `incus publish` of a stopped VM (a few minutes): everything on its disk comes along. It has no
-  image.yaml until its agent writes one, so it can't be rebuilt until then.
 An image can only be deleted once no VM was made from it (stopped ones count too). Its builder VM goes with it.
 One never built is deleted with its image.yaml.
 
 What an image has (system, languages, tools, packages, models) is listed once, by sandbox/image/inspect.sh:
 a throwaway VM from the image runs inventory.py, and the list goes to DATA_DIR/images/inventory/<fingerprint>.json.
-Images never change, so that list stays true. Builds and saves inspect the new image at the end; an older
+Images never change, so that list stays true. Builds inspect the new image at the end; an older
 image is inspected with an inspect task (about two minutes). Lists of images that are gone (deleted, or
 replaced by a rebuild) are kept, since VMs made from them still have what they listed.
 
-A task (build, save, inspect) is a process of its own (its own session) that writes DATA_DIR/images/<task id>.log
+A task (build, inspect) is a process of its own (its own session) that writes DATA_DIR/images/<task id>.log
 and prints "==> Done" last when it worked. Its record in DATA_DIR/images/tasks.json keeps the pid, so a
 backend restart (it reloads on code changes) doesn't stop it: the task is followed again from there. One task at
 a time per image. Tasks that worked are dropped once the image shows up; failed ones stay until the user dismisses
@@ -69,7 +67,7 @@ from dotenv import load_dotenv
 
 from sandbox import image_build
 from sandbox.vm import VM
-from sandbox.vms import MIN_FREE_RAM_GB, VMs, VMsError
+from sandbox.vms import MIN_FREE_RAM_GB, VMs
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # override: the backend reloads itself on code changes, and .env changes should apply then too.
@@ -123,7 +121,7 @@ class Images:
             self.default = settings.get("default", DEFAULT_IMAGE)
         # The short version of each inspected image's list (see highlights()), by fingerprint; lists never change.
         self.highlights_by_fingerprint: dict[str, dict] = {}
-        # {"id", "kind": "build" | "save" | "inspect", "name", "vm" (saved VM), "pid", "status": "running" | "failed",
+        # {"id", "kind": "build" | "inspect", "name", "vm" (None), "pid", "status": "running" | "failed",
         #  "error", "started_at"}
         self.tasks: list[dict] = []
         tasks_path = IMAGES_DIR / "tasks.json"
@@ -651,47 +649,8 @@ class Images:
         except ProcessLookupError:
             pass
 
-    def save_vm(self, vm_name: str, name: str) -> dict:
-        """Make an image from a stopped VM (a few minutes). The VM can't start until it is done."""
-        if not re.fullmatch(NAME_PATTERN, name):
-            raise ImagesError("The name must start with a letter and have only letters (capitals too), digits and -, at most 41 characters")
-        if self.name_taken(name):
-            raise ImagesError(f"There is already an image named {name} (or the same in other capitals)")
-        try:
-            record = self.vms.get(vm_name)
-        except VMsError as error:
-            raise ImagesError(str(error))
-        if record.vm.status() != "Stopped":
-            raise ImagesError(f"Stop {vm_name} first: only a stopped VM can be saved as an image.")
-        # Values the VM's env file holds would go into every VM made from the image.
-        if record.secrets_in_vm:
-            raise ImagesError(
-                f"{vm_name}'s files still hold environment variable values ({', '.join(record.secrets_in_vm)}), and they would "
-                "go into the image. Remove them in its Settings (or in Settings, for all VMs) while it runs, then stop it and save again."
-            )
-        with self.lock:
-            saving = [task for task in self.tasks if task["status"] == "running" and (task["name"] == name or task["vm"] == vm_name)]
-        if saving:
-            raise ImagesError(f"{saving[0]['name']} is being made from {vm_name} already.")
-        # Uncompressed, like builds: bigger on disk, but new VMs unpack it faster.
-        script = f"set -e\nincus publish {record.incus_name} --alias {name} --compression none\nbash {INSPECT_SCRIPT} {name} {INVENTORY_DIR}\necho '==> Done'\n"
-        # Held until the task ends, so neither the user nor an agent starts the VM meanwhile.
-        if not record.lock.acquire(blocking=False):
-            raise ImagesError(f"{vm_name} is busy")
-        try:
-            task, process = self.start_task("save", name, vm_name, script)
-        except Exception:
-            record.lock.release()
-            raise
-        threading.Thread(target=self.wait_then_release, args=(process, record), daemon=True).start()
-        return task
-
-    def wait_then_release(self, process: subprocess.Popen, record) -> None:
-        process.wait()
-        record.lock.release()
-
     def inspect(self, name: str) -> dict:
-        """List what an image has (about two minutes, in a throwaway VM). New image and save do this by themselves."""
+        """List what an image has (about two minutes, in a throwaway VM). A build does this by itself."""
         image = self.find(name)
         with self.lock:
             busy = [task for task in self.tasks if task["status"] == "running" and task["name"] == image["name"]]

@@ -4,7 +4,7 @@ A VM is a resource, not tied to a repo or an agent. Each one is an Incus VM name
 <VM_PREFIX><name> (e.g. sandbox-vm1) plus a record on disk:
 
     DATA_DIR/vms/<name>.json   {"name", "incus_name", "image", "image_fingerprint", "cpus", "memory_gb",
-                                "disk_gb", "internet", "env", "secrets_in_vm", "on", "status",
+                                "disk_gb", "internet", "env", "on", "status",
                                 "created_at", "forked_from", "max_desktops", "desktops", "queue", "wants", "runs", "stepped_down_at",
                                 "traffic", "notes", "graceful_shutdown", "suspended"}
 
@@ -22,8 +22,7 @@ own agents' browser.
 
 "image" is the name of the image it was made from (sandbox/images.py) and "image_fingerprint" the exact
 build, since an image can be rebuilt or renamed later. A fork (a copy of a stopped VM, see VMs.fork) has its
-source's image and "forked_from" names the source. "secrets_in_vm" are the env variables whose values
-are written in the VM's files right now, so an image is never saved from a VM that still holds them.
+source's image and "forked_from" names the source.
 
 "on" is the VM's last state as Seraph left it: True once it started (a create, a fork, a start), False once it was shut
 down (Shut down, an agent's stop, Seraph's own). When Seraph starts (backend/app.py), a VM that was on and is off
@@ -177,8 +176,6 @@ class VMRecord:
         self.disk_gb = record["disk_gb"]
         self.internet = record["internet"]
         self.env = record["env"]
-        # Records from before this was kept: assume the values set are the ones written.
-        self.secrets_in_vm = record.get("secrets_in_vm", [key for key, value in record["env"].items() if value])
         self.status = record["status"]
         # Its last state as Seraph left it (module docstring), read before refresh() matches status to Incus.
         self.on = record.get("on", record["status"] == "running")
@@ -278,7 +275,6 @@ class VMRecord:
             "disk_gb": self.disk_gb,
             "internet": self.internet,
             "env": dict(self.env),
-            "secrets_in_vm": list(self.secrets_in_vm),
             "on": self.on,
             "status": self.status,
             "created_at": self.created_at,
@@ -708,8 +704,6 @@ class VMRecord:
         except Exception as error:
             raise VMsError(str(error))
         line = f"[ -f {VM_ENV_FILE} ] && . {VM_ENV_FILE}  # sandbox environment variables"
-        self.secrets_in_vm = [key for key, value in env.items() if value]
-        self.save()
         for desktop in list(self.desktops):
             command = f"grep -qxF {shlex.quote(line)} ~/.bashrc || echo {shlex.quote(line)} >> ~/.bashrc"
             result = self.desktop_vm(desktop).exec(command, timeout=30)
@@ -1096,7 +1090,6 @@ class VMs:
                     "disk_gb": disk_gb,
                     "internet": True,
                     "env": {},
-                    "secrets_in_vm": [],
                     "status": "creating",
                     "created_at": datetime.now(UTC).isoformat(),
                     "max_desktops": max_desktops,
@@ -1150,7 +1143,6 @@ class VMs:
                     "disk_gb": source.disk_gb,
                     "internet": source.internet,
                     "env": dict(source.env),
-                    "secrets_in_vm": list(source.secrets_in_vm),
                     "status": "creating",
                     "created_at": datetime.now(UTC).isoformat(),
                     "forked_from": source_name,

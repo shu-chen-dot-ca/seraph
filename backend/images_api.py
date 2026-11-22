@@ -1,10 +1,10 @@
 """The Images tab on the VMs page: the default image, rename, delete, New image (saves its image.yaml, the defaults
 with the system, desktop and description picked; nothing is built), Build or Rebuild (image.yaml is built, no agent;
-several images at once), save a VM as an image, what each image has
+several images at once), what each image has
 (its inventory: system, languages, tools, packages), its image.yaml and its agent, and the defaults every new
 image.yaml starts as (the Defaults tab). Check runs the mechanical check of either without saving it.
 
-The list itself reaches the browser through /api/live (topic "images"). Builds and saves run in the
+The list itself reaches the browser through /api/live (topic "images"). Builds run in the
 background and answer at once; the task shows in the list until it is done. Most of this makes Incus
 calls that block, so those endpoints are plain `def` (FastAPI runs them in a thread pool). The image agent's
 endpoints (its chat) are `async def`: its turns run on the event loop.
@@ -41,11 +41,6 @@ class DefinitionRequest(BaseModel):
 class CheckRequest(BaseModel):
     text: str
     defaults: bool = False  # the defaults rather than an image.yaml
-
-
-class SaveRequest(BaseModel):
-    vm: str
-    name: str
 
 
 class MessageRequest(BaseModel):
@@ -138,15 +133,6 @@ def rebuild_image(name: str) -> dict:
         raise HTTPException(status_code=409, detail=f"{name}'s agent is working. Wait, or stop it.")
     try:
         return images.build(name)
-    except ImagesError as error:
-        raise HTTPException(status_code=409, detail=str(error))
-
-
-@router.post("/images/save")
-def save_vm_as_image(body: SaveRequest) -> dict:
-    """Makes an image from a stopped VM in the background (a few minutes)."""
-    try:
-        return images.save_vm(body.vm.strip(), body.name.strip())
     except ImagesError as error:
         raise HTTPException(status_code=409, detail=str(error))
 

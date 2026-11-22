@@ -119,8 +119,6 @@ def test_vms_own_value_wins_unless_it_is_empty(vms, vm_calls, monkeypatch):
         "export EMPTY=''",
         "export DB_PASSWORD=hunter22",
     ]
-    # The ones with a value are in the VM's files now, so no image is saved from it.
-    assert record.secrets_in_vm == ["OPENAI_API_KEY", "SENTRY_DSN", "DB_PASSWORD"]
 
 
 def test_values_are_quoted_for_the_shell(vms, vm_calls):
