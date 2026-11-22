@@ -17,10 +17,12 @@ Its settings and what it did, in AUTOMATION_FILE (DATA_DIR/automation.json):
      "labels": {"owner/name": Label, ...},           every repo in Repos, worked out every round, also while off
      "send_prs", "send_comments": bool,             Create pull requests, Reply to reviews and comments
      "max_prs_per_day", "max_open_prs", "max_open_per_repo": int | None,    the limits (None: no limit)
-     "min_stars": int | None,                       Minimum stars of a repo it adds (None: Explore's own minimum)
      "ai_policies": ["welcome", ...],               the AI policies whose repos may be worked on (never no_ai)
      "take_from": {"target", "prioritized", "contributed", "catalog": bool}}
                                                     the Repositories page's column switches (below)
+
+The Explore dialog's Include and Exclude are not in it: they are Explore's profile's (DATA_DIR/explore_profile.json,
+explore.py), so they stay out of the code and out of git. summary() adds them.
 
     Label = {"label", "rank", "why", "merged", "closed", "open", "days", "idle", "per_day"}
 
@@ -42,10 +44,10 @@ per_day, the most first (backend/issues_api.py take_from_catalog), and the page 
 
 keep_automation() runs as long as the backend, every CHECK_SECONDS. It works out the labels and, on or off, holds every
 repo to Explore's minimums (explore.py MIN_*: over 1k stars, 40 contributors or more, over 400 closed PRs, over 10 open
-issues, a README in English), so no personal repo stays: once its signals are read, one in Repos that falls short
-leaves (archived when it has a PR of ours, else off Repos and kept as checked by Explore, so it never comes back), and
-so does one in Explore's found list (also one found before these were checked, which a later run checks anew). On or
-off too, while Add repositories is on, it keeps active_repos repos active (below). And while on:
+issues), so no personal repo stays: once its signals are read, one in Repos that falls short leaves (archived when it
+has a PR of ours, else off Repos and kept as checked by Explore, so it never comes back), and so does one in Explore's
+found list (also one found before these were checked, which a later run checks anew). On or off too, while Add
+repositories is on, it keeps active_repos repos active (below). And while on:
 - archives a repo that is Not merging (Repos' Archived, repo_list.py): its issues leave the board's Open and Catalog,
   the jobs on its issues with no PR yet stop, and no new PR goes there (repo_automation_api.py keep_drafts). Our open
   PRs there stay and their agents still answer reviews. close_days business days after it archived the repo, the ones
@@ -58,15 +60,16 @@ off too, while Add repositories is on, it keeps active_repos repos active (below
 Only repos it archived are unarchived or get their PRs closed: one you archived stays yours.
 
 Add repositories (add_repos), with Manage repositories on or off: it keeps active_repos repos active (in Repos, not
-archived; MAX_ACTIVE at most). What Explore found goes into Repos at once, the best first: the most PRs merged a day
-(Explore skips a repo under MIN_MERGED_PER_DAY, explore.py), then AI policy (welcome, disclose, none, unclear; never
-no_ai), then newcomers (welcomes, ok, few). Each comes with new_repos (AUTO_SETTINGS at first: every level of its
-Automation on, Add, Queue and Take issues, Questions, Comments and Pull requests), so agents take its issues and send
-their PRs as you once the reviewer passed them, under its Open PRs at once and Issue levels (repo_automation_api.py).
-With still too few, it starts an Explore run for the rest (explore.py) with as many workers as GitHub's quota allows,
-after adding a new type of repo to Explore's profile (Explore.add_type), so it looks wider each time. Not within
-RUN_PAUSE_MINUTES of a run that ended short. Off: nothing goes into Repos from Explore's found list, no Explore run
-starts, and the one it started stops.
+archived; MAX_ACTIVE at most). What Explore found goes into Repos at once, the best first: the best fit to the Include
+(strong, good, some; Explore's runs skip weak ones, EXPLORE_FILTERS), then the most PRs merged a day (Explore skips a
+repo under MIN_MERGED_PER_DAY, explore.py), then AI policy (welcome, disclose, none, unclear; never no_ai), then
+newcomers (welcomes, ok, few). Each comes with new_repos (AUTO_SETTINGS at first: every level of its Automation on, Add,
+Queue and Take issues, Questions, Comments and Pull requests), so agents take its issues and send their PRs as you once
+the reviewer passed them, under its Open PRs at once and Issue levels (repo_automation_api.py). With still too few, it
+starts an Explore run for the rest (explore.py) with as many workers as GitHub's quota allows, after adding a new type of repo to Explore's profile (Explore.add_type), so it
+looks wider each time; when the Include changed since the types' searches were planned, they are planned again for it
+first (Explore.set_profile). Not within RUN_PAUSE_MINUTES of a run that ended short. Off: nothing goes into Repos from
+Explore's found list, no Explore run starts, and the one it started stops.
 
 Take new issues off (take_new False, on or off): agents take no new issues from the Issues board's Catalog
 (backend/issues_api.py take_from_catalog), not even ours; the cards wait there until it is on again. Everything else goes
@@ -78,19 +81,20 @@ repos in that column, ours too (backend/issues_api.py take_from_catalog); what i
 
 The page's settings, and where each is obeyed:
 - Manage repositories (on): everything above that archives and closes.
-- Add repositories (add_repos): above.
+- Add repositories (add_repos, the switch in the Explore dialog's header): above.
 - Take new issues (take_new): above.
 - Create pull requests, Reply to reviews and comments, Pull requests per day, Open pull requests and Open pull requests
   per repository: what keep_drafts sends (backend/repo_automation_api.py); the last two also hold back taking issues
   (backend/issues_api.py take_from_catalog).
 - Concurrent agents: the Issues board's max_agents (AUTO_REMOVE_FILE, backend/issues_api.py).
-- Minimum stars: only repos with at least that many are added from Explore's found list (Explore's own minimum, explore.py
-  MIN_STARS, still holds for everything; repos already in Repos stay).
+- Include and Exclude: what Explore looks for and keeps out (explore.py), and Exclude also what agents never take
+  (issue_tags.py, repo_automation_api.py, the agents' prompt). Explore's own minimum stars (explore.py MIN_STARS) holds
+  under them.
 - AI policy: only repos with an allowed policy are added, Explore's runs skip the others, and agents take no new issue of
   one (take_from_catalog). no_ai never.
 
-GET /api/automation gives it all (the live "automation" topic too: summary()), with max_agents besides. PUT
-/api/automation sets every setting of the page at once. A change goes up AUTOMATION_VERSION (issues_api.py), so the page
+GET /api/automation gives it all (the live "automation" topic too: summary()), with max_agents, include and exclude
+besides. PUT /api/automation sets every setting at once (include and exclude only when given). A change goes up AUTOMATION_VERSION (issues_api.py), so the page
 shows it at once.
 """
 
@@ -107,7 +111,7 @@ from pydantic import BaseModel
 from backend.issues_api import AUTO_REMOVE_FILE, AUTO_REMOVE_OFF, AUTOMATION_VERSION, REPO_COLUMNS, auto_remove_issues
 from backend.repo_automation_api import DEFAULTS, SETTINGS_FILE
 from backend.shared import agents, explore, github_account, inbox, issues, jobs, pr_tracking, repo_signals, repos
-from github_searcher.explore import MIN_CLOSED_PRS, MIN_CONTRIBUTORS, MIN_OPEN_ISSUES, MIN_STARS
+from github_searcher.explore import FIT_LEVELS, MIN_CLOSED_PRS, MIN_CONTRIBUTORS, MIN_OPEN_ISSUES, MIN_STARS
 from github_searcher.github_account import SendError
 from github_searcher.issue_tags import DATA_DIR
 
@@ -125,7 +129,8 @@ RUN_PAUSE_MINUTES = 30
 LABELS = ["Fast", "Normal", "New", "Slow", "No issues", "Not merging"]
 POLICY_ORDER = ["welcome", "disclose", "none", "unclear"]
 NEWCOMERS_ORDER = ["welcomes", "ok", "few"]
-EXPLORE_FILTERS = {"policy:no_ai": "exclude"}
+# Explore's runs skip what bans AI, and what hardly matches the Include.
+EXPLORE_FILTERS = {"policy:no_ai": "exclude", "fit:weak": "exclude"}
 AUTO_SETTINGS = dict(DEFAULTS)
 AUTO_SETTINGS.update({"add_issues": True, "queue_issues": True, "take_issues": True, "questions": True, "comments": True, "pull_requests": True})
 OPEN_JOB = ["queued", "working", "waiting_on_user", "paused"]
@@ -137,7 +142,6 @@ SETTINGS = {
     "max_prs_per_day": None,
     "max_open_prs": None,
     "max_open_per_repo": None,
-    "min_stars": None,
     "ai_policies": list(POLICY_ORDER),
     "take_from": {column: True for column in REPO_COLUMNS},
 }
@@ -147,6 +151,9 @@ EMPTY = {"on": False, "active_repos": MAX_ACTIVE, "take_new": True, "rules": RUL
 automation = copy.deepcopy(EMPTY)
 if AUTOMATION_FILE.is_file():
     automation.update(json.loads(AUTOMATION_FILE.read_text()))
+# Minimum stars is gone: the Include says how big a repo should be, and Explore keeps its own minimum (explore.py
+# MIN_STARS).
+automation.pop("min_stars", None)
 # The PRs a close was tried on (a restart tries them again).
 STATE = {"tried": []}
 
@@ -161,8 +168,11 @@ class AutomationRequest(BaseModel):
     max_open_prs: int | None
     max_open_per_repo: int | None
     max_agents: int
-    min_stars: int | None
     ai_policies: list[str]
+    # The Explore dialog's Include and Exclude (None: as they are). Kept in Explore's profile, in DATA_DIR, never in the
+    # code.
+    include: str | None = None
+    exclude: str | None = None
 
 
 class TakeFromRequest(BaseModel):
@@ -178,6 +188,8 @@ def summary() -> dict:
     if AUTO_REMOVE_FILE.is_file():
         board.update(json.loads(AUTO_REMOVE_FILE.read_text()))
     data["max_agents"] = board["max_agents"]
+    data["include"] = explore.profile["include"]
+    data["exclude"] = explore.profile["exclude"]
     return data
 
 
@@ -194,8 +206,6 @@ async def put_automation(body: AutomationRequest) -> dict:
             raise HTTPException(status_code=400, detail="A limit is 1 to 1000.")
     if body.max_agents < 1 or body.max_agents > 50:
         raise HTTPException(status_code=400, detail="Concurrent agents is 1 to 50.")
-    if body.min_stars is not None and (body.min_stars < 0 or body.min_stars > 1_000_000):
-        raise HTTPException(status_code=400, detail="Minimum stars is 0 to 1,000,000.")
     if any(policy not in POLICY_ORDER for policy in body.ai_policies):
         raise HTTPException(status_code=400, detail=f"The AI policies are some of {', '.join(POLICY_ORDER)}.")
     automation["on"] = body.on
@@ -206,7 +216,6 @@ async def put_automation(body: AutomationRequest) -> dict:
     automation["max_prs_per_day"] = body.max_prs_per_day
     automation["max_open_prs"] = body.max_open_prs
     automation["max_open_per_repo"] = body.max_open_per_repo
-    automation["min_stars"] = body.min_stars
     # In POLICY_ORDER's order, each once.
     automation["ai_policies"] = [policy for policy in POLICY_ORDER if policy in body.ai_policies]
     AUTOMATION_FILE.write_text(json.dumps(automation, indent=2))
@@ -215,6 +224,14 @@ async def put_automation(body: AutomationRequest) -> dict:
         board.update(json.loads(AUTO_REMOVE_FILE.read_text()))
     board["max_agents"] = body.max_agents
     AUTO_REMOVE_FILE.write_text(json.dumps(board, indent=2))
+    if body.include is not None or body.exclude is not None:
+        include = explore.profile["include"]
+        exclude = explore.profile["exclude"]
+        if body.include is not None:
+            include = body.include
+        if body.exclude is not None:
+            exclude = body.exclude
+        explore.set_prompts(include, exclude)
     AUTOMATION_VERSION["version"] += 1
     return summary()
 
@@ -348,7 +365,7 @@ async def automate() -> None:
     for name, each in entries:
         # Numbers not read yet: a repo waits for them; a found one from before these were checked leaves. The README's
         # language is checked once it is read (backend/repos_api.py keep_signals).
-        if each is None or "merged_prs_total" not in each or (name in found and "readme_english" not in each):
+        if each is None or "merged_prs_total" not in each:
             if name in found:
                 short[name] = "Found before the minimums were checked"
             continue
@@ -360,8 +377,6 @@ async def automate() -> None:
             short[name] = f"{each['merged_prs_total'] + each['closed_prs_total']} closed PRs, {MIN_CLOSED_PRS} or fewer"
         elif each["open_issues_total"] <= MIN_OPEN_ISSUES:
             short[name] = f"{each['open_issues_total']} open issues, {MIN_OPEN_ISSUES} or fewer"
-        elif each.get("readme_english") is False:
-            short[name] = "README not in English"
     ours = [pr["repo"].lower() for pr in prs]
     leave_archived = []
     leave_removed = []
@@ -399,21 +414,23 @@ async def automate() -> None:
             explore.stop()
     ranked = []
     for entry in explore.found:
-        # Only the AI policies the Explore dialog allows (never no_ai), and at least its Minimum stars.
+        # Only the AI policies the Explore dialog allows (never no_ai).
         if entry["ai_policy"] not in automation["ai_policies"]:
             continue
-        if automation["min_stars"] is not None and entry["stars"] < automation["min_stars"]:
-            continue
+        # How well it matches the Include: strong first (explore.py FIT_LEVELS, the most first).
+        fit = 0
+        if entry.get("fit") in FIT_LEVELS:
+            fit = -FIT_LEVELS[entry["fit"]]
         newcomers = len(NEWCOMERS_ORDER)
         if entry["newcomers"] in NEWCOMERS_ORDER:
             newcomers = NEWCOMERS_ORDER.index(entry["newcomers"])
         activity = (entry.get("signals") or {}).get("activity") or {}
         per_day = (activity.get("prs_merged_month") or 0) / 30
-        ranked.append((-per_day, POLICY_ORDER.index(entry["ai_policy"]), newcomers, entry["name"]))
+        ranked.append((fit, -per_day, POLICY_ORDER.index(entry["ai_policy"]), newcomers, entry["name"]))
     ranked.sort()
     if room > 0 and ranked:
         notes = {entry["name"]: entry["note"] for entry in explore.found}
-        added = await explore.approve([each[3] for each in ranked[:room]])
+        added = await explore.approve([each[4] for each in ranked[:room]])
         settings = {}
         if SETTINGS_FILE.is_file():
             settings = json.loads(SETTINGS_FILE.read_text())
@@ -431,6 +448,9 @@ async def automate() -> None:
         rested = True
     if room > 0 and rested and (run is None or run["status"] != "running"):
         try:
+            # The Include changed since the types' searches were planned: plan them again for it first.
+            if explore.profile["include"].strip() != "" and explore.profile.get("planned_for") != explore.profile["include"]:
+                await explore.set_profile(explore.profile["include"], explore.profile["lanes"])
             await explore.add_type()
         except Exception:
             traceback.print_exc()
