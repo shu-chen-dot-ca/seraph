@@ -16,7 +16,8 @@ frees up. Each desktop has its own user, home folder, screen, mouse and keyboard
 the way of an agent on another; desktop_vm(n) runs commands as desktop n's user. A VM starts with one desktop.
 "max_desktops" is the most it may have, set by the user when it is made and changed at any time (set_max_desktops),
 never below how many it has. One can be added up to that or any one removed at any time, also while it runs
-(add_desktop: the user's + or an agent's desktop_add; remove_desktop), as long as one is left. Every start sets them up in the VM (VM.set_up_desktops) and gives each its
+(add_desktop: an agent's queue_for_vm or desktop_add, or Agents for agents waiting; remove_desktop: Agents, for a
+desktop nobody needs anymore or taken back in a full VM), as long as one is left. Every start sets them up in the VM (VM.set_up_desktops) and gives each its
 own agents' browser.
 
 "image" is the name of the image it was made from (sandbox/images.py) and "image_fingerprint" the exact
@@ -759,9 +760,9 @@ class VMRecord:
         self.save()
 
     def add_desktop(self, queue_lock: threading.Lock, number: int | None = None) -> int:
-        """One more desktop, running or not (the desktop bar's +, or an agent's desktop_add); returns its number, the
-        lowest one free, or number (one the app took back from an agent in a full VM, added again for it once there is
-        room: Agents.watch_room). While the VM runs it is set up in it first (the first time TigerVNC is installed, under a
+        """One more desktop, running or not (an agent's queue_for_vm or desktop_add, or Agents.watch_room); returns its
+        number, the lowest one free, or number (one an agent asks for again: shut down while unused, or taken back from it
+        in a full VM). While the VM runs it is set up in it first (the first time TigerVNC is installed, under a
         minute); the other desktops and their browsers go on untouched. Only then is it in the record, under VMQueue's
         lock (queue_lock), so no agent gets it before it is up. While the VM is off it comes up with the next start."""
         if not self.lock.acquire(blocking=False):
@@ -771,6 +772,8 @@ class VMRecord:
                 raise VMsError(f"{self.name} already has {self.max_desktops} desktops, its max desktops (in its Settings).")
             if number in self.desktops:
                 raise VMsError(f"{self.name} has desktop {number} already.")
+            if number is not None and (number < 1 or number > MAX_DESKTOPS):
+                raise VMsError(f"There is no desktop {number}: desktops are numbered 1 to {MAX_DESKTOPS}.")
             for each in range(1, MAX_DESKTOPS + 1):
                 if number is None and each not in self.desktops:
                     number = each
@@ -796,7 +799,7 @@ class VMRecord:
             self.lock.release()
 
     def remove_desktop(self, number: int, queue_lock: threading.Lock, taken_back: bool = False) -> None:
-        """Take a desktop away, running or not (the × on the desktop bar). The others keep their numbers, and the next
+        """Take a desktop away, running or not (Agents.watch_desktops, for one nobody needs anymore). The others keep their numbers, and the next
         one added takes the lowest number free. Not the VM's only desktop, and not one someone holds, asked for or has a
         run on, unless taken_back: the app took it back from its agent in a full VM
         (VMQueue.step_down), which waits for it, and its runs go on. It leaves the record first, under VMQueue's lock (queue_lock), so nobody joins

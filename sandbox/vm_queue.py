@@ -3,7 +3,8 @@
 A VM has one desktop or more, up to its max desktops (sandbox/vm.py), each with its own screen, mouse, keyboard and
 home folder, so agents on different desktops work at the same time. Each has a fixed number (record.desktops is {number: line}), so a VM may
 have desktops 2 and 3 only. An agent joins its target VM (queue_for_vm), maybe asking for one
-desktop (where its project is set up). If a desktop nobody holds is there (the one it asked for, or any), it holds
+desktop (where its project is set up), also one the VM doesn't have right now (shut down while unused, or taken back:
+Agents adds it again). If a desktop nobody holds is there (the one it asked for, or any), it holds
 it at once; otherwise it waits in the VM's line, even while the VM is off. When a holder releases, the desktop goes
 to the next one (next_holder) and Agents hears about it (on_grant), which wakes that agent. An agent is in at most
 one VM's line (holding or waiting) at a time.
@@ -42,6 +43,7 @@ run after it is released (they may call back into this queue).
 import threading
 from datetime import UTC, datetime
 
+from sandbox.vm import MAX_DESKTOPS
 from sandbox.vms import FIX_VM, VMs
 
 
@@ -107,9 +109,10 @@ class VMQueue:
             for other in self.vms.list():
                 if other.desktop_of(agent_id) is not None or agent_id in other.queue:
                     raise ValueError(f"Already in {other.name}'s queue; release_vm takes you out of it")
-            if desktop is not None and desktop not in record.desktops:
-                numbers = ", ".join([str(number) for number in record.desktops])
-                raise ValueError(f"{vm_name} has no desktop {desktop}; its desktops are {numbers}")
+            # One it doesn't have right now (shut down while nobody used it, or taken back): it waits for it, and the app
+            # adds it again once there is room (Agents.watch_room).
+            if desktop is not None and (desktop < 1 or desktop > MAX_DESKTOPS):
+                raise ValueError(f"There is no desktop {desktop}: desktops are numbered 1 to {MAX_DESKTOPS}")
             # A desktop nobody holds: the one asked for, or the first such one. A full VM takes nobody new.
             free = None
             for number, line in record.desktops.items():
