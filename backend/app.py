@@ -8,7 +8,8 @@ The browser never polls. It keeps one websocket open on /api/live, gets every to
 topics that changed. Every store has a `version` number that goes up on each change, so finding the changes is a
 cheap comparison every 250 ms. The big topics go at most every BIG_TOPIC_SECONDS, with all their changes since. The
 topics are only what the pages show (TOPICS): the repos, your PRs, jobs, the blockers waiting for you, agents, VMs,
-images, updates, the Automation's settings, the tokens the agents used and the Feedback page's list. A topic is read and encoded once per change, and that same text goes to
+images, updates, the Automation's settings, the tokens the agents used, the Feedback page's list and what runs besides
+the agents (activity). A topic is read and encoded once per change, and that same text goes to
 every open browser (TEXTS).
 
 Only this machine's own pages may use the API: the Host must be localhost or
@@ -50,7 +51,9 @@ from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocketDisconnect, WebSocketDisconnected
 
 from backend import agents_api, artifacts_api, automation_api, errors_api, github_account_api, github_api, images_api, inbox_api, issues_api, problem_fixes_api, repo_automation_api, repos_api, secrets_api, updates_api, vms_api
-from backend.shared import agents, crashes, explore, images, inbox, issue_tags, jobs, pr_tracking, problems, repo_stats, repos, token_usage, updates, vms
+from backend.shared import agents, crashes, explore, image_agents, images, inbox, issue_tags, jobs, pr_tracking, problem_fixes, problems, repo_stats, repos, token_usage, updates, vms
+from github_searcher import claude_judge
+from github_searcher.claude_models import MODELS
 from github_searcher.token_balancer import BALANCER
 from github_searcher.updates import HOME
 
@@ -203,7 +206,7 @@ async def live(websocket: WebSocket) -> None:
 
 
 # The live feed's topics, by name: what the pages show.
-TOPICS = ["repos", "jobs", "inbox", "prs", "agents", "vms", "images", "updates", "automation", "tokens", "problems", "repo_stats"]
+TOPICS = ["repos", "jobs", "inbox", "prs", "agents", "vms", "images", "updates", "automation", "tokens", "problems", "repo_stats", "activity"]
 # Topics older releases had. The live copy checks a new release with its own list of topics (updates.py TOPICS), so in
 # that check these go once too, empty, or a live copy from before the trim would refuse every new release.
 OLD_TOPICS = ["issues", "tracked", "explore", "github", "issue_drafts", "your_repos", "notifications", "resource", "projects", "crashes"]
@@ -264,13 +267,24 @@ def topic_data(topic: str):
     # Each repo's test run time and rating, for the Repositories cards (repo_stats.py).
     if topic == "repo_stats":
         return repo_stats.summary()
+    # What runs besides the agents, for the Dashboard's Agents: the images whose agent is in a turn, a Fix all run
+    # (problem_fixes.py: when it started, how many feedback items it was given, its VM), the checks running now
+    # (claude_judge.py), and the model each of these uses (claude_models.py).
+    if topic == "activity":
+        fixes = problem_fixes.status()
+        fix_all = None
+        if fixes["running"]:
+            run = fixes["runs"][0]
+            fix_all = {"started_at": run["started_at"], "items": len(run["problems"]), "vm": fixes["vm"]}
+        models = {"checks": MODELS["judgment"], "image": MODELS["image"], "fix_all": MODELS["fix_problems"]}
+        return {"images": sorted(image_agents.running), "fix_all": fix_all, "checks": claude_judge.activity(), "models": models}
     raise ValueError(f"No topic {topic}: one of {', '.join(TOPICS)}")
 
 
 async def feed(websocket: WebSocket) -> None:
     """The live feed of one browser, until it goes away."""
     # The version of each topic this browser has; None until it is sent.
-    sent = {"repos": None, "jobs": None, "inbox": None, "prs": None, "agents": None, "vms": None, "images": None, "updates": None, "automation": None, "tokens": None, "problems": None, "repo_stats": None}
+    sent = {"repos": None, "jobs": None, "inbox": None, "prs": None, "agents": None, "vms": None, "images": None, "updates": None, "automation": None, "tokens": None, "problems": None, "repo_stats": None, "activity": None}
     # When each big topic last went (time.monotonic()): again only BIG_TOPIC_SECONDS later, with every change since.
     sent_at = {"repos": 0.0, "jobs": 0.0, "inbox": 0.0, "prs": 0.0, "agents": 0.0, "problems": 0.0}
     if CHECK:
@@ -293,6 +307,11 @@ async def feed(websocket: WebSocket) -> None:
             "tokens": token_usage.version,
             "problems": problems.version,
             "repo_stats": repo_stats.version,
+            "activity": (
+                tuple(image_agents.running),
+                bool(problem_fixes.data["runs"]) and problem_fixes.data["runs"][0]["state"] == "running",
+                claude_judge.COUNTS["version"],
+            ),
         }
         # The version is noted before the data is read: a change in between is sent again next tick, never lost.
         messages = []
