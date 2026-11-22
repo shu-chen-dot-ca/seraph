@@ -1,6 +1,7 @@
-"""The Automation page (frontend/src/Automation.tsx): Seraph finds repos, works on them and lets go of them by itself,
-as you, so the repos it works on keep changing: the ones that merge our PRs stay, new ones come in, the ones that don't
-merge leave. The page's settings say how much of that goes on.
+"""Automation (Settings → Automation, frontend/src/Automation.tsx, and the Explore dialog, frontend/src/ExploreDialog.tsx):
+Seraph finds repos, works on them and lets go of them by itself, as you, so the repos it works on keep changing: the
+ones that merge our PRs stay, new ones come in, the ones that don't merge leave. Their settings say how much of that
+goes on.
 
 Its settings and what it did, in AUTOMATION_FILE (DATA_DIR/automation.json):
 
@@ -43,8 +44,8 @@ keep_automation() runs as long as the backend, every CHECK_SECONDS. It works out
 repo to Explore's minimums (explore.py MIN_*: over 1k stars, 40 contributors or more, over 400 closed PRs, over 10 open
 issues, a README in English), so no personal repo stays: once its signals are read, one in Repos that falls short
 leaves (archived when it has a PR of ours, else off Repos and kept as checked by Explore, so it never comes back), and
-so does one in Explore's found list (also one found before these were checked, which a later run checks anew). And while
-on:
+so does one in Explore's found list (also one found before these were checked, which a later run checks anew). On or
+off too, while Add repositories is on, it keeps active_repos repos active (below). And while on:
 - archives a repo that is Not merging (Repos' Archived, repo_list.py): its issues leave the board's Open and Catalog,
   the jobs on its issues with no PR yet stop, and no new PR goes there (repo_automation_api.py keep_drafts). Our open
   PRs there stay and their agents still answer reviews. close_days business days after it archived the repo, the ones
@@ -54,19 +55,18 @@ on:
 - unarchives a repo it archived when one of ours there gets merged after that, unless it is still Not merging.
 - archives a repo that had No issues for leave_days days too. Archived repos stay in Repos, so Explore never adds one
   again.
-- keeps active_repos repos active (in Repos, not archived; MAX_ACTIVE at most). What Explore found goes into Repos at
-  once, the best first: the most PRs merged a day (Explore skips a repo under MIN_MERGED_PER_DAY, explore.py), then AI
-  policy (welcome, disclose, none, unclear; never no_ai), then newcomers (welcomes, ok, few). Each comes with
-  new_repos (AUTO_SETTINGS at first: every level of its Automation on, Add, Queue and Take issues, Questions, Comments and
-  Pull requests), so agents take its issues and send their PRs as you once the reviewer passed them, under its Open PRs at once and
-  Issue levels (repo_automation_api.py). With still too few, it starts an Explore run for the rest (explore.py) with as
-  many workers as GitHub's quota allows, after adding a new type of repo to Explore's profile (Explore.add_type), so it
-  looks wider each time. Not within RUN_PAUSE_MINUTES of a run that ended short.
-Only repos it archived are unarchived or get their PRs closed: one you archived stays yours. Turning it off stops the
-Explore run it started.
+Only repos it archived are unarchived or get their PRs closed: one you archived stays yours.
 
-Add repositories off (add_repos False): nothing goes into Repos from Explore's found list, no Explore run starts, and
-the one it started stops. The rest of Manage repositories goes on.
+Add repositories (add_repos), with Manage repositories on or off: it keeps active_repos repos active (in Repos, not
+archived; MAX_ACTIVE at most). What Explore found goes into Repos at once, the best first: the most PRs merged a day
+(Explore skips a repo under MIN_MERGED_PER_DAY, explore.py), then AI policy (welcome, disclose, none, unclear; never
+no_ai), then newcomers (welcomes, ok, few). Each comes with new_repos (AUTO_SETTINGS at first: every level of its
+Automation on, Add, Queue and Take issues, Questions, Comments and Pull requests), so agents take its issues and send
+their PRs as you once the reviewer passed them, under its Open PRs at once and Issue levels (repo_automation_api.py).
+With still too few, it starts an Explore run for the rest (explore.py) with as many workers as GitHub's quota allows,
+after adding a new type of repo to Explore's profile (Explore.add_type), so it looks wider each time. Not within
+RUN_PAUSE_MINUTES of a run that ended short. Off: nothing goes into Repos from Explore's found list, no Explore run
+starts, and the one it started stops.
 
 Take new issues off (take_new False, on or off): agents take no new issues from the Issues board's Catalog
 (backend/issues_api.py take_from_catalog), not even ours; the cards wait there until it is on again. Everything else goes
@@ -77,7 +77,7 @@ repos in that column, ours too (backend/issues_api.py take_from_catalog); what i
 /api/automation/take_from sets one.
 
 The page's settings, and where each is obeyed:
-- Manage repositories (on): everything above that adds, archives and closes.
+- Manage repositories (on): everything above that archives and closes.
 - Add repositories (add_repos): above.
 - Take new issues (take_new): above.
 - Create pull requests, Reply to reviews and comments, Pull requests per day, Open pull requests and Open pull requests
@@ -389,10 +389,60 @@ async def automate() -> None:
     if leave_removed or any(name in short for name in found):
         explore.save_checked()
 
-    if not automation["on"]:
-        # Its Explore run stops with it.
+    # Keep active_repos active: what Explore found goes into Repos, the best first. With Manage repositories on or off; not
+    # with Add repositories off: nothing is added, and the Explore run it started stops.
+    archived = repos.archived()
+    room = automation["active_repos"] - len([item for item in repos.items() if item["full_name"] not in archived])
+    if not automation["add_repos"]:
+        room = 0
         if explore.run is not None and explore.run["status"] == "running" and explore.run["started_at"] == automation["run"]:
             explore.stop()
+    ranked = []
+    for entry in explore.found:
+        # Only the AI policies the Explore dialog allows (never no_ai), and at least its Minimum stars.
+        if entry["ai_policy"] not in automation["ai_policies"]:
+            continue
+        if automation["min_stars"] is not None and entry["stars"] < automation["min_stars"]:
+            continue
+        newcomers = len(NEWCOMERS_ORDER)
+        if entry["newcomers"] in NEWCOMERS_ORDER:
+            newcomers = NEWCOMERS_ORDER.index(entry["newcomers"])
+        activity = (entry.get("signals") or {}).get("activity") or {}
+        per_day = (activity.get("prs_merged_month") or 0) / 30
+        ranked.append((-per_day, POLICY_ORDER.index(entry["ai_policy"]), newcomers, entry["name"]))
+    ranked.sort()
+    if room > 0 and ranked:
+        notes = {entry["name"]: entry["note"] for entry in explore.found}
+        added = await explore.approve([each[3] for each in ranked[:room]])
+        settings = {}
+        if SETTINGS_FILE.is_file():
+            settings = json.loads(SETTINGS_FILE.read_text())
+        for name in added:
+            settings[name] = copy.deepcopy(automation["new_repos"])
+            log.append({"at": at, "repo": name, "what": "Added", "why": notes.get(name, "")})
+        SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+        AUTOMATION_VERSION["version"] += 1
+        room -= len(added)
+
+    # Still too few: an Explore run for the rest, on a new type of repo too. Not right after one that ended short.
+    run = explore.run
+    rested = run is None or run["ended_at"] is None or now - datetime.fromisoformat(run["ended_at"]) > timedelta(minutes=RUN_PAUSE_MINUTES)
+    if run is not None and run["count"] is not None and run["found"] >= run["count"]:
+        rested = True
+    if room > 0 and rested and (run is None or run["status"] != "running"):
+        try:
+            await explore.add_type()
+        except Exception:
+            traceback.print_exc()
+        # Workers: as many as GitHub's quota allows (None). It skips the AI policies the page turned off too.
+        filters = dict(EXPLORE_FILTERS)
+        for policy in POLICY_ORDER:
+            if policy not in automation["ai_policies"]:
+                filters[f"policy:{policy}"] = "exclude"
+        explore.start(room, None, None, filters)
+        automation["run"] = explore.run["started_at"]
+
+    if not automation["on"]:
         automation["log"] = (automation["log"] + log)[-LOG_KEPT:]
         if json.dumps(automation) != before:
             AUTOMATION_FILE.write_text(json.dumps(automation, indent=2))
@@ -470,59 +520,6 @@ async def automate() -> None:
         automation["closed"].append(pr["id"])
         pr_tracking.wanted = True
         log.append({"at": at, "repo": pr["repo"], "what": f"Closed #{pr['number']}", "why": f"Still open {rules['close_days']} business days after the repo was archived"})
-
-    # Keep active_repos active: what Explore found goes into Repos, the best first. Not with Add repositories off: nothing
-    # is added, and the Explore run it started stops.
-    archived = repos.archived()
-    room = automation["active_repos"] - len([item for item in repos.items() if item["full_name"] not in archived])
-    if not automation["add_repos"]:
-        room = 0
-        if explore.run is not None and explore.run["status"] == "running" and explore.run["started_at"] == automation["run"]:
-            explore.stop()
-    ranked = []
-    for entry in explore.found:
-        # Only the AI policies the Automation page allows (never no_ai), and at least its Minimum stars.
-        if entry["ai_policy"] not in automation["ai_policies"]:
-            continue
-        if automation["min_stars"] is not None and entry["stars"] < automation["min_stars"]:
-            continue
-        newcomers = len(NEWCOMERS_ORDER)
-        if entry["newcomers"] in NEWCOMERS_ORDER:
-            newcomers = NEWCOMERS_ORDER.index(entry["newcomers"])
-        activity = (entry.get("signals") or {}).get("activity") or {}
-        per_day = (activity.get("prs_merged_month") or 0) / 30
-        ranked.append((-per_day, POLICY_ORDER.index(entry["ai_policy"]), newcomers, entry["name"]))
-    ranked.sort()
-    if room > 0 and ranked:
-        notes = {entry["name"]: entry["note"] for entry in explore.found}
-        added = await explore.approve([each[3] for each in ranked[:room]])
-        settings = {}
-        if SETTINGS_FILE.is_file():
-            settings = json.loads(SETTINGS_FILE.read_text())
-        for name in added:
-            settings[name] = copy.deepcopy(automation["new_repos"])
-            log.append({"at": at, "repo": name, "what": "Added", "why": notes.get(name, "")})
-        SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
-        AUTOMATION_VERSION["version"] += 1
-        room -= len(added)
-
-    # Still too few: an Explore run for the rest, on a new type of repo too. Not right after one that ended short.
-    run = explore.run
-    rested = run is None or run["ended_at"] is None or now - datetime.fromisoformat(run["ended_at"]) > timedelta(minutes=RUN_PAUSE_MINUTES)
-    if run is not None and run["count"] is not None and run["found"] >= run["count"]:
-        rested = True
-    if room > 0 and rested and (run is None or run["status"] != "running"):
-        try:
-            await explore.add_type()
-        except Exception:
-            traceback.print_exc()
-        # Workers: as many as GitHub's quota allows (None). It skips the AI policies the page turned off too.
-        filters = dict(EXPLORE_FILTERS)
-        for policy in POLICY_ORDER:
-            if policy not in automation["ai_policies"]:
-                filters[f"policy:{policy}"] = "exclude"
-        explore.start(room, None, None, filters)
-        automation["run"] = explore.run["started_at"]
 
     automation["log"] = (automation["log"] + log)[-LOG_KEPT:]
     if json.dumps(automation) != before:
