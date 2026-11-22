@@ -73,7 +73,7 @@ def answers(monkeypatch):
     """What Claude and GitHub answer Explore: the quick look's verdict, the searches Claude plans for the profile's types,
     the new type it names, and a search's results. readmes and searches list what was read."""
     answers = {
-        "verdict": {"is_project": True, "english": True, "agent_can_do": True, "harmless": True, "type": "Dev tools", "fit": "weak", "note": "A CLI that checks data files."},
+        "verdict": {"is_project": True, "agent_can_do": True, "harmless": True, "excluded": False, "type": "Dev tools", "fit": "weak", "note": "A CLI that checks data files."},
         "plan": {"types": []},
         "new_type": {"name": "Data tools", "about": "Libraries that read and write data files.", "queries": ["topic:csv stars:1001..15000"]},
         "results": {"items": []},
@@ -139,7 +139,6 @@ def repos(tmp_path, monkeypatch):
         ({"contributors_total": 39}, "Under 40 contributors"),
         ({"merged_prs_total": 300, "closed_prs_total": 100}, "400 closed PRs or fewer"),
         ({"open_issues_total": 10}, "10 open issues or fewer"),
-        ({"readme_english": False}, "README not in English"),
         ({"archived": True}, "Archived"),
         ({"fork": True}, "A fork"),
         ({"commits_30d": 0}, "No commits in 30 days"),
@@ -201,9 +200,8 @@ def test_a_repo_counts_for_the_type_claude_put_it_under(finder, answers):
     "answer, reason",
     [
         ("is_project", "Not a code project"),
-        ("english", "README not in English"),
         ("agent_can_do", "An agent can't do it alone"),
-        # A game, a game engine or mod, anything political: out of scope.
+        # Made to harm people or systems, or takes no outside contributions: out of scope.
         ("harmless", "Out of scope"),
     ],
 )
@@ -214,6 +212,17 @@ def test_the_quick_look_keeps_a_repo_out_for_good(finder, answers, answer, reaso
 
     assert finder.run["skipped"] == {reason: 1}
     assert finder.checked["acme/tool"]["reason"] == reason
+    assert finder.found == []
+
+
+def test_what_the_exclude_names_is_skipped_but_not_kept(finder, answers):
+    # The Exclude may change, so the repo can be checked again later.
+    answers["verdict"]["excluded"] = True
+
+    asyncio.run(finder.check("dev-tools", "acme/tool"))
+
+    assert finder.run["skipped"] == {"Excluded": 1}
+    assert "acme/tool" not in finder.checked
     assert finder.found == []
 
 
@@ -316,7 +325,7 @@ def test_a_repo_two_searches_find_is_looked_at_once(finder):
 
 def test_searches_never_go_to_1k_stars_or_under(finder, answers):
     queries = ["topic:cli stars:500..15000", "topic:cli language:Rust", "topic:cli stars:2000..9000"]
-    finder.run_profile = {"about": "", "lanes": [{"id": "cli", "label": "CLI", "about": "", "share": 100, "queries": queries}]}
+    finder.run_profile = {"include": "", "exclude": "", "lanes": [{"id": "cli", "label": "CLI", "about": "", "share": 100, "queries": queries}]}
     finder.cursors = {"cli": {"pending": [], "query": 0, "page": 1}}
 
     assert asyncio.run(finder.next_candidate("cli")) is None

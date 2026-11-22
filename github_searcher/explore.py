@@ -8,19 +8,26 @@ takes it off the found list (nothing is blocked: a later run may find it again).
 stays in the found list, also through later runs and backend restarts (DATA_DIR/explore_found.json), and later
 runs don't find it again. Explore never changes a repo that is already listed.
 
-Where it looks: the profile (DATA_DIR/explore_profile.json) is what the user writes, "about" (who they are,
-what they like), and their types of repo, each a name and a few words on what it is (the default, the user's own
-profile of 2026-10-27: Linux desktop, AI & harness, LLM tooling and Dev tools). The types are the tags that
+What it looks for: SYSTEM_PROMPT, what every repo must be to work with our system (agents alone in a Linux VM that
+prove each fix there; in the code, the same for everyone), and on top the user's own Include and Exclude, the kinds of
+repos they want and the kinds they don't, in their words (the Explore dialog, frontend/src/ExploreDialog.tsx; set_prompts).
+Those two are the user's own, so they live only in the profile (DATA_DIR/explore_profile.json, outside git), never in
+the code: the profile is {"include", "exclude", "planned_for": the Include its types' searches were planned for,
+"lanes"}.
+
+Where it looks: the profile's types of repo, each a name and a few words on what it is (the default: Linux desktop, AI
+& harness, LLM tooling and Dev tools). The types are the tags that
 classify repos: Explore puts each repo it finds under one, and agents give one to the repos they add (work_tools.py repos_add). In the code a type is a
-lane: when the profile is saved, Claude plans each one's GitHub repo searches (set_profile), and the finds are split
+lane: Claude plans each one's GitHub repo searches for the Include (set_profile), and the finds are split
 evenly between them. The run keeps the lanes near their shares: the next candidate comes from the lane furthest below
 its share, counting the repos of that type already active in Repos (have), so the types with the fewest fill first.
-The Dashboard's Automation (backend/automation_api.py) adds a new type before each run it starts (add_type: Claude names
-one more kind of software, unlike the ones there, and plans its searches), up to MAX_TYPES, so it looks wider each time.
+Automation (backend/automation_api.py) adds a new type before each run it starts (add_type: Claude names one more kind
+of software, unlike the ones there, and plans its searches), up to MAX_TYPES, so it looks wider each time; when the
+Include changed since the searches were planned, it plans them all again first (planned_for).
 Every search gets SEARCH_SUFFIX (not archived, pushed in the last 30 days) and runs most recently updated
 first, a page of 100 at a time: not most stars first, and no famous repos looked at first, so Explore doesn't start
-from fame. The default star range is over 1k to 15k, and a search's stars never go to MIN_STARS or under (a lower bound
-under it is raised, a search with none gets one).
+from fame. A search's stars keep to what the Include asks for, and never go to MIN_STARS or under (a lower bound
+under it is raised, a search with none gets one): MIN_STARS is the system's own floor, under whatever the Include says.
 
 What it skips before any heavy work: repos it already looked at in this run, repos in Repos or Tracked (archived ones
 too), repos already in the found list, and repos an earlier run checked and found not to fit (checked: kept in
@@ -31,21 +38,19 @@ allows, which the signals use most: MAX_WORKERS with it full, fewer as it goes d
 1. its numbers (repo_signals.py: a few GitHub calls, no Claude yet);
 2. skipped if it falls short of the minimums, so no personal repo gets in: over MIN_STARS stars, MIN_CONTRIBUTORS
    contributors or more (everyone who ever contributed; not known for a huge history, which passes), over
-   MIN_CLOSED_PRS closed PRs (merged or not), over MIN_OPEN_ISSUES open issues, and a README whose main language is
-   English (repo_signals.py readme_english: a Chinese translation besides is fine, a Chinese README isn't; Claude checks
-   it again below, for languages in the Latin script). The Dashboard's Automation (backend/automation_api.py) holds every
+   MIN_CLOSED_PRS closed PRs (merged or not) and over MIN_OPEN_ISSUES open issues. Automation (backend/automation_api.py) holds every
    repo in Repos and the found list to them too. Skipped too if it is archived or a fork, nothing was committed in 30 days, no outside contributor's PR was merged
    in 90 days, most outside PRs are closed unmerged (under MIN_MERGE_RATE), MAX_CLOSED_SHARE or more of all its PRs
    ever were closed without a merge (closed / all), it merges fewer than MIN_MERGED_PER_DAY PRs a day (anyone's, the
    monthly average over 90 days), or newcomers' first PRs are turned away or left waiting (repo_signals.py's newcomers
    tag): a PR of yours would likely go nowhere there. A slow first reply alone (over a week) doesn't skip a repo;
 3. at the same time, Claude reads its AI policy and its review atmosphere (repo_signals.complete), and its
-   README against the profile (claude_judge.py): is it a project people contribute code to (not a link list,
-   tutorial or course), can an AI agent alone work on it (build, run and test it in a Linux VM, and prove a fix there:
-   no special hardware or other OS, no paid keys, no agreement a person must sign), is it harmless (nothing political
-   or against another country's laws, no games, nothing made to harm people or systems, and it takes outside
-   contributions),
-   which of the user's types it is, how well it fits (one of FIT_LEVELS, fixed so repos
+   README against SYSTEM_PROMPT and the Include and Exclude (claude_judge.py): is it a project people contribute code
+   to (not a link list, tutorial or course), can an AI agent alone work on it (build, run and test it in a Linux VM, and
+   prove a fix there: light enough, no special hardware or other OS, no paid keys, no agreement a person must sign), is
+   it harmless (nothing made to harm people or systems, and it takes outside contributions), is it something the
+   Exclude names (skipped, and not kept as checked, so a changed Exclude can let it in later),
+   which of the user's types it is, how well it fits the Include (one of FIT_LEVELS, fixed so repos
    rank the same way every time; kept as its number), one line for its note. A quick look: one answer, no tools;
 4. the closer look, only for a repo the quick look didn't find a weak fit (and that the fit filters keep), so no time
    goes into one that clearly doesn't match: Claude reads its open issues, the comments on them and its recent
@@ -121,7 +126,8 @@ DATA_DIR = PROJECT_ROOT / os.environ["DATA_DIR"]
 SERVE_STAT = Path(f"/proc/{os.getppid()}/stat").read_text()
 SERVE_ID = f"{os.getppid()}:{SERVE_STAT.rsplit(')', 1)[1].split()[19]}"
 DEFAULT_PROFILE = {
-    "about": "",
+    "include": "",
+    "exclude": "",
     "lanes": [
         {
             "id": "linux-desktop",
@@ -203,6 +209,20 @@ DEFAULT_PROFILE = {
         },
     ],
 }
+# What every repo must be to work with our system: the same for everyone, so it is in the code. The user's own Include
+# and Exclude (the profile, DATA_DIR) come on top of it.
+SYSTEM_PROMPT = (
+    "Repositories are worked on by AI agents alone, with no person in the loop: each agent takes an issue, fixes it in a "
+    "Linux VM (a normal desktop's CPUs and memory, one NVIDIA GPU at most), proves there that the fix works and sends the "
+    "pull request. So a repository works with this system only when it is a project people contribute code to (a "
+    "library, app, framework or tool; not a list of links, a tutorial, course or book, personal dotfiles, or a "
+    "collection of data or prompts) that takes outside contributions, and an agent alone can work on it in that VM: "
+    "light enough to build and run there, with tests that run in reasonable time (not hours), and a change whose effect "
+    "can be observed and verified there (a test, a command's output, a web page or a desktop window). It doesn't work "
+    "when it needs special hardware or devices, a phone or another operating system, paid accounts, keys or services "
+    "that can't be mocked, or a contributor agreement a person has to sign (a DCO sign-off is fine), or when it is made "
+    "to harm or trouble people or systems."
+)
 SEARCH_SUFFIX = "archived:false pushed:>{since}"
 # GitHub gives at most 10 pages of 100 for one search.
 MAX_PAGES = 10
@@ -241,7 +261,6 @@ KEPT_REASONS = [
     "Under 40 contributors",
     "400 closed PRs or fewer",
     "10 open issues or fewer",
-    "README not in English",
     "Archived",
     "A fork",
     "No commits in 30 days",
@@ -355,9 +374,9 @@ class Explore:
         self.profile = copy.deepcopy(DEFAULT_PROFILE)
         if self.path.exists():
             self.profile = json.loads(self.path.read_text())
-        # A profile saved before "about": its interests become it.
-        if "about" not in self.profile:
-            self.profile = {"about": self.profile.get("interests", ""), "lanes": self.profile["lanes"]}
+        # A profile from before the Include and Exclude: empty ones.
+        self.profile.setdefault("include", "")
+        self.profile.setdefault("exclude", "")
         # The run's own copy, so changing the profile meanwhile doesn't change a run in progress.
         self.run_profile = copy.deepcopy(self.profile)
         # The current or last run (None before the first), what the page shows.
@@ -459,13 +478,12 @@ class Explore:
         self.save_found()
         return removed
 
-    async def set_profile(self, about: str, types: list[dict]) -> None:
-        """Replace the profile: about, and the types ({"label", "about"} each). Claude plans each type's
-        searches first, so this takes a little while. ValueError when something is missing or Claude gives no
-        usable plan; the run in progress keeps the old profile."""
-        about = about.strip()
-        if about == "":
-            raise ValueError("Write something about you.")
+    async def set_profile(self, include: str, types: list[dict]) -> None:
+        """Replace the profile's Include and its types ({"label", "about"} each); the Exclude stays. Claude plans each
+        type's searches for them first, so this takes a little while. ValueError when something is missing or Claude
+        gives no usable plan; the run in progress keeps the old profile."""
+        if include.strip() == "":
+            raise ValueError("Write what kinds of repositories you want.")
         if not types or len(types) > MAX_TYPES:
             raise ValueError(f"Have 1 to {MAX_TYPES} types of repo.")
         lanes = []
@@ -490,17 +508,17 @@ class Explore:
         type_lines = "\n".join(f"- {lane['label']}: {lane['about']}" for lane in lanes)
         prompt = (
             "A developer looks for open-source projects to contribute to. Plan the GitHub searches that find them.\n\n"
-            f"About them:\n{about}\n\n"
+            f"{SYSTEM_PROMPT}\n\n"
+            f"What they want:\n{include}\n\n"
+            f"What they exclude:\n{self.profile['exclude'] or 'Nothing.'}\n\n"
             f"The types of project they want, by name:\n{type_lines}\n\n"
             "For each type, by its name:\n"
             "- queries: 3 to 8 GitHub repository searches (the q of GET /search/repositories), most promising first, "
-            'like "topic:mcp stars:1001..15000" or "stars:1001..15000 good-first-issues:>2 language:Python". Use '
+            'like "topic:mcp stars:>1000" or "stars:>5000 good-first-issues:>2 language:Python". Use '
             "qualifiers (topic:, language:, stars:, good-first-issues:, help-wanted-issues:, in:description); more than "
             "a few words of plain text finds little. Each returns up to 1000 repos, most recently updated first. Keep "
-            "to the star range they give; with none, over 1k to 15k stars (never 1k or fewer): mid-size projects where an "
-            'outside PR gets noticed, not the famous ones or personal ones. "archived:false pushed:>(30 days ago)" is added to '
-            'each, so leave '
-            "those out."
+            "to the stars they want; never 1k or fewer (personal projects). "
+            '"archived:false pushed:>(30 days ago)" is added to each, so leave those out.'
         )
         try:
             plan = await judge(prompt, PLAN_SCHEMA, "medium", "explore_plan")
@@ -512,7 +530,18 @@ class Explore:
                     lane["queries"] = [query.strip() for query in planned["queries"] if query.strip() != ""][:8]
         if all(not lane["queries"] for lane in lanes):
             raise ValueError("Claude's plan has nothing to search. Say a bit more about each type.")
-        self.profile = {"about": about, "lanes": lanes}
+        self.profile = {"include": include, "exclude": self.profile["exclude"], "planned_for": include, "lanes": lanes}
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_name(self.path.name + ".tmp")
+        temporary.write_text(json.dumps(self.profile, indent=2))
+        temporary.replace(self.path)
+        self.changed()
+
+    def set_prompts(self, include: str, exclude: str) -> None:
+        """The Explore dialog's Include and Exclude, kept in the profile (DATA_DIR, never in the code). A run in progress
+        keeps its own; Automation plans the types' searches for a new Include before the next run it starts."""
+        self.profile["include"] = include
+        self.profile["exclude"] = exclude
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_name(self.path.name + ".tmp")
         temporary.write_text(json.dumps(self.profile, indent=2))
@@ -528,25 +557,21 @@ class Explore:
             return None
         type_lines = "\n".join(f"- {lane['label']}: {lane['about']}" for lane in lanes)
         prompt = (
-            "A developer contributes to open-source projects with AI agents that do all the work: each fixes an issue in a "
-            "Linux VM (one NVIDIA GPU at most), proves the fix there (build, run, tests) and sends the pull request.\n\n"
-            f"About the developer:\n{self.profile['about'] or 'Nothing written.'}\n\n"
+            "A developer contributes to open-source projects with AI agents.\n\n"
+            f"{SYSTEM_PROMPT}\n\n"
+            f"What they want:\n{self.profile['include'] or 'Nothing written.'}\n\n"
+            f"What they exclude:\n{self.profile['exclude'] or 'Nothing.'}\n\n"
             f"The types of project they look in already:\n{type_lines}\n\n"
-            "Name one more type of software, unlike all of these, so they contribute to a wider range of projects. Any "
-            "kind of software or code is fine (apps, libraries, frameworks, tools, data, science, web, systems, ...) as "
-            "long as an AI agent alone can build it, run it and check a fix in that VM: no special hardware, phones or "
-            "other operating systems, no paid accounts or keys it can't mock. Nothing political, politically sensitive "
-            "or activist, nothing against another country's laws, such as China's, nothing made to harm people or "
-            "systems, and no games: no game, game engine, mod, game server or plugin, emulator or ROM manager, or tool "
-            "made for playing games.\n\n"
+            "Name one more type of software, unlike all of these, so they contribute to a wider range of projects: any "
+            "kind of software or code (apps, libraries, frameworks, tools, data, science, web, systems, ...) that works "
+            "with the system above, fits what they want and is nothing they exclude.\n\n"
             "name: a short plain name (2 or 3 words).\n"
             "about: one or two sentences on what it is and how a fix there is seen and checked.\n"
             "queries: 3 to 8 GitHub repository searches (the q of GET /search/repositories), most promising first, "
-            'like "topic:mcp stars:1001..15000" or "stars:1001..15000 good-first-issues:>2 language:Python". Use '
+            'like "topic:mcp stars:>1000" or "stars:>5000 good-first-issues:>2 language:Python". Use '
             "qualifiers (topic:, language:, stars:, good-first-issues:, help-wanted-issues:, in:description); more than "
             "a few words of plain text finds little. Each returns up to 1000 repos, most recently updated first. Keep to "
-            "over 1k to 15k stars (never 1k or fewer): mid-size projects where an outside PR gets noticed, not the famous "
-            "ones or personal ones. "
+            "the stars they want; never 1k or fewer (personal projects). "
             '"archived:false pushed:>(30 days ago)" is added to each, so leave those out.'
         )
         answer = await judge(prompt, TYPE_SCHEMA, "medium", "explore_type")
@@ -561,7 +586,7 @@ class Explore:
         # An even split again; the first types get what doesn't divide.
         for index, lane in enumerate(lanes):
             lane["share"] = 100 // len(lanes) + (1 if index < 100 % len(lanes) else 0)
-        self.profile = {"about": self.profile["about"], "lanes": lanes}
+        self.profile["lanes"] = lanes
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_name(self.path.name + ".tmp")
         temporary.write_text(json.dumps(self.profile, indent=2))
@@ -854,8 +879,6 @@ class Explore:
                 reason = "400 closed PRs or fewer"
             elif signals["open_issues_total"] <= MIN_OPEN_ISSUES:
                 reason = "10 open issues or fewer"
-            elif signals["readme_english"] is False:
-                reason = "README not in English"
             elif signals["archived"]:
                 reason = "Archived"
             elif signals["fork"]:
@@ -936,8 +959,10 @@ class Explore:
             topics = ", ".join(signals["topics"]) or "none"
             type_lines = "\n".join(f"- {each['label']}: {each['about']}" for each in profile["lanes"])
             prompt = (
-                "A developer is looking for open-source projects to contribute to. About them:\n"
-                f"{profile['about']}\n\n"
+                "A developer is looking for open-source projects to contribute to.\n\n"
+                f"{SYSTEM_PROMPT}\n\n"
+                f"What they want:\n{profile.get('include') or 'Nothing written.'}\n\n"
+                f"What they exclude:\n{profile.get('exclude') or 'Nothing.'}\n\n"
                 f"The types of project they want, by name:\n{type_lines}\n\n"
                 f"This project came up in the searches for {lane['label']}.\n\n"
                 f"Project: {name}, {signals['stars']} stars, language {signals['language'] or 'unknown'}, topics {topics}.\n"
@@ -947,20 +972,19 @@ class Explore:
                 "is_project: true when people contribute code to it (a library, app, framework or tool); false for lists of "
                 "links (awesome lists), tutorials, courses, books, interview prep, personal dotfiles or configs, and "
                 "collections of data or prompts.\n"
-                "english: true when the README is written mainly in English (a translation into another language besides, "
-                "linked or further down, is fine); false when its main text is in another language.\n"
-                "agent_can_do: true when an AI agent alone could work on it in a Linux VM (one NVIDIA GPU at most): build it, "
-                "run it and its tests, and show there that a fix works, with a clear way to develop and check a change (the "
-                "README or contributing guide says how to build and test, or the project makes it plain). False when it "
-                "needs special hardware, devices, a phone or another operating system, paid accounts, keys or services it "
-                "can't mock, or a contributor agreement a person has to sign (a DCO sign-off is fine).\n"
-                "harmless: false when it is political, politically sensitive or activist, goes against another country's "
-                "laws, such as China's, is a game or made for games (a game engine, mod, game server or plugin, emulator "
-                "or ROM manager, launcher, or compatibility layer for running games), is made to harm or trouble people "
-                "or systems, or says it doesn't take outside contributions; true otherwise.\n"
+                "agent_can_do: true when it works with the system above: an AI agent alone could work on it in that VM, "
+                "build it, run it and its tests in reasonable time, and show there that a fix works, with a clear way to "
+                "develop and check a change (the README or contributing guide says how to build and test, or the project "
+                "makes it plain). False when it is too heavy for the VM, or needs special hardware, devices, a phone or "
+                "another operating system, paid accounts, keys or services it can't mock, or a contributor agreement a "
+                "person has to sign (a DCO sign-off is fine).\n"
+                "harmless: false when it is made to harm or trouble people or systems, or says it doesn't take outside "
+                "contributions; true otherwise.\n"
+                "excluded: true when it is anything they exclude (by what it is, what it is for, who makes it, or what its "
+                "README shows); false otherwise.\n"
                 "type: the name of the type it is (the closest one, also when it came up in another type's searches).\n"
-                "fit: how well it matches what they like and that type: strong (exactly what they want), good (clearly in "
-                "their interests), some (related, but not what they're after), weak (hardly matches).\n"
+                "fit: how well it matches what they want and that type: strong (exactly what they want), good (clearly "
+                "what they want), some (related, but not what they're after), weak (hardly matches).\n"
                 "note: one short line (at most 120 characters) for the developer: what the project is and why it fits or "
                 "doesn't. Plain words, no hype."
             )
@@ -968,14 +992,14 @@ class Explore:
                 "type": "object",
                 "properties": {
                     "is_project": {"type": "boolean"},
-                    "english": {"type": "boolean"},
                     "agent_can_do": {"type": "boolean"},
                     "harmless": {"type": "boolean"},
+                    "excluded": {"type": "boolean"},
                     "type": {"type": "string", "enum": [each["label"] for each in profile["lanes"]]},
                     "fit": {"type": "string", "enum": list(FIT_LEVELS)},
                     "note": {"type": "string"},
                 },
-                "required": ["is_project", "english", "agent_can_do", "harmless", "type", "fit", "note"],
+                "required": ["is_project", "agent_can_do", "harmless", "excluded", "type", "fit", "note"],
             }
             # The fit, and the repo's AI policy and review atmosphere (unless a filter read them already), all at once.
             if judged:
@@ -984,15 +1008,17 @@ class Explore:
                 verdict, signals = await asyncio.gather(judge(prompt, schema, "medium", "explore_fit"), self.repo_signals.complete(name, signals))
             if not verdict["is_project"]:
                 reason = "Not a code project"
-            elif not verdict["english"]:
-                reason = "README not in English"
             elif not verdict["agent_can_do"]:
                 reason = "An agent can't do it alone"
             elif not verdict["harmless"]:
                 reason = "Out of scope"
-            if reason:
+            elif verdict["excluded"]:
+                reason = "Excluded"
+            # Excluded isn't kept: the Exclude may change.
+            if reason in KEPT_REASONS:
                 self.checked[name.lower()] = {"at": datetime.now(UTC).isoformat(), "reason": reason}
                 self.save_checked()
+            if reason:
                 run["skipped"][reason] = run["skipped"].get(reason, 0) + 1
                 return
             fit_tag = "fit:" + verdict["fit"]
@@ -1024,14 +1050,15 @@ class Explore:
                     maxTurns=READER_TURNS,
                 )
                 look_prompt = (
-                    "A developer is looking for open-source projects to contribute to. About them:\n"
-                    f"{profile['about']}\n\n"
+                    "A developer is looking for open-source projects to contribute to.\n\n"
+                    f"What they want:\n{profile.get('include') or 'Nothing written.'}\n\n"
+                    f"What they exclude:\n{profile.get('exclude') or 'Nothing.'}\n\n"
                     f"Project: {name}, {signals['stars']} stars, language {signals['language'] or 'unknown'}, their type "
                     f"{verdict['type']}.\nDescription: {signals['description'] or 'none'}\n"
                     f"A quick look at its README found it a {verdict['fit']} fit: {verdict['note']}\n\n"
                     "Now look at what working on it would be like, on GitHub, before you settle the fit:\n"
                     f"- its open issues (search_issues 'repo:{name} is:issue is:open', also with label:\"good first issue\" "
-                    "or label:\"help wanted\"): are there real bugs or features in what the developer likes that nobody "
+                    "or label:\"help wanted\"): are there real bugs or features in what the developer wants that nobody "
                     "has taken yet, clear enough to start on?\n"
                     "- the comments on them: do maintainers answer, and how?\n"
                     f"- its recent PRs from outside contributors ('repo:{name} is:pr is:merged', 'repo:{name} is:pr "
@@ -1040,9 +1067,9 @@ class Explore:
                     "few, hand batches to reader agents (the Agent tool, agent type reader; at most 3, all at once): each "
                     "reads its batch and reports back in a few lines. Keep it short: a few searches and about 10 threads "
                     "in all are enough.\n\n"
-                    "fit: how well it matches what they like, now that you saw its issues and PRs: strong (exactly what "
-                    "they want, with issues they could take and maintainers who answer), good (clearly in their "
-                    "interests), some (related, but not what they're after, or little to work on), weak (hardly "
+                    "fit: how well it matches what they want, now that you saw its issues and PRs: strong (exactly what "
+                    "they want, with issues they could take and maintainers who answer), good (clearly what they "
+                    "want), some (related, but not what they're after, or little to work on), weak (hardly "
                     "matches, or outside contributions go nowhere).\n"
                     "note: one short line (at most 160 characters) for the developer: what the project is, why it fits "
                     "or doesn't, and what its issues and PRs showed. Plain words, no hype."
