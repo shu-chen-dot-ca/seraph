@@ -1,9 +1,9 @@
 /*
-The Settings tab of a VM page (and the Dashboard's ⋯ on a VM): its name, CPU and memory, max desktops, internet,
-autostart, env vars, its image, Graceful shutdown and Delete.
+The Settings tab of a VM page (and the Dashboard's ⋯ on a VM): its name, Shut down, CPU and memory, max desktops,
+internet, autostart, env vars, its image and Delete.
 
-Graceful shutdown: no agent new to the VM gets a desktop, the ones holding one finish, then it shuts down by itself
-(Agents.watch_room). Start or Restart makes it a normal VM again; nothing is deleted.
+Shut down shuts the VM down right away (POST /api/vms/{name}/stop, as the page's Stop), without waiting for the agents
+on it; nothing is deleted.
 
 Most of it reads the live "vms" topic, so a change shows up as soon as the backend has made it.
 The env values are the one thing the live feed leaves out (it only carries the names, so agents and
@@ -58,13 +58,12 @@ export default function VMSettings(props: { name: string }) {
   const [rows, setRows] = useState<EnvRow[]>([]);
   const [envLoaded, setEnvLoaded] = useState(false);
   const [envEdited, setEnvEdited] = useState(false);
-  // Which change is on its way: "rename", "resources", "max_desktops", "internet", "autostart", "env" or "delete".
+  // Which change is on its way: "rename", "shutdown", "resources", "max_desktops", "internet", "autostart", "env" or
+  // "delete".
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [savingImage, setSavingImage] = useState(false);
-  // Graceful shutdown clicked, until the live feed shows it (then the VM's own flag says it).
-  const [scheduling, setScheduling] = useState(false);
   const imagesData = useLive("images");
 
   const vmName = props.name;
@@ -99,13 +98,6 @@ export default function VMSettings(props: { name: string }) {
       stopped = true;
     };
   }, [vmName, envNames, envEdited]);
-
-  const shutdownSet = vm?.graceful_shutdown ?? false;
-  useEffect(() => {
-    if (shutdownSet) {
-      setScheduling(false);
-    }
-  }, [shutdownSet]);
 
   if (vm === undefined) {
     return <div className="p-3 text-muted-foreground">No VM named {props.name}.</div>;
@@ -187,17 +179,16 @@ export default function VMSettings(props: { name: string }) {
     setBusy("");
   }
 
-  // Shows as scheduled at once, with no spinner; only an error puts the button back.
-  async function gracefulShutdown() {
-    setScheduling(true);
+  // Right away, without waiting for the agents on it. The live feed shows it stopping, then stopped.
+  async function shutDown() {
+    setBusy("shutdown");
     setError("");
     try {
-      await api(`/api/vms/${encodeURIComponent(vmName)}/graceful_shutdown`, { method: "POST" });
-      toast.success(`Shutdown scheduled: ${vmName} shuts down once the agents on it are done.`);
+      await api(`/api/vms/${encodeURIComponent(vmName)}/stop`, { method: "POST" });
     } catch (err) {
-      setScheduling(false);
       setError(err instanceof Error ? err.message : String(err));
     }
+    setBusy("");
   }
 
   async function saveEnv() {
@@ -261,6 +252,14 @@ export default function VMSettings(props: { name: string }) {
           <p className="mt-1 text-xs text-muted-foreground">
             Works while it runs. Agents aimed at it and its jobs follow the new name. a-z, 0-9 and -, starting with a letter.
           </p>
+        </section>
+
+        <section>
+          <h2 className="mb-1.5 border-b pb-1 font-semibold">Shut down</h2>
+          <Button variant="outline" size="sm" onClick={shutDown} disabled={vm.status !== "running" || busy !== ""}>
+            {busy === "shutdown" || vm.status === "stopping" ? <Loader2 className="animate-spin" /> : <Power />}
+            Shut down
+          </Button>
         </section>
 
         <section>
@@ -477,26 +476,6 @@ export default function VMSettings(props: { name: string }) {
             </Button>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">Save as image makes a new image from this VM's disk as it is, for new VMs to start from. The VM must be stopped.</p>
-        </section>
-
-        <section>
-          <h2 className="mb-1.5 border-b pb-1 font-semibold">Shut down</h2>
-          <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={gracefulShutdown}
-              disabled={vm.status !== "running" || vm.graceful_shutdown || scheduling || vmName === FIX_VM}
-            >
-              <Power />
-              {vm.graceful_shutdown || scheduling ? "Shutdown scheduled" : "Graceful shutdown"}
-            </Button>
-            <span className="text-muted-foreground">
-              {vm.graceful_shutdown || scheduling
-                ? "It shuts down once the agents on it are done. Restart cancels it."
-                : "No new agents get it. The ones on it finish, then it shuts down."}
-            </span>
-          </div>
         </section>
 
         <section>
