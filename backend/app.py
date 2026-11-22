@@ -221,7 +221,7 @@ TOPICS = ["repos", "jobs", "inbox", "prs", "agents", "vms", "images", "updates",
 # that check these go once too, empty, or a live copy from before the trim would refuse every new release.
 OLD_TOPICS = ["issues", "tracked", "explore", "github", "issue_drafts", "your_repos", "notifications", "resource", "projects", "crashes"]
 # Each topic's message as last made, by topic: (its version, the JSON text). Every browser's feed sends the same text,
-# so a topic is read and encoded once per change however many browsers are open (the phone and the computer, say).
+# so a topic is read and encoded once per change however many browsers are open.
 TEXTS = {}
 
 

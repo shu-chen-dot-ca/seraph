@@ -49,10 +49,9 @@ Your own repositories, developed one small issue at a time: see [Workflow](workf
 | **Chat** | The chat agent, which turns what you ask for into issues |
 | **Settings** | **Take new issues**, **Approve and merge** (You or Review agent), where pull requests and issues are, workers, **Remove repository** |
 
-## Settings and phone
+## Settings
 
 - **Settings** holds the theme and accent color, environment variables for all VMs, **Secrets** (the GitHub and Claude Code tokens, on this computer or in [AWS Secrets Manager](security.md#secrets-in-aws-secrets-manager)), and **About**, which has **Check for updates** and **Previous version**.
-- **On a phone.** Below 768 px wide, one **Menu** drawer holds all four tabs. A VM page lets you take over a desktop, with an on-screen bar for Esc, Ctrl, Alt, Tab and the arrow keys.
 
 ## Sherpa
 

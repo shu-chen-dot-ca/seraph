@@ -57,7 +57,7 @@
   <!-- You -->
   <rect x="24" y="252" width="148" height="100" rx="12" fill="#c7457a" fill-opacity="0.10" stroke="#c7457a"/>
   <text class="t" x="98" y="284" font-size="17" font-weight="700" text-anchor="middle">You</text>
-  <text class="m" x="98" y="306" font-size="13" text-anchor="middle">browser or phone</text>
+  <text class="m" x="98" y="306" font-size="13" text-anchor="middle">browser</text>
   <text class="m" x="98" y="326" font-size="13" text-anchor="middle">sets the limits</text>
   <line x1="174" y1="285" x2="214" y2="285" stroke="#c7457a" stroke-width="2" marker-end="url(#magenta-head)"/>
 
