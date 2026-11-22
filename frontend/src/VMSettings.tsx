@@ -1,6 +1,6 @@
 /*
 The Settings tab of a VM page (and the Dashboard's ⋯ on a VM): its name, Shut down, CPU and memory, max desktops,
-internet, env vars and Delete. The image it was made from shows in gray by its name in the dialog's title (VMList).
+internet, env vars and Delete. The image it was made from shows in gray by its name in the dialog's title (VMList). No helper lines under the settings (the user's call).
 
 Shut down shuts the VM down right away (POST /api/vms/{name}/stop, as the page's Stop), without waiting for the agents
 on it; nothing is deleted.
@@ -234,9 +234,6 @@ export default function VMSettings(props: { name: string }) {
               Rename
             </Button>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Works while it runs. Agents aimed at it and its jobs follow the new name. a-z, 0-9 and -, starting with a letter.
-          </p>
         </section>
 
         <section>
@@ -282,12 +279,11 @@ export default function VMSettings(props: { name: string }) {
             <span className="tabular-nums">{vm.disk_gb} GB</span>
 
             <span />
-            <div className="flex items-center gap-2">
+            <div>
               <Button size="sm" onClick={applyResources} disabled={!stopped || !resourcesChanged || busy !== ""}>
                 {busy === "resources" && <Loader2 className="animate-spin" />}
                 Apply
               </Button>
-              {!stopped && <span className="text-muted-foreground">Stop the VM to change CPU and memory.</span>}
             </div>
           </div>
         </section>
@@ -314,10 +310,6 @@ export default function VMSettings(props: { name: string }) {
               Save
             </Button>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            The most agents that work in it at once, one per desktop. It has {vm.desktops.length} now; agents add more up to this. Works while it
-            runs.
-          </p>
         </section>
 
         <section>
@@ -326,20 +318,9 @@ export default function VMSettings(props: { name: string }) {
             <label htmlFor={`internet-${vmName}`} className="pt-0.5 text-muted-foreground">
               Internet
             </label>
-            <div>
-              <div className="flex h-5 items-center gap-2">
-                <Switch
-                  id={`internet-${vmName}`}
-                  checked={vm.internet}
-                  disabled={busy !== ""}
-                  onCheckedChange={setInternet}
-                />
-                {busy === "internet" && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Off blocks everything the VM starts itself. The desktop keeps working. This computer and your local network are never
-                reachable from the VM.
-              </p>
+            <div className="flex h-5 items-center gap-2">
+              <Switch id={`internet-${vmName}`} checked={vm.internet} disabled={busy !== ""} onCheckedChange={setInternet} />
+              {busy === "internet" && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
             </div>
           </div>
         </section>
@@ -424,22 +405,14 @@ export default function VMSettings(props: { name: string }) {
               </div>
             </div>
           )}
-          <p className="mt-2 text-xs text-muted-foreground">
-            For secrets, in every shell in the VM (shells opened after saving). Agents see each name and whether it has a value, never the
-            value: command output shows [hidden] instead. They can add empty ones for you to fill in. Env vars for all VMs (in Settings, at
-            the bottom of the sidebar) apply here too; a name set here wins unless it is empty.
-          </p>
         </section>
 
         <section>
           <h2 className="mb-1.5 border-b pb-1 font-semibold">Delete</h2>
-          <div className="flex items-center gap-3">
-            <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)} disabled={busy !== "" || vmName === FIX_VM}>
-              {busy === "delete" ? <Loader2 className="animate-spin" /> : <Trash2 />}
-              Delete {vmName}
-            </Button>
-            <span className="text-muted-foreground">The VM and everything in it are removed. Agents waiting for it are taken out of its queue.</span>
-          </div>
+          <Button variant="destructive" size="sm" onClick={() => setConfirmDelete(true)} disabled={busy !== "" || vmName === FIX_VM}>
+            {busy === "delete" ? <Loader2 className="animate-spin" /> : <Trash2 />}
+            Delete {vmName}
+          </Button>
         </section>
       </div>
 
