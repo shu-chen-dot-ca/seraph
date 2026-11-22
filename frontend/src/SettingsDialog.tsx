@@ -1,9 +1,10 @@
 /*
 The Settings dialog, opened from the Settings card on the Dashboard, or on its Account section from the header's
 Sign in or your GitHub picture (App.tsx): the theme (Light, Dark or System), the accent color, Reset view, Account
-(Account.tsx: your GitHub account, Sign in and Sign out), the env vars for all VMs, Secrets (Secrets.tsx: the GitHub and
-Claude Code tokens, on this computer or in AWS Secrets Manager), then About (About.tsx: the version that runs, Check for updates and Previous version).
-section "account" scrolls the dialog to Account when it opens.
+(Account.tsx: your GitHub account, Sign in and Sign out), Automation (Automation.tsx: its activities and limits), the
+env vars for all VMs, Secrets (Secrets.tsx: the GitHub and Claude Code tokens, on this computer or in AWS Secrets
+Manager), then About (About.tsx: the version that runs, Check for updates and Previous version).
+section "account" scrolls the dialog to Account when it opens, "automation" (the Dashboard's Limits title) to Automation.
 
 Reset view puts every panel and fold back to its default: it reloads the page (App's resetView). Theme, accent and the
 env vars stay.
@@ -28,6 +29,7 @@ import { toast } from "sonner";
 
 import About from "@/About";
 import Account from "@/Account";
+import Automation from "@/Automation";
 import Secrets from "@/Secrets";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -225,6 +227,8 @@ export default function SettingsDialog(props: {
         </section>
 
         <Account open={props.open} scrollTo={props.section === "account"} />
+
+        <Automation open={props.open} scrollTo={props.section === "automation"} />
 
         <section>
           <div className="mb-2 font-medium">Env vars for all VMs</div>

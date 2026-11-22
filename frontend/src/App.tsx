@@ -56,7 +56,8 @@ export default function App() {
   });
   const [accent, setAccent] = useState(document.documentElement.dataset.accent ?? "blue");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // The section Settings opens on: "account" from the header, null from the Dashboard.
+  // The section Settings opens on: "account" from the header, "automation" from the Dashboard's Limits title, null
+  // from its Settings card.
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [updateOpen, setUpdateOpen] = useState(false);
   // Changes only on a check or an update, so App re-renders seldom for it.
@@ -227,7 +228,7 @@ export default function App() {
       <div className="flex h-full flex-col">
         <main className="relative min-h-0 flex-1 overflow-hidden">
           {(page === "dashboard" || page === "vms") && (
-            <Dashboard vm={page === "vms" ? id : null} vmsTab={vmsTab} onOpenSettings={() => openSettings(null)} appButtons={appButtons} />
+            <Dashboard vm={page === "vms" ? id : null} vmsTab={vmsTab} onOpenSettings={openSettings} appButtons={appButtons} />
           )}
           {page === "agents" && id !== null && <AgentChat key={id} agentId={id} />}
         </main>

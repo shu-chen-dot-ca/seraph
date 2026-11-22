@@ -577,8 +577,8 @@ export type UpdatesData = {
   restarting: boolean;
 };
 
-// Automation's settings (AutomationDialog.tsx; backend/automation_api.py; PUT /api/automation takes the same). A limit that is null
-// has none.
+// Automation's settings (Settings → Automation: Automation.tsx, and ExploreDialog.tsx; backend/automation_api.py; PUT
+// /api/automation takes the same). A limit that is null has none.
 export type AutomationData = {
   on: boolean; // Manage repositories: finds and adds repositories, archives the ones that don't merge ours
   add_repos: boolean; // Add repositories: off, nothing new is added
@@ -591,6 +591,10 @@ export type AutomationData = {
   max_agents: number; // at least 1
   min_stars: number | null; // null: any
   ai_policies: string[]; // the AI policies whose repositories may be worked on: "welcome", "disclose", "none", "unclear"
+  // Explore's Include and Exclude: the kinds of repositories you want and don't, in your own words. Not sent by the
+  // backend yet (a stub).
+  include?: string;
+  exclude?: string;
   // The Repositories dialog's column switches (PUT /api/automation/take_from): off, no new issues of its repos.
   take_from: Record<"target" | "prioritized" | "contributed" | "catalog", boolean>;
 };

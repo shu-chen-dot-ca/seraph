@@ -28,12 +28,12 @@ Under the top:
   These two share one time axis: hovering a period in one marks it in both, with its numbers.
 - Limits, kept small (one short line each, two columns of the row): Automation's limits against what is used now,
   amber from 85%: pull requests opened today, open pull requests, the most open in one repository, agents working, and
-  desktops in use of all the running VMs may have. Its title opens the Automation dialog (AutomationDialog.tsx).
+  desktops in use of all the running VMs may have. Its title opens Settings on Automation (Automation.tsx).
   On its right in the same row, Repositories: how many repositories have a card (the list's, and those with a pull
-  request of yours that aren't in it); Automation: how many of its five activities are on; Blockers: how many of the
-  agents' approval requests wait for you (amber when any); Feedback: how much is open; and Settings. A click anywhere
-  on one opens its dialog (the Repositories dialog on its cards, AutomationDialog.tsx, BlockersDialog.tsx,
-  FeedbackDialog.tsx, and SettingsDialog, which App owns: onOpenSettings).
+  request of yours that aren't in it); Explore: On or Off, its Add repositories; Blockers: how many of the agents'
+  approval requests wait for you (amber when any); Feedback: how much is open; and Settings. A click anywhere on one
+  opens its dialog (the Repositories dialog on its cards, ExploreDialog.tsx, BlockersDialog.tsx, FeedbackDialog.tsx, and
+  SettingsDialog, which App owns: onOpenSettings).
 - Virtual machines, with two tabs in its header, the box as tall on both. VMs (#/): every VM's band (VMList.tsx)
   with its CPU, Memory, Internet and Disk cards, how many run, and New VM (NewVMDialog). Images (#/vms?tab=images): the
   images VMs start from (Images.tsx). A VM's name (#/vms/<name>) opens its page (VMPage.tsx: its desktop, Resources
@@ -59,7 +59,7 @@ import { Plus, Settings } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
-import AutomationDialog from "@/AutomationDialog";
+import ExploreDialog from "@/ExploreDialog";
 import BlockersDialog from "@/BlockersDialog";
 import FeedbackDialog from "@/FeedbackDialog";
 import RepositoryCards from "@/RepositoryCards";
@@ -136,7 +136,7 @@ type AgentRow = { key: string; type: string; target: string; url: string | null;
 type Line = { title: string; color: string; values: (number | null)[]; pieces: string[]; right: boolean; stroke: "solid" | "dashed" | "dotted" | "bar"; layer: number };
 
 // vm: the VM whose page is open in the dialog (#/vms/<name>), or null. vmsTab: the Virtual machines tab open.
-export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "images"; onOpenSettings: () => void; appButtons: ReactNode }) {
+export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "images"; onOpenSettings: (section: string | null) => void; appButtons: ReactNode }) {
   const prs = useLive("prs");
   const jobs = useLive("jobs");
   const vms = useLive("vms");
@@ -155,7 +155,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
   // The period the mouse is on, in both charts.
   const [hovered, setHovered] = useState<number | null>(null);
   const [blockersOpen, setBlockersOpen] = useState(false);
-  const [automationOpen, setAutomationOpen] = useState(false);
+  const [exploreOpen, setExploreOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   // The Repositories dialog's open tab ("": the cards), null while it is closed.
   const [reposTab, setReposTab] = useState<string | null>(null);
@@ -475,10 +475,6 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
       repoNames.push(pr.repo.toLowerCase());
     }
   }
-
-  // Automation: its activities that are on, of the five.
-  const activities = [automation.on, automation.add_repos, automation.take_new, automation.send_prs, automation.send_comments];
-  const activitiesOn = activities.filter((on) => on).length;
 
   // Feedback: what is still open.
   const feedbackOpenCount = feedback.filter((item) => item.closed_at === null).length;
@@ -1076,7 +1072,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
           <div className="grid grid-cols-7 gap-3 max-xl:grid-cols-5 max-md:grid-cols-2">
             <div className={cn(WIDGET, "col-span-2 max-xl:col-span-5 max-md:col-span-2")}>
               <div className={WIDGET_HEADER}>
-                <button type="button" className={TITLE} onClick={() => setAutomationOpen(true)}>
+                <button type="button" className={TITLE} onClick={() => props.onOpenSettings("automation")}>
                   Limits
                 </button>
               </div>
@@ -1109,15 +1105,12 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
                 <span className="font-mono text-3xl font-light tabular-nums">{repoNames.length}</span>
               </div>
             </button>
-            <button type="button" className={cn(WIDGET, "text-left hover-line")} onClick={() => setAutomationOpen(true)}>
+            <button type="button" className={cn(WIDGET, "text-left hover-line")} onClick={() => setExploreOpen(true)}>
               <div className={WIDGET_HEADER}>
-                <span className="truncate font-medium">Automation</span>
-                <span className={DETAIL}>Activities</span>
+                <span className="truncate font-medium">Explore</span>
               </div>
               <div className="flex flex-1 flex-col justify-end px-3 pt-4 pb-3">
-                <span className="font-mono text-3xl font-light tabular-nums">
-                  {activitiesOn}/{activities.length}
-                </span>
+                <span className="font-mono text-3xl font-light">{automation.add_repos ? "On" : "Off"}</span>
               </div>
             </button>
             <button type="button" className={cn(WIDGET, "text-left hover-line")} onClick={() => setBlockersOpen(true)}>
@@ -1137,7 +1130,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
                 <span className="font-mono text-3xl font-light tabular-nums">{feedbackOpenCount}</span>
               </div>
             </button>
-            <button type="button" className={cn(WIDGET, "text-left hover-line")} onClick={props.onOpenSettings}>
+            <button type="button" className={cn(WIDGET, "text-left hover-line")} onClick={() => props.onOpenSettings(null)}>
               <div className={WIDGET_HEADER}>
                 <span className="truncate font-medium">Settings</span>
               </div>
@@ -1250,7 +1243,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
           </div>
         </DialogContent>
       </Dialog>
-      <AutomationDialog open={automationOpen} onOpenChange={setAutomationOpen} />
+      <ExploreDialog open={exploreOpen} onOpenChange={setExploreOpen} />
       <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
       <BlockersDialog open={blockersOpen} onOpenChange={setBlockersOpen} />
       <NewVMDialog open={creatingVM} onOpenChange={setCreatingVM} />
