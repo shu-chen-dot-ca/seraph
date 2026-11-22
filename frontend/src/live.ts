@@ -321,6 +321,8 @@ export type AgentSummary = {
   target_vm: string | null;
   status: AgentStatus;
   busy: boolean;
+  waiting: boolean; // out of its turn with messages waiting: it waits for a place among the agents in a turn
+  waiting_for_vm: boolean; // it needs a VM and none takes agents now (none running, or each suspended or shutting down)
   vm: string | null; // the VM it is queued for or holds
   desktop: number | null; // the desktop of that VM it holds or asked for (null: any)
   place: number | null; // 0 = holder, n = place in the queue
@@ -344,7 +346,8 @@ export type AgentSummary = {
   repo: string | null; // a repository's agent (the Workspace tab's Live): the repo it belongs to
   live: LiveSetUp | null; // and how far its set-up is
   project: string | null; // a project's worker or reviewer: the project's repo
-  role: "worker" | "reviewer" | null;
+  role: "worker" | "reviewer" | "closed_prs" | null;
+  model: string; // the Claude model of its turn, or of its last one (github_searcher/claude_models.py)
   workflow: string | null; // one of the Workflow tab's agents: its repository
   workflow_role: "chat" | "worker" | "reviewer" | null;
   priority: boolean; // you gave it priority: its work goes first until its tasks are over
@@ -623,6 +626,16 @@ export type RepoStats = Record<
   }
 >;
 
+// What runs besides the agents (backend/app.py, topic "activity"), for the Dashboard's Agents: the images whose agent is
+// in a turn, a Fix all run (null: none runs), the checks running now (github_searcher/claude_judge.py, how many by what),
+// and the model each of these uses.
+export type ActivityData = {
+  images: string[];
+  fix_all: { started_at: string; items: number; vm: string } | null;
+  checks: Record<string, number>;
+  models: { checks: string; image: string; fix_all: string };
+};
+
 // ---- The live store ----
 
 export type Topics = {
@@ -639,6 +652,7 @@ export type Topics = {
   tokens: TokensData;
   problems: Feedback[];
   repo_stats: RepoStats;
+  activity: ActivityData;
 };
 
 // Empty until the first message, so components never deal with "not loaded yet".
@@ -684,6 +698,7 @@ const store = {
     tokens: { slices: [] },
     problems: [],
     repo_stats: {},
+    activity: { images: [], fix_all: null, checks: {}, models: { checks: "", image: "", fix_all: "" } },
   } as Topics,
   loaded: {} as Partial<Record<keyof Topics, boolean>>,
   connected: false,

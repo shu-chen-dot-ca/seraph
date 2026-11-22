@@ -5,8 +5,7 @@ follows: 1 hour, 1 day, 7, 30 or 90 days (kept while the page is open). A range 
 the clock (5 minutes for an hour, an hour for a day, 6 hours for 7 days, else a day); the last one is the one now. Every
 widget has the same frame: a header with its title, which opens its page, or the Repositories dialog on its tab (Tokens
 and cost has none), and on the right a detail. The Repositories dialog (RepositoryCards.tsx) is the cards and your pull
-requests' tabs; its own card opens it on the cards, the pull request numbers and charts on Open, Merged or Closed, and In
-progress on In progress.
+requests' tabs; its own card opens it on the cards, the pull request numbers and charts on Open, Merged or Closed.
 Every line is drawn as a curve through its points, not straight lines between them. Every point stays at its real
 value; between two points the curve never goes past either one's level (a monotone cubic curve, Steffen's), so it
 shows no peak or dip that isn't in the numbers.
@@ -39,11 +38,18 @@ Under the top:
   with its CPU, Memory, Internet and Disk cards, how many run, and New VM (NewVMDialog). Images (#/vms?tab=images): the
   images VMs start from (Images.tsx). A VM's name (#/vms/<name>) opens its page (VMPage.tsx: its desktop, Resources
   and Settings) in a dialog over the Dashboard; closing it goes back to #/. App.tsx reads these from the address and passes them in (vm, vmsTab).
-- In progress: the fix_issue and follow_up jobs working now, the most VM time first: Issue or pull request (its
-  repository and number only, opens it on GitHub), Step, VM time (how long its agent held a VM desktop for it: tests,
-  builds and all it did there, counted since 11-20; jobs.py vm_seconds), Tokens (all its agent used, in millions: an
-  agent is made per issue, and its pull request's follow-ups go to it), Agent (opens its chat), VM and desktop. The
-  header counts working and queued.
+- Agents: everything doing something now, a row each, working ones first (the most VM time first), then the waiting
+  ones. Type: Fix, Follow-up or Review (the job an agent is on: working, or queued while its agent is in a turn, waits
+  for one, or waits in a VM's line), Other (an agent in a turn with no job), Closed PRs (the one agent that reads
+  merged and closed PRs: how many it has open), Image (an image's agent in a turn), Fix all (Feedback's run), and the
+  checks running now, a row each: the one-off questions to Claude (claude_judge.py). Those that read GitHub, and the
+  closed PRs agent, are GitHub, with what they do in the next column (CHECKS); Explore's own planning is Explore. Then
+  Issue or pull request (its repository and number only, opens it on GitHub), Step (or why it waits: for a turn, in a
+  VM's line, or for a VM while none takes agents: none running, or each suspended or shutting down), VM time (how
+  long its agent held a VM desktop for the job: tests, builds and all it did there, counted since 11-20; jobs.py
+  vm_seconds; Fix all's since it started), Tokens (all its agent used, in millions), Model (the Claude model it runs
+  on), and VM and desktop. What it is doing right now shows on hover. Agents with nothing to do don't show; queued jobs
+  whose agent isn't on them yet are only counted in the header.
 Charts keep fixed heights; a line breaks where there is no number. Lines are drawn back to front by their layer, each
 with a thin edge in the card's color, so where two cross the one in front clearly covers the one behind. Big numbers are short: 1.2K, 3.4M,
 and dollars $0.05, $412, $1.23K.
@@ -65,7 +71,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { JobProgressBar, useNow } from "@/components/ui/job-progress";
-import { api, useConnected, useLive, useLoaded, type AutomationData } from "@/live";
+import { api, useConnected, useLive, useLoaded, type AutomationData, type Job } from "@/live";
 import { cn } from "@/lib/utils";
 
 const MINUTE = 60 * 1000;
@@ -93,7 +99,7 @@ const MERGED = "text-[oklch(55.8%_0.23_302.321)] dark:text-[oklch(62.7%_0.212_30
 const CLOSED = "text-[oklch(57.7%_0.196_27.325)] dark:text-[oklch(63.7%_0.19_25.331)]";
 // A color per model, in the order they first show up.
 const TOKEN_COLORS = ["text-sky-500", "text-amber-500", "text-teal-500", "text-pink-500", "text-lime-500", "text-violet-500", "text-orange-500", "text-rose-500"];
-// The Tokens chart's names for models (others as they are; github_searcher/claude_models.py).
+// The Tokens chart's and the Agents table's names for models (others as they are; github_searcher/claude_models.py).
 const MODEL_NAMES: Record<string, string> = {
   "claude-fable-5-2": "Fable 5.2",
   "claude-opus-5-5": "Opus 5.5",
@@ -104,6 +110,25 @@ const WIDGET = "flex min-w-0 flex-col rounded-sm border bg-card";
 const WIDGET_HEADER = "flex h-9 shrink-0 items-center gap-3 border-b px-3";
 const TITLE = "truncate font-medium hover:underline";
 const DETAIL = "ml-auto shrink-0 text-xs text-muted-foreground tabular-nums";
+// The Agents table's Type, by job kind.
+const JOB_TYPES: Record<string, string> = { fix_issue: "Fix", follow_up: "Follow-up", review: "Review" };
+// The checks' Type and what they do (github_searcher/claude_judge.py, by what); others are GitHub, by their what.
+const CHECKS: Record<string, [string, string]> = {
+  issue_tags: ["GitHub", "Issue tags"],
+  pr_needs_action: ["GitHub", "PR needs action"],
+  catalog_picks: ["GitHub", "Catalog picks"],
+  repo_signals: ["GitHub", "Repo signals"],
+  ai_policy: ["GitHub", "AI policy"],
+  atmosphere: ["GitHub", "Review atmosphere"],
+  issue_scope: ["GitHub", "Issue scope"],
+  explore_fit: ["GitHub", "Explore"],
+  explore_plan: ["Explore", "Search plan"],
+  explore_type: ["Explore", "New repository type"],
+};
+
+// A row of the Agents table. target: its issue or pull request (url on GitHub), or what else it works on. wait: why it
+// waits ("" while it works). tokens: all its agent used (null: not an agent of ours). model: the Claude model it runs on.
+type AgentRow = { key: string; type: string; target: string; url: string | null; job: Job | null; wait: string; vmSeconds: number; tokens: number | null; model: string; vm: string; activity: string };
 
 // A chart's line. pieces: its drawing (SVG paths), broken where a value is missing. right: on the chart's right axis.
 // stroke: dashed for a limit, dotted for a rate on the right axis, bar for bars instead of a line (Cost), behind every
@@ -123,6 +148,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
   const repos = useLive("repos");
   const automationLoaded = useLoaded("automation");
   const usage = useLive("tokens").slices;
+  const activity = useLive("activity");
   const connected = useConnected();
   const now = useNow();
   const [rangeKey, setRangeKey] = useState("7d");
@@ -481,15 +507,99 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
     </Tabs>
   );
 
-  // In progress: the jobs agents work on now, the most VM time first.
-  const agentById: Record<string, (typeof agents)[number]> = {};
-  for (const agent of agents) {
-    agentById[agent.id] = agent;
+  // Agents: everything doing something now, a row each (the module docstring). An agent's job is its working one, else its
+  // oldest queued one, found in one pass over the jobs.
+  const jobOf: Record<string, Job> = {};
+  for (const job of jobs) {
+    if (job.status !== "working" && job.status !== "queued") {
+      continue;
+    }
+    const had = jobOf[job.agent];
+    if (had === undefined || (had.status === "queued" && (job.status === "working" || job.created_at < had.created_at))) {
+      jobOf[job.agent] = job;
+    }
   }
-  const agentJobs = jobs.filter((job) => job.kind === "fix_issue" || job.kind === "follow_up");
-  const working = agentJobs.filter((job) => job.status === "working");
-  working.sort((a, b) => b.vm_seconds - a.vm_seconds);
-  const queued = agentJobs.filter((job) => job.status === "queued").length;
+  const agentRows: AgentRow[] = [];
+  // Queued jobs whose agent isn't on anything yet: only counted.
+  let queued = 0;
+  for (const agent of agents) {
+    if (agent.archived_at !== null) {
+      continue;
+    }
+    const job = jobOf[agent.id];
+    let wait = "";
+    if (agent.waiting) {
+      wait = "Waiting for a turn";
+    }
+    if (agent.place !== null && agent.place > 0) {
+      wait = `Waiting for ${agent.vm}, #${agent.place} in line`;
+    }
+    if (agent.waiting_for_vm) {
+      wait = "Waiting for a VM";
+    }
+    const active = agent.busy || wait !== "" || job?.status === "working";
+    if (!active) {
+      if (job !== undefined) {
+        queued += 1;
+      }
+      continue;
+    }
+    // The closed PRs agent: one row for all the merged and closed PRs it reads.
+    if (agent.role === "closed_prs") {
+      const open = jobs.filter((each) => each.agent === agent.id && (each.status === "working" || each.status === "queued")).length;
+      agentRows.push({ key: agent.id, type: "GitHub", target: `Closed PRs · ${open} PRs`, url: null, job: null, wait: wait, vmSeconds: 0, tokens: agent.tokens_used, model: agent.model, vm: "–", activity: agent.activity });
+      continue;
+    }
+    let type = agent.role === "reviewer" ? "Review" : "Other";
+    let target = "–";
+    let url: string | null = null;
+    if (job !== undefined) {
+      type = JOB_TYPES[job.kind] ?? type;
+      const [repo, number] = (job.issue ?? job.thread ?? "").split("#");
+      if (number !== undefined) {
+        target = `${repo} #${number}`;
+        url = `https://github.com/${repo}/issues/${number}`;
+      }
+    }
+    let vm = agent.vm ?? job?.vm ?? "–";
+    if (agent.vm !== null && agent.desktop !== null) {
+      vm += ` · ${agent.desktop}`;
+    }
+    agentRows.push({ key: agent.id, type: type, target: target, url: url, job: job ?? null, wait: wait, vmSeconds: job?.vm_seconds ?? 0, tokens: agent.tokens_used, model: agent.model, vm: vm, activity: agent.activity });
+  }
+  for (const name of activity.images) {
+    agentRows.push({ key: `image:${name}`, type: "Image", target: name, url: null, job: null, wait: "", vmSeconds: 0, tokens: null, model: activity.models.image, vm: "–", activity: `Changing ${name}'s image.yaml` });
+  }
+  // The checks running now, a row each.
+  for (const [what, count] of Object.entries(activity.checks)) {
+    const [type, role] = CHECKS[what] ?? ["GitHub", what.replaceAll("_", " ")];
+    for (let i = 0; i < count; i++) {
+      agentRows.push({ key: `check:${what}:${i}`, type: type, target: role, url: null, job: null, wait: "", vmSeconds: 0, tokens: null, model: activity.models.checks, vm: "–", activity: "" });
+    }
+  }
+  if (activity.fix_all !== null) {
+    const fixAll = activity.fix_all;
+    agentRows.push({
+      key: "fix_all",
+      type: "Fix all",
+      target: `${fixAll.items} feedback items`,
+      url: null,
+      job: null,
+      wait: "",
+      vmSeconds: Math.max(0, (now - Date.parse(fixAll.started_at)) / 1000),
+      tokens: null,
+      model: activity.models.fix_all,
+      vm: fixAll.vm,
+      activity: `Fixing ${fixAll.items} feedback items in ${fixAll.vm}`,
+    });
+  }
+  // Working ones first, the most VM time first; then the waiting ones.
+  agentRows.sort((a, b) => (a.wait === "" ? 0 : 1) - (b.wait === "" ? 0 : 1) || b.vmSeconds - a.vmSeconds);
+  const waitingRows = agentRows.filter((row) => row.wait !== "").length;
+  const agentsDetail = [`${agentRows.length - waitingRows} working`, `${waitingRows} waiting`];
+  if (queued > 0) {
+    agentsDetail.push(`${queued} queued`);
+  }
 
   // The Pull requests chart's y axis, a log scale: 0, then 1, 3, 10, 30, ... up to the first at or over the highest.
   let highest = 1;
@@ -1062,65 +1172,66 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
 
           <div className={WIDGET}>
             <div className={WIDGET_HEADER}>
-              <button type="button" className={TITLE} onClick={() => setReposTab("progress")}>
-                In progress
-              </button>
-              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                {working.length} working · {queued} queued
-              </span>
+              <span className="truncate font-medium">Agents</span>
+              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{agentsDetail.join(" · ")}</span>
             </div>
-            {working.length === 0 && <div className="p-3 text-muted-foreground">No agent is working.</div>}
-            {working.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[760px]">
-                  <thead>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[860px]">
+                <thead>
+                  <tr>
+                    <th className={th}>Type</th>
+                    <th className={th}>Issue or pull request</th>
+                    <th className={th}>Step</th>
+                    <th className={cn(th, "text-right")}>VM time</th>
+                    <th className={cn(th, "text-right")}>Tokens</th>
+                    <th className={th}>Model</th>
+                    <th className={th}>VM</th>
+                  </tr>
+                </thead>
+                <tbody className="[&>tr:last-child>td]:border-b-0">
+                  {agentRows.length === 0 && (
                     <tr>
-                      <th className={th}>Issue or pull request</th>
-                      <th className={th}>Step</th>
-                      <th className={cn(th, "text-right")}>VM time</th>
-                      <th className={cn(th, "text-right")}>Tokens</th>
-                      <th className={th}>Agent</th>
-                      <th className={th}>VM</th>
+                      <td colSpan={7} className={cn(td, "text-muted-foreground")}>
+                        No agent is working.
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {working.map((job) => {
-                      const [repo, number] = (job.issue ?? job.thread ?? "").split("#");
-                      const agent = agentById[job.agent];
-                      const vm = agent?.vm ?? job.vm;
-                      // "12m", or "2h 15m" from an hour.
-                      const vmMinutes = Math.floor(job.vm_seconds / 60);
-                      const vmTime = vmMinutes < 60 ? `${vmMinutes}m` : `${Math.floor(vmMinutes / 60)}h ${vmMinutes % 60}m`;
-                      return (
-                        <tr key={job.id} className="hover:bg-accent/40 [&:last-child>td]:border-b-0">
-                          <td className={cn(td, "max-w-96 truncate")}>
-                            <a href={`https://github.com/${repo}/issues/${number}`} target="_blank" rel="noreferrer" className="hover:underline">
-                              {repo} <span className="font-mono tabular-nums">#{number}</span>
+                  )}
+                  {agentRows.map((row) => {
+                    // "12m", or "2h 15m" from an hour; none for what has no VM time.
+                    const vmMinutes = Math.floor(row.vmSeconds / 60);
+                    let vmTime = vmMinutes < 60 ? `${vmMinutes}m` : `${Math.floor(vmMinutes / 60)}h ${vmMinutes % 60}m`;
+                    if (row.job === null && row.key !== "fix_all") {
+                      vmTime = "–";
+                    }
+                    return (
+                      // What it is doing right now, on hover.
+                      <tr key={row.key} className="hover:bg-accent/40" title={row.activity || undefined}>
+                        <td className={cn(td, "text-muted-foreground")}>{row.type}</td>
+                        <td className={cn(td, "max-w-96 truncate")}>
+                          {row.url === null && row.target}
+                          {row.url !== null && (
+                            <a href={row.url} target="_blank" rel="noreferrer" className="hover:underline">
+                              {row.target.split(" #")[0]} <span className="font-mono tabular-nums">#{row.target.split(" #")[1]}</span>
                             </a>
-                          </td>
-                          <td className={td}>
-                            <JobProgressBar job={job} />
-                          </td>
-                          <td className={cn(td, "text-right font-mono text-xs tabular-nums")}>{vmTime}</td>
-                          <td className={cn(td, "text-right font-mono text-xs tabular-nums")}>
-                            {agent === undefined ? "–" : `${(agent.tokens_used / 1_000_000).toFixed(1)}M`}
-                          </td>
-                          <td className={td}>
-                            <a href={`#/agents/${job.agent}`} className="text-primary hover:underline">
-                              {agent?.name ?? job.agent}
-                            </a>
-                          </td>
-                          <td className={cn(td, "font-mono text-xs text-muted-foreground tabular-nums")}>
-                            {vm ?? "–"}
-                            {vm !== null && agent !== undefined && agent.desktop !== null && ` · ${agent.desktop}`}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                          )}
+                        </td>
+                        <td className={td}>
+                          {row.wait !== "" && <span className="text-xs text-muted-foreground">{row.wait}</span>}
+                          {row.wait === "" && row.job !== null && <JobProgressBar job={row.job} />}
+                          {row.wait === "" && row.job === null && <span className="text-muted-foreground">–</span>}
+                        </td>
+                        <td className={cn(td, "text-right font-mono text-xs tabular-nums")}>{vmTime}</td>
+                        <td className={cn(td, "text-right font-mono text-xs tabular-nums")}>
+                          {row.tokens === null ? "–" : `${(row.tokens / 1_000_000).toFixed(1)}M`}
+                        </td>
+                        <td className={cn(td, "text-xs text-muted-foreground")}>{row.model === "" ? "–" : (MODEL_NAMES[row.model] ?? row.model)}</td>
+                        <td className={cn(td, "font-mono text-xs text-muted-foreground tabular-nums")}>{row.vm}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
