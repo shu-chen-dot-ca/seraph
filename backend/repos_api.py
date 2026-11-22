@@ -1,7 +1,7 @@
 """The Repositories page's cards (frontend/src/RepositoryCards.tsx): the moves between Prioritized and Contributed, Add
 to and Remove from Target, Delete (Add to Removed for a repo with PRs of yours), Stop all on its issues in progress and
 Close all on its open PRs, and keeping the repos' signals fresh, and their record with us for the cards' test run time
-and rating (keep_repo_stats, github_searcher/repo_stats.py).
+(keep_repo_stats, github_searcher/repo_stats.py).
 
 The list reaches the browser through /api/live (topic "repos"). The Automation fills it (backend/automation_api.py,
 through Explore).
@@ -140,10 +140,9 @@ async def delete_repo(body: RepoRequest) -> dict:
 
 
 async def keep_repo_stats() -> None:
-    """Runs as long as the backend: works out each repo's test run time and rating every REPO_STATS_SECONDS
-    (repo_stats.py)."""
+    """Runs as long as the backend: works out each repo's test run time every REPO_STATS_SECONDS (repo_stats.py)."""
     while True:
-        await repo_stats.refresh(pr_tracking.summary()["items"], jobs.list())
+        repo_stats.refresh(jobs.list())
         await asyncio.sleep(REPO_STATS_SECONDS)
 
 

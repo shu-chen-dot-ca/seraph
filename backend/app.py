@@ -274,7 +274,7 @@ def topic_data(topic: str):
     # The Feedback page: what the agents reported and what the app saw itself, open and closed (problems.py).
     if topic == "problems":
         return problems.list()
-    # Each repo's test run time and rating, for the Repositories cards (repo_stats.py).
+    # Each repo's test run time, for the Repositories cards (repo_stats.py).
     if topic == "repo_stats":
         return repo_stats.summary()
     # What runs besides the agents, for the Dashboard's Agents: the images whose agent is in a turn, a Fix all run
