@@ -93,7 +93,7 @@ from datetime import UTC, datetime
 import httpx
 
 from backend.issues_api import DASHBOARD_AUTOMATION_FILE, HELD, TAGGED
-from backend.shared import agents, github_account, inbox, issue_facts, issue_tags, issues, jobs, pr_tracking, repo_signals, repos
+from backend.shared import agents, explore, github_account, inbox, issue_facts, issue_tags, issues, jobs, pr_tracking, repo_signals, repos
 from github_searcher.claude_judge import judge
 from github_searcher.github_account import SendError
 from github_searcher.inbox import AUTOMATION_FILE, ISSUE_AUTOMATION_FILE
@@ -129,11 +129,9 @@ DRAFTS_CHECK_SECONDS = 10
 SEND_RETRY_SECONDS = 10 * 60
 # Issues of one repo in one Claude run.
 PER_RUN = 40
-# Always, under any repo's instructions.
-DEFAULT_RULES = (
-    "Never take an issue that is political, politically sensitive or activist, that goes against another country's laws, "
-    "such as China's, that is about a game, or that is unethical or NSFW."
-)
+# Always, under any repo's instructions, with what the user excludes besides (the Explore dialog's Exclude: theirs, in
+# Explore's profile in DATA_DIR, never in the code).
+DEFAULT_RULES = "Never take an issue that is unethical or NSFW, or that is anything the user excludes."
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -479,7 +477,7 @@ async def pick_for_catalog() -> None:
                 f"Below are open issues of the GitHub project {repo}. We fix issues of outside projects with our own agents, "
                 "and these already passed our checks: nobody else is on them, and a pull request from us would likely get "
                 "merged. Pick which ones our agents should take on now.\n\n"
-                f"Rules: {DEFAULT_RULES}\n"
+                f"Rules: {DEFAULT_RULES} What they exclude, in their own words: {explore.profile['exclude'] or 'nothing'}\n"
                 f"The user's instructions for this repo, on top of the rules: {instructions}\n\n"
                 "Answer take true or false for every issue, by its number.\n\n" + "\n".join(lines)
             )

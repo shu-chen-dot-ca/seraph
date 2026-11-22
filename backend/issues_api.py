@@ -5,8 +5,8 @@ agents take from it.
 Removing never takes out an issue an agent is working on (a job on it queued, working or waiting on the user), and
 neither does an undo or redo (github_searcher/issue_list.py): its job has to be cancelled first. An agent gets an issue
 (Agents.assign) only once it has a merge (see issue_tags.py), and not when that is fixed (only needs closing), out of
-scope (not a pull request to that repo for its own users, only seen on Windows, macOS or a phone, or it touches
-politics) or can't validate: a job we can't prove ends with nothing to show.
+scope (not a pull request to that repo for its own users, only seen on Windows, macOS or a phone, or something the
+user excludes) or can't validate: a job we can't prove ends with nothing to show.
 
 The facts about each issue (age, last activity, assignees, linked PRs, ... see
 github_searcher/issue_facts.py) are kept fresh by keep_facts(), which the app

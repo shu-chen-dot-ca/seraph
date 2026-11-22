@@ -81,8 +81,7 @@ def answer():
         "reason": "Nobody is on it.",
         "belongs": True,
         "linux": True,
-        "apolitical": True,
-        "not_game": True,
+        "not_excluded": True,
         "open": True,
         "any_contributor": True,
         "ai_ok": True,
@@ -168,7 +167,7 @@ def test_runanywhere_sdks_1181_already_fixed_is_fixed_before_anything_else(tags,
     # #1181's fix and tests were already on main; it should have been tagged fixed, whatever else is true of it.
     answer["status"] = "fixed"
     answer["lines"] = 900
-    for key in ["belongs", "linux", "apolitical", "not_game", "open", "any_contributor", "ai_ok", "modest", "validatable"]:
+    for key in ["belongs", "linux", "not_excluded", "open", "any_contributor", "ai_ok", "modest", "validatable"]:
         answer[key] = False
 
     asyncio.run(tags.tag_batch("owner/repo", [7]))
@@ -179,8 +178,7 @@ def test_runanywhere_sdks_1181_already_fixed_is_fixed_before_anything_else(tags,
 @pytest.mark.parametrize(
     "check, why",
     [
-        ("apolitical", "it touches politics"),
-        ("not_game", "it is about a game"),
+        ("not_excluded", "it is something you exclude"),
         ("belongs", "it isn't a pull request to this repo for its own users"),
         ("linux", "it can only be seen on Windows, macOS, a phone or other hardware"),
     ],
@@ -676,7 +674,7 @@ def test_bambuddy_3524_answers_from_older_rules_are_asked_afresh(tags, answer, p
     tags.tags["owner/repo#7"] = {
         "status": "free",
         "merge": "likely",
-        "checks": {"belongs": True, "linux": True, "apolitical": True, "not_game": True, "open": True, "modest": True, "validatable": True},
+        "checks": {"belongs": True, "linux": True, "not_excluded": True, "open": True, "modest": True, "validatable": True},
         "kind": "bug",
         "lines": 20,
         "name": "Fix image permissions",
@@ -701,7 +699,7 @@ def test_check_added_since_takes_the_new_answer(tags, answer):
     tags.tags["owner/repo#7"] = {
         "status": "free",
         "merge": "likely",
-        "checks": {"belongs": True, "linux": True, "apolitical": True, "not_game": True, "open": True, "any_contributor": True, "modest": True, "validatable": True, "easy": True},
+        "checks": {"belongs": True, "linux": True, "not_excluded": True, "open": True, "any_contributor": True, "modest": True, "validatable": True, "easy": True},
         "kind": "bug",
         "lines": None,
         "name": "Fix crash on empty input",

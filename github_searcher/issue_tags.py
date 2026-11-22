@@ -8,7 +8,7 @@ each issue instead and gives it tags we define. One JSON file, DATA_DIR/issue_ta
     {"owner/name#n": {"status": "free" | "assigned" | "waiting" | "fixed",
                       "merge": "likely" | "fixed" | "out of scope" | "claimed" | "maintainers only" | "waiting" |
                                "no outside prs" | "large feature" | "big change" | "can't validate",
-                      "checks": {"belongs", "linux", "apolitical", "not_game", "open", "any_contributor", "ai_ok", "modest",
+                      "checks": {"belongs", "linux", "not_excluded", "open", "any_contributor", "ai_ok", "modest",
                                  "validatable": bool} | None,
                       "kind": "bug" | "feature" | "docs" | "question" | None, "lines": int | None,
                       "name": str | None, "name_version": int, "rules_version": int, "complexity": "easy" | "medium" | "hard" | None, "scope_clear": bool | None,
@@ -47,10 +47,8 @@ what stood in the way of the ones that went badly. It is decided by fixed rules,
 yes / no answers to CHECKS (checks), the status, the repo's numbers (repo_signals.py) and how many of the user's pull
 requests the repo merged. The first that holds:
     fixed             status fixed: already done, it only needs closing
-    out of scope      it touches politics (in the issue or in what the repo is for: we only do non-political work,
-                      nothing politically sensitive or activist, nothing against another country's laws, such as
-                      China's), it is about a game (we don't work on games: no game, game engine, mod, game server or
-                      plugin, emulator or ROM manager, or tool for playing games), it isn't a pull request to this repo
+    out of scope      it is something the user excludes (in the issue or in what the repo is for: the Explore dialog's
+                      Exclude, in their own words, DATA_DIR/explore_profile.json, never in the code), it isn't a pull request to this repo
                       for its own users (a plugin or add-on for a third-party product's users, a separate repository
                       the project wants, a fix that lives in a prebuilt image or package built elsewhere: bambuddy#3524),
                       or it can't be seen on
@@ -179,16 +177,10 @@ CHECKS = [
         "Linux: seeing the file isn't seeing the effect.",
     ),
     (
-        "apolitical",
-        "Is it free of politics, in the issue and in what the repo is for? We only do non-political work: nothing "
-        "political, politically sensitive or activist, and nothing that goes against another country's laws, such as "
-        "China's.",
-    ),
-    (
-        "not_game",
-        "Is it free of games, in the issue and in what the repo is for? We don't work on games: no game, game engine, "
-        "game mod, game server or plugin for one, emulator or ROM manager, or tool made for playing games (like a "
-        "launcher or a compatibility layer for running games).",
+        # {exclude} becomes the user's Exclude (DATA_DIR/explore_profile.json) when the question is asked.
+        "not_excluded",
+        "Is it free of everything the user excludes, in the issue and in what the repo is for? What they exclude, in their "
+        "own words: {exclude}",
     ),
     (
         "open",
@@ -284,8 +276,9 @@ NAME_VERSION = 3
 # follow-up to their own open work or fresh to-do, and an approach left open are waiting; the checks any_contributor and
 # ai_ok, a fix that lives in an image built elsewhere and a host setting a shared VM can't change; and the old checks are
 # answered afresh; WeKnora#4652, runanywhere-sdks#1181, dioxus#6063, openchoreo#5371, openinference#4288,
-# DeskcommCRM#4410, hydro#3281, bambuddy#3524, openchoreo#5129).
-RULES_VERSION = 7
+# DeskcommCRM#4410, hydro#3281, bambuddy#3524, openchoreo#5129. 8: the user's own Exclude in place of the fixed
+# politics and games checks).
+RULES_VERSION = 8
 EFFORT = "high"
 # A line where an issue template asks whether the author will fix it themselves: "Are you willing to submit a PR?",
 # "Would you like to work on this?", "I'm interested in implementing this", ... The line and the next few (the answer) are kept.
@@ -316,15 +309,14 @@ SCHEMA = {
                     "reason": {"type": "string"},
                     "belongs": {"type": "boolean"},
                     "linux": {"type": "boolean"},
-                    "apolitical": {"type": "boolean"},
-                    "not_game": {"type": "boolean"},
+                    "not_excluded": {"type": "boolean"},
                     "open": {"type": "boolean"},
                     "any_contributor": {"type": "boolean"},
                     "ai_ok": {"type": "boolean"},
                     "modest": {"type": "boolean"},
                     "validatable": {"type": "boolean"},
                 },
-                "required": ["number", "status", "kind", "lines", "name", "complexity", "scope_clear", "reason", "belongs", "linux", "apolitical", "not_game", "open", "any_contributor", "ai_ok", "modest", "validatable"],
+                "required": ["number", "status", "kind", "lines", "name", "complexity", "scope_clear", "reason", "belongs", "linux", "not_excluded", "open", "any_contributor", "ai_ok", "modest", "validatable"],
             },
         }
     },
@@ -704,6 +696,11 @@ class IssueTags:
                 f"We work for the GitHub user {login}. Their own claims, assignment and pull requests (and ours, made as them) "
                 "never count as someone being on it: status is about other people only, so an issue only they are on is free.\n"
             )
+        # What the user excludes, for the not_excluded check: theirs, in the data, never in the code.
+        exclude = ""
+        profile_path = DATA_DIR / "explore_profile.json"
+        if profile_path.exists():
+            exclude = json.loads(profile_path.read_text()).get("exclude", "")
         for run in runs:
             prompt = (
                 f"Below are {len(run)} issues of the GitHub project {data['nameWithOwner']} ({data['stargazerCount']} stars, "
@@ -767,7 +764,7 @@ class IssueTags:
                 "did it: when those, listed under it, cover what it asks, it is fixed.\n\n"
                 f"The checks, for whether a pull request from us would get merged. {SANDBOX} Answer each one yes (true) or no "
                 "(false) on its own, from what the issue and its comments say; when it is unclear, answer no.\n"
-                + "".join(f"- {key}: {question}\n" for key, question in CHECKS)
+                + "".join(f"- {key}: {question.replace('{exclude}', exclude or 'nothing')}\n" for key, question in CHECKS)
                 + "\n"
                 "kind: bug, feature (new behavior or an improvement), docs, or question (a support question, nothing to fix).\n\n"
                 "lines: a rough guess of how many lines the fix's pull request changes: the lines added and removed together, "
@@ -835,12 +832,9 @@ class IssueTags:
                 if item["status"] == "fixed":
                     merge = "fixed"
                     why = "a merged pull request or commit already does what it asks; it only needs closing"
-                elif not checks["apolitical"]:
+                elif not checks["not_excluded"]:
                     merge = "out of scope"
-                    why = "it touches politics, which we stay out of"
-                elif not checks["not_game"]:
-                    merge = "out of scope"
-                    why = "it is about a game, which we don't work on"
+                    why = "it is something you exclude"
                 elif not checks["belongs"]:
                     merge = "out of scope"
                     why = "it isn't a pull request to this repo for its own users, or its fix lives outside this repo's code"
