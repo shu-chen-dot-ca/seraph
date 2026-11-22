@@ -55,6 +55,7 @@ from backend.shared import agents, crashes, explore, image_agents, images, inbox
 from github_searcher import claude_judge
 from github_searcher.claude_models import MODELS
 from github_searcher.token_balancer import BALANCER
+from sandbox.vms import VMsError
 from github_searcher.updates import HOME
 
 # override: the backend reloads itself on code changes, and .env changes should apply then too.
@@ -123,6 +124,15 @@ async def lifespan(app: FastAPI):
     if CHECK:
         yield
         return
+    # The VMs come back as Seraph left them (their "on", sandbox/vms.py): one that was on and is off now (the computer
+    # restarted, or it went off while Seraph was closed) starts again. One the user shut down stays off.
+    for record in vms.list():
+        if record.on and record.status == "stopped":
+            try:
+                vms.start_in_background(record.name)
+            except VMsError:
+                # Busy: a start or stop goes on already.
+                pass
     # Agents run on this event loop, so they start here and not at import.
     await agents.start()
     # An Explore run the restart cut off goes on, when only the code reloaded.

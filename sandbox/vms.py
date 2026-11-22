@@ -4,7 +4,7 @@ A VM is a resource, not tied to a repo or an agent. Each one is an Incus VM name
 <VM_PREFIX><name> (e.g. sandbox-vm1) plus a record on disk:
 
     DATA_DIR/vms/<name>.json   {"name", "incus_name", "image", "image_fingerprint", "cpus", "memory_gb",
-                                "disk_gb", "internet", "env", "secrets_in_vm", "autostart", "status",
+                                "disk_gb", "internet", "env", "secrets_in_vm", "on", "status",
                                 "created_at", "forked_from", "max_desktops", "desktops", "queue", "wants", "runs", "stepped_down_at",
                                 "traffic", "notes", "graceful_shutdown", "suspended"}
 
@@ -24,6 +24,11 @@ own agents' browser.
 build, since an image can be rebuilt or renamed later. A fork (a copy of a stopped VM, see VMs.fork) has its
 source's image and "forked_from" names the source. "secrets_in_vm" are the env variables whose values
 are written in the VM's files right now, so an image is never saved from a VM that still holds them.
+
+"on" is the VM's last state as Seraph left it: True once it started (a create, a fork, a start), False once it was shut
+down (Shut down, an agent's stop, Seraph's own). When Seraph starts (backend/app.py), a VM that was on and is off
+now (the computer restarted, or it went off while Seraph was closed) starts again. A VM that goes off by itself leaves
+it as it was: the computer shutting down looks the same. Records from before it: on if they say running.
 
 "notes" are what is set up in the VM, so the next agent knows before it picks the VM or starts in it (e.g.
 "openclaw cloned in ~/openclaw and built, on main; a plugin added for issue 123"). Oldest first:
@@ -174,8 +179,9 @@ class VMRecord:
         self.env = record["env"]
         # Records from before this was kept: assume the values set are the ones written.
         self.secrets_in_vm = record.get("secrets_in_vm", [key for key, value in record["env"].items() if value])
-        self.autostart = record["autostart"]
         self.status = record["status"]
+        # Its last state as Seraph left it (module docstring), read before refresh() matches status to Incus.
+        self.on = record.get("on", record["status"] == "running")
         self.created_at = record["created_at"]
         # The most desktops it may have. Records from before this was kept get the default.
         self.max_desktops = record.get("max_desktops", MAX_DESKTOPS_DEFAULT)
@@ -273,7 +279,7 @@ class VMRecord:
             "internet": self.internet,
             "env": dict(self.env),
             "secrets_in_vm": list(self.secrets_in_vm),
-            "autostart": self.autostart,
+            "on": self.on,
             "status": self.status,
             "created_at": self.created_at,
             "max_desktops": self.max_desktops,
@@ -347,6 +353,7 @@ class VMRecord:
             self.vm.set_up_browser(list(self.desktops))
             self.write_env()
             self.status = "running"
+            self.on = True
             self.save()
         except Exception as error:
             self.error = str(error)
@@ -383,6 +390,7 @@ class VMRecord:
             self.vm.set_up_browser(list(self.desktops))
             self.write_env()
             self.status = "running"
+            self.on = True
             self.save()
         except Exception as error:
             self.error = str(error)
@@ -399,9 +407,9 @@ class VMRecord:
         self.graceful_shutdown = False
         try:
             if self.vm.status() == "Running":
-                if self.status != "running":
-                    self.status = "running"
-                    self.save()
+                self.status = "running"
+                self.on = True
+                self.save()
                 return
             # Keep MIN_FREE_RAM_GB of this machine's memory for itself. A VM takes its memory bit by bit as it uses it,
             # not all at start, so this goes by the machine's whole memory less the whole memory of every other running
@@ -432,6 +440,7 @@ class VMRecord:
             self.vm.set_up_browser(list(self.desktops))
             self.write_env()
             self.status = "running"
+            self.on = True
             self.save()
         except Exception as error:
             self.error = str(error)
@@ -451,6 +460,7 @@ class VMRecord:
             self.save()
             self.vm.stop()
             self.status = "stopped"
+            self.on = False
             # A graceful shutdown is over once it is off.
             self.graceful_shutdown = False
             self.save()
@@ -718,15 +728,6 @@ class VMRecord:
         self.suspended = enabled
         self.save()
 
-    def set_autostart(self, enabled: bool) -> None:
-        """Start the VM when this computer starts."""
-        try:
-            self.vm.set_config("boot.autostart", "true" if enabled else "false")
-        except Exception as error:
-            raise VMsError(str(error))
-        self.autostart = enabled
-        self.save()
-
     def set_resources(self, cpus: int, memory_gb: int) -> None:
         """Change CPU and memory. Only while the VM is off; they apply when it starts."""
         if cpus not in CPUS_ALLOWED:
@@ -872,7 +873,7 @@ class VMs:
     def find_orphans(self) -> None:
         """Give every Incus VM named <VM_PREFIX><name> that has no record a new one, so it shows up.
 
-        What Incus knows comes back (CPUs, memory, disk, internet, autostart, when it was made).
+        What Incus knows comes back (CPUs, memory, disk, internet, when it was made).
         The env variables are lost; nobody holds or waits for it.
         """
         result = subprocess.run(
@@ -915,7 +916,6 @@ class VMs:
                     # The offline ACL sits on the VM's own eth0 card (see VM.set_internet).
                     "internet": "security.acls" not in instance["devices"].get("eth0", {}),
                     "env": {},
-                    "autostart": config.get("boot.autostart") == "true",
                     "status": "stopped",
                     "created_at": instance["created_at"],
                     "desktops": [{"holder": None}],
@@ -955,9 +955,10 @@ class VMs:
                 if not usage["on"] and record.status == "running" and not record.lock.locked():
                     record.status = "stopped"
                     record.save()
-                # Started from outside (Incus autostart after the backend came up, `incus start`).
+                # Started from outside (Incus after the backend came up, `incus start`): its last state is on too.
                 if usage["on"] and record.status == "stopped" and not record.lock.locked():
                     record.status = "running"
+                    record.on = True
                     record.save()
                 # A stop or start that isn't going on anymore never leaves its status behind: it is what Incus says, so a
                 # VM never shows as stopping to the agents while it runs on (vm1, 2026-11-11).
@@ -1096,7 +1097,6 @@ class VMs:
                     "internet": True,
                     "env": {},
                     "secrets_in_vm": [],
-                    "autostart": False,
                     "status": "creating",
                     "created_at": datetime.now(UTC).isoformat(),
                     "max_desktops": max_desktops,
@@ -1151,7 +1151,6 @@ class VMs:
                     "internet": source.internet,
                     "env": dict(source.env),
                     "secrets_in_vm": list(source.secrets_in_vm),
-                    "autostart": False,
                     "status": "creating",
                     "created_at": datetime.now(UTC).isoformat(),
                     "forked_from": source_name,

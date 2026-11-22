@@ -38,7 +38,6 @@ VM1 = {
     "disk_gb": 128,
     "internet": True,
     "env": {},
-    "autostart": False,
     "status": "running",
     "created_at": "2026-11-01T00:00:00+00:00",
     "max_desktops": 5,

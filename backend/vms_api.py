@@ -362,7 +362,6 @@ def vm_settings(name: str) -> dict:
         "max_desktops": record.max_desktops,
         "disk_gb": record.disk_gb,
         "internet": record.internet,
-        "autostart": record.autostart,
         "env": record.env,
     }
 
@@ -375,21 +374,6 @@ def set_internet(name: str, body: ToggleRequest) -> dict:
         raise HTTPException(status_code=404, detail=str(error))
     try:
         record.set_internet(body.enabled)
-    except VMsError as error:
-        raise HTTPException(status_code=409, detail=str(error))
-    except VMError as error:
-        raise HTTPException(status_code=500, detail=str(error))
-    return {}
-
-
-@router.put("/vms/{name}/autostart")
-def set_autostart(name: str, body: ToggleRequest) -> dict:
-    try:
-        record = vms.get(name)
-    except VMsError as error:
-        raise HTTPException(status_code=404, detail=str(error))
-    try:
-        record.set_autostart(body.enabled)
     except VMsError as error:
         raise HTTPException(status_code=409, detail=str(error))
     except VMError as error:
