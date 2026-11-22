@@ -4,9 +4,12 @@ where the app's secrets are kept (those tokens, your GitHub sign-in and the sign
 secrets to AWS Secrets Manager (github_searcher/secret_vault.py has how it works). A token is pasted here and never
 shown again: only its last 4 characters.
 
-GitHub tokens: one row per token, Remove, and Add for a new one. Claude Code token and Claude Code token (Fix all): one
-field each, Save puts the pasted token in (or replaces the one there), Remove takes it out. A new GitHub token is used at
-once; a new Claude Code token from each agent's next start.
+GitHub tokens: one row per token, Remove, and Add for a new one. Claude Code tokens (the agents', one per Claude
+account): one row per token with its name (yours, so you know which account it belongs to; changed in place, saved when
+you leave the field), In use on the one the agents use and Use on the others, Limit reached under one whose usage limit
+Claude reported (with when it resets), Remove, and a name and a token to Add one. Nothing switches by itself: Use does,
+from each agent's next run on. Claude Code token (Fix all): one field, Save puts the pasted token in (or replaces the one
+there), Remove takes it out. A new GitHub token is used at once.
 
 On this computer: the names in data/, and a form for an AWS access key (ID, secret, region). Move secrets puts them in
 AWS, checks AWS kept them, and only then removes them from this computer; the access key goes in the system keyring. In
@@ -20,6 +23,7 @@ import { ExternalLink, Loader2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/live";
@@ -36,13 +40,12 @@ type Status = {
   moved_at?: string;
   names?: string[];
   console_url?: string;
+  // The agents' Claude Code tokens: the one in use, your names for them, and the usage limit Claude last reported on each.
+  claude: { in_use: string | null; names: Record<string, string>; limits: Record<string, string> };
 };
 
-// The two Claude Code tokens, each with its own field.
-const CLAUDE_TOKENS = [
-  { name: "CLAUDE_CODE_OAUTH_TOKEN", label: "Claude Code token" },
-  { name: "CLAUDE_CODE_OAUTH_TOKEN_VM", label: "Claude Code token (Fix all)" },
-];
+// Fix all's Claude Code token, with its own field.
+const FIX_ALL_TOKEN = { name: "CLAUDE_CODE_OAUTH_TOKEN_VM", label: "Claude Code token (Fix all)" };
 
 export default function Secrets(props: { open: boolean }) {
   const [status, setStatus] = useState<Status | null>(null);
@@ -55,6 +58,8 @@ export default function Secrets(props: { open: boolean }) {
   const [pasted, setPasted] = useState<Record<string, string>>({});
   // The field or row being saved or removed right now.
   const [busy, setBusy] = useState("");
+  // A Claude Code token's name as you type it, by token, until you leave the field.
+  const [naming, setNaming] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!props.open) {
@@ -75,6 +80,7 @@ export default function Secrets(props: { open: boolean }) {
     return () => {
       stopped = true;
       setPasted({});
+      setNaming({});
     };
   }, [props.open]);
 
@@ -101,15 +107,51 @@ export default function Secrets(props: { open: boolean }) {
       const body = { value: pasted[key] ?? "" };
       if (key === "github") {
         setStatus(await api<Status>("/api/secrets/github_tokens", { method: "POST", body: body }));
+      } else if (key === "claude") {
+        const named = { value: pasted.claude ?? "", name: pasted.claude_name ?? "" };
+        setStatus(await api<Status>("/api/secrets/claude_tokens", { method: "POST", body: named }));
       } else {
         setStatus(await api<Status>(`/api/secrets/${key}`, { method: "PUT", body: body }));
       }
-      setPasted({ ...pasted, [key]: "" });
+      if (key === "claude") {
+        setPasted({ ...pasted, claude: "", claude_name: "" });
+      } else {
+        setPasted({ ...pasted, [key]: "" });
+      }
       toast.success("Token saved.");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
     setBusy("");
+  }
+
+  // The agents use this Claude Code token from their next run on.
+  async function useToken(name: string) {
+    setBusy(name);
+    setError("");
+    try {
+      setStatus(await api<Status>(`/api/secrets/claude_tokens/${name}/use`, { method: "PUT" }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+    setBusy("");
+  }
+
+  // Saves a Claude Code token's name once you leave its field, if it changed.
+  async function saveName(name: string) {
+    const text = naming[name];
+    if (text === undefined || status === null || text.trim() === (status.claude.names[name] ?? "")) {
+      return;
+    }
+    setError("");
+    try {
+      setStatus(await api<Status>(`/api/secrets/claude_tokens/${name}/name`, { method: "PUT", body: { name: text } }));
+      const rest = { ...naming };
+      delete rest[name];
+      setNaming(rest);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function removeToken(name: string) {
@@ -127,6 +169,15 @@ export default function Secrets(props: { open: boolean }) {
   const githubTokens = (status?.tokens ?? [])
     .filter((token) => token.name.startsWith("GITHUB_TOKEN"))
     .sort((a, b) => Number(a.name.replace("GITHUB_TOKEN_", "").replace("GITHUB_TOKEN", "1")) - Number(b.name.replace("GITHUB_TOKEN_", "").replace("GITHUB_TOKEN", "1")));
+  // The agents' Claude Code tokens the same way: CLAUDE_CODE_OAUTH_TOKEN, then _2, _3, ... by number.
+  const claudeTokens = (status?.tokens ?? [])
+    .filter((token) => /^CLAUDE_CODE_OAUTH_TOKEN(_\d+)?$/.test(token.name))
+    .sort(
+      (a, b) =>
+        Number(a.name.replace("CLAUDE_CODE_OAUTH_TOKEN_", "").replace("CLAUDE_CODE_OAUTH_TOKEN", "1")) -
+        Number(b.name.replace("CLAUDE_CODE_OAUTH_TOKEN_", "").replace("CLAUDE_CODE_OAUTH_TOKEN", "1")),
+    );
+  const fixAll = status?.tokens.find((token) => token.name === FIX_ALL_TOKEN.name);
 
   return (
     <section>
@@ -175,34 +226,105 @@ export default function Secrets(props: { open: boolean }) {
             </div>
           </div>
 
-          {CLAUDE_TOKENS.map((slot) => {
-            const set = status.tokens.find((token) => token.name === slot.name);
-            return (
-              <div key={slot.name} className="space-y-1">
-                <div>{slot.label}</div>
-                <div className="flex items-center gap-1.5">
-                  <Input
-                    className="min-w-0 flex-1 font-mono text-xs"
-                    placeholder={set === undefined ? "Not set" : `••••${set.end}`}
-                    type="password"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={pasted[slot.name] ?? ""}
-                    onChange={(event) => setPasted({ ...pasted, [slot.name]: event.target.value })}
-                  />
-                  <Button size="sm" onClick={() => saveToken(slot.name)} disabled={busy !== "" || (pasted[slot.name] ?? "").trim() === ""}>
-                    {busy === slot.name && <Loader2 className="animate-spin" />}
-                    Save
-                  </Button>
-                  {set !== undefined && (
-                    <Button variant="outline" size="sm" onClick={() => removeToken(slot.name)} disabled={busy !== ""}>
-                      Remove
+          <div className="space-y-1">
+            <div>Claude Code tokens</div>
+            {claudeTokens.length === 0 && <p className="text-muted-foreground">No Claude Code tokens.</p>}
+            {claudeTokens.map((token) => {
+              const inUse = status.claude.in_use === token.name;
+              const limit = status.claude.limits[token.name];
+              return (
+                <div key={token.name}>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      className="min-w-0 flex-1"
+                      placeholder="Name"
+                      spellCheck={false}
+                      value={naming[token.name] ?? status.claude.names[token.name] ?? ""}
+                      onChange={(event) => setNaming({ ...naming, [token.name]: event.target.value })}
+                      onBlur={() => saveName(token.name)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.currentTarget.blur();
+                        }
+                      }}
+                    />
+                    <span className="shrink-0 font-mono text-xs">••••{token.end}</span>
+                    {inUse && (
+                      <Badge variant="ok" className="w-14">
+                        In use
+                      </Badge>
+                    )}
+                    {!inUse && (
+                      <Button variant="outline" size="sm" className="w-14" onClick={() => useToken(token.name)} disabled={busy !== ""}>
+                        {busy === token.name ? <Loader2 className="animate-spin" /> : "Use"}
+                      </Button>
+                    )}
+                    <Button
+                      variant="icon"
+                      size="icon"
+                      aria-label={`Remove the token ending in ${token.end}`}
+                      title="Remove"
+                      disabled={busy !== ""}
+                      onClick={() => removeToken(token.name)}
+                    >
+                      <X />
                     </Button>
+                  </div>
+                  {limit !== undefined && (
+                    <div className="text-xs text-warn" title={limit}>
+                      Limit reached{limit.includes("resets") ? `, ${limit.slice(limit.indexOf("resets"))}` : ""}
+                    </div>
                   )}
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+            <div className="flex items-center gap-1.5">
+              <Input
+                className="w-32 shrink-0"
+                placeholder="Name"
+                spellCheck={false}
+                value={pasted.claude_name ?? ""}
+                onChange={(event) => setPasted({ ...pasted, claude_name: event.target.value })}
+              />
+              <Input
+                className="min-w-0 flex-1 font-mono text-xs"
+                placeholder="New token"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={pasted.claude ?? ""}
+                onChange={(event) => setPasted({ ...pasted, claude: event.target.value })}
+              />
+              <Button size="sm" onClick={() => saveToken("claude")} disabled={busy !== "" || (pasted.claude ?? "").trim() === ""}>
+                {busy === "claude" && <Loader2 className="animate-spin" />}
+                Add
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div>{FIX_ALL_TOKEN.label}</div>
+            <div className="flex items-center gap-1.5">
+              <Input
+                className="min-w-0 flex-1 font-mono text-xs"
+                placeholder={fixAll === undefined ? "Not set" : `••••${fixAll.end}`}
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={pasted[FIX_ALL_TOKEN.name] ?? ""}
+                onChange={(event) => setPasted({ ...pasted, [FIX_ALL_TOKEN.name]: event.target.value })}
+              />
+              <Button size="sm" onClick={() => saveToken(FIX_ALL_TOKEN.name)} disabled={busy !== "" || (pasted[FIX_ALL_TOKEN.name] ?? "").trim() === ""}>
+                {busy === FIX_ALL_TOKEN.name && <Loader2 className="animate-spin" />}
+                Save
+              </Button>
+              {fixAll !== undefined && (
+                <Button variant="outline" size="sm" onClick={() => removeToken(FIX_ALL_TOKEN.name)} disabled={busy !== ""}>
+                  Remove
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
