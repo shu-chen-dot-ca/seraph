@@ -4,10 +4,31 @@ around it. A dropped connection tries again every 2 seconds. viewOnly keeps the 
 without connecting again (a lock comes and goes while the agent works).
 
 The agent page's Desktop (AgentChat.tsx) uses it view-only. rfbRef, when given, hands the caller the client.
+
+Every screen shown here gets at most 30 updates a second, to keep the browser and the VM light. noVNC asks the VM for
+the next update as soon as one arrives; each ask waits until FRAME_MS after the one before. TigerVNC (desktops 2 and
+up) would otherwise send updates without being asked (continuous updates), so noVNC doesn't offer that to it.
 */
 
 import RFB from "@novnc/novnc";
 import { useEffect, useRef } from "react";
+
+const FRAME_MS = 1000 / 30;
+// noVNC's pseudo-encoding for continuous updates (core/encodings.js).
+const CONTINUOUS_UPDATES = -313;
+// Per websocket: the soonest its next ask may go.
+const nextAsk = new WeakMap<object, number>();
+const askNow = RFB.messages.fbUpdateRequest;
+RFB.messages.fbUpdateRequest = (sock, incremental, x, y, w, h) => {
+  const now = performance.now();
+  const at = Math.max(now, nextAsk.get(sock) ?? 0);
+  nextAsk.set(sock, at + FRAME_MS);
+  window.setTimeout(() => askNow(sock, incremental, x, y, w, h), at - now);
+};
+const offerNow = RFB.messages.clientEncodings;
+RFB.messages.clientEncodings = (sock, encodings) => {
+  offerNow(sock, encodings.filter((each) => each !== CONTINUOUS_UPDATES));
+};
 
 export default function LiveDesktop(props: { url: string; viewOnly: boolean; className?: string; rfbRef?: { current: RFB | null } }) {
   const boxRef = useRef<HTMLDivElement>(null);
