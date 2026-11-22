@@ -3939,9 +3939,14 @@ class WorkTools:
                     line += ", no open job"
                 other_repos.append(line)
             disk_used_gb = vm_record.usage["disk_used_gb"]
+            status = vm_record.status
+            if vm_record.suspended:
+                status = "suspended: takes nobody new"
+            if vm_record.graceful_shutdown:
+                status = "shutting down once the agents on it are done: takes nobody new"
             entry = {
                 "name": vm_record.name,
-                "status": "shutting down once the agents on it are done: takes nobody new" if vm_record.graceful_shutdown else vm_record.status,
+                "status": status,
                 "cpus": vm_record.cpus,
                 "memory_gb": vm_record.memory_gb,
                 "disk_gb": vm_record.disk_gb,
@@ -4033,15 +4038,18 @@ class WorkTools:
                 named = set(name.rstrip(".") for name in re.findall(r"[\w.-]+/[\w.-]+", note["text"].lower()))
                 if note["by"] != "user" and named & repos:
                     set_up = True
-            # The user's Graceful shutdown: nobody new gets it, set up there or not.
+            # The user's Graceful shutdown or Suspend: nobody new gets it, set up there or not.
             if target.graceful_shutdown:
                 why = "it shuts down once the agents on it are done"
+                set_up = False
+            if target.suspended:
+                why = "it is suspended"
                 set_up = False
         other = None
         if wanted is None and place is None and why and not set_up:
             for each in self.agents.vms.list():
                 free = [number for number, line in each.desktops.items() if line["holder"] is None]
-                if each.name == FIX_VM or each.name == vm_name or each.graceful_shutdown:
+                if each.name == FIX_VM or each.name == vm_name or each.graceful_shutdown or each.suspended:
                     continue
                 if other is None and each.status == "running" and each.name not in self.agents.queue.full and not each.queue and free:
                     other = each
@@ -4151,6 +4159,9 @@ class WorkTools:
             return {"content": [{"type": "text", "text": text}], "is_error": True}
         try:
             vm_record = self.agents.vms.get(vm_name)
+            if vm_record.suspended:
+                text = f"{vm_name} is suspended and takes nobody new: no desktop is added. Pick another VM with vms_list and choose_vm."
+                return {"content": [{"type": "text", "text": text}], "is_error": True}
             number = await asyncio.to_thread(vm_record.add_desktop, self.agents.queue.lock)
             # The new desktop goes to the agents waiting, maybe this one.
             await asyncio.to_thread(self.agents.queue.fill, vm_name)

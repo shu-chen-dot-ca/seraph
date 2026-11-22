@@ -73,7 +73,7 @@ queues for a VM that is off, gone, full or has every desktop taken). One whose p
 up again costs downloads and builds.
 A VM the user shuts down gracefully (graceful_shutdown, sandbox/vms.py) takes nobody new: the agents holding its desktops
 finish (none is taken back), whoever still waits for it is sent to pick another VM, and once nobody holds a desktop and
-no run goes, watch_room shuts it down.
+no run goes, watch_room shuts it down. A VM the user suspended (suspended, sandbox/vms.py) is the same, but stays on.
 Overloaded (the load of the last 5 minutes at OVERLOAD_TIMES its CPUs, or less than OVERLOAD_MEMORY_PERCENT free), it
 also takes one desktop back from its agent, at most every STEP_DOWN_SECONDS, and removes that desktop
 (VMQueue.step_down): the agent goes to the front of the line asking for it (behind the work that goes first, below),
@@ -1134,6 +1134,8 @@ class Agents:
         for vm_record in self.vms.list():
             if vm_record.name == vm_name and vm_record.graceful_shutdown:
                 raise ValueError(f"{vm_name} shuts down once the agents on it are done and takes nobody new: pick another VM.")
+            if vm_record.name == vm_name and vm_record.suspended:
+                raise ValueError(f"{vm_name} is suspended and takes nobody new: pick another VM.")
 
         agent.record["target_vm"] = vm_name
         moved = []
@@ -2046,11 +2048,15 @@ class Agents:
         homes. Room again: whoever waits gets a desktop, one a check."""
         while True:
             await asyncio.sleep(ROOM_CHECK_SECONDS)
-            # Graceful shutdown (sandbox/vms.py): an agent still waiting for it (its desktop was taken back, or it queued
-            # just before) leaves the line and picks another VM. Once nobody holds a desktop and no run goes, it shuts down.
+            # Graceful shutdown and Suspend (sandbox/vms.py): an agent still waiting for it (its desktop was taken back, or
+            # it queued just before) leaves the line and picks another VM. Graceful shutdown only: once nobody holds a
+            # desktop and no run goes, it shuts down.
             for vm_record in self.vms.list():
-                if not vm_record.graceful_shutdown:
+                if not vm_record.graceful_shutdown and not vm_record.suspended:
                     continue
+                why = "is suspended"
+                if vm_record.graceful_shutdown:
+                    why = "shuts down once the agents on it are done"
                 for agent_id in list(vm_record.queue):
                     self.queue.leave_all(agent_id)
                     if agent_id not in self.agents:
@@ -2058,10 +2064,12 @@ class Agents:
                     self.set_target_vm(agent_id, None, by_agent=True)
                     self.notify(
                         agent_id,
-                        f"{vm_record.name} shuts down once the agents on it are done and takes nobody new, so you are out of its "
+                        f"{vm_record.name} {why} and takes nobody new, so you are out of its "
                         "queue and have no target VM. Pick another with vms_list and choose_vm, queue_for_vm, set your project up "
                         "there if it isn't, and carry on.",
                     )
+                if not vm_record.graceful_shutdown:
+                    continue
                 holders = [line["holder"] for line in vm_record.desktops.values() if line["holder"] is not None]
                 if vm_record.status != "running" or holders or vm_record.runs:
                     continue
@@ -2159,8 +2167,9 @@ class Agents:
                 last = vm_record.stepped_down_at
                 if last is not None and datetime.now(UTC) - datetime.fromisoformat(last) < timedelta(seconds=STEP_DOWN_SECONDS):
                     continue
-                # A VM shutting down gracefully keeps the agents on it: taken back, a desktop would never come back.
-                if len(vm_record.desktops) < 2 or vm_record.graceful_shutdown:
+                # A VM shutting down gracefully or suspended keeps the agents on it: taken back, a desktop would never
+                # come back.
+                if len(vm_record.desktops) < 2 or vm_record.graceful_shutdown or vm_record.suspended:
                     continue
                 # Overloaded: a desktop is taken back. Never from an agent the user gave priority; from one on a pull
                 # request that needs action only when nobody else is left, from one reviewing a PR draft only when
@@ -2233,7 +2242,7 @@ class Agents:
                     other = None
                     for each in self.vms.list():
                         free = [number for number, line in each.desktops.items() if line["holder"] is None]
-                        if each.name == FIX_VM or each.name == vm_record.name or each.graceful_shutdown:
+                        if each.name == FIX_VM or each.name == vm_record.name or each.graceful_shutdown or each.suspended:
                             continue
                         if other is None and each.status == "running" and each.name not in self.queue.full and not each.queue and free:
                             other = each
