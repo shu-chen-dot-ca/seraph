@@ -1,8 +1,13 @@
 /*
 Every VM's band, on the Dashboard's Virtual machines (its VMs tab), split by a line. On top, the VM's name (#/vms/<name>:
-the Dashboard opens its page in a dialog, App.tsx), state, image and size, and a ⋯ that opens the VM's settings
-(VMSettings, as on its page's Settings tab) in a dialog. Under it a row of cards, all the same size, side by side (the
-row scrolls sideways when the page is narrow):
+the Dashboard opens its page in a dialog, App.tsx), Halt, Shutdown or Start, and a ⋯ that opens the VM's settings
+(VMSettings, as on its page's Settings tab) in a dialog.
+- Halt stops agents new to the VM from getting a desktop (the ones on it go on; record.suspended in the backend). The
+  button then says Halting while anyone still holds a desktop or a run still goes, and Halted once nothing does, both
+  solid gray. Clicking either takes the halt off. Not on Seraph's own VM (FIX_VM): no agent gets it anyway.
+- Shutdown (red) while it runs, Start (green) while it's off or failed; each spins while it goes.
+All solid with white text, the size of New VM (Dashboard.tsx), like the app's other buttons.
+Under it a row of cards, all the same size, side by side (the row scrolls sideways when the page is narrow):
 - CPU, Memory and Internet: the number now and a chart of the last minute. Internet also has the total since it
   was last reset.
 - Disk: space used, with a bar that turns amber at 90%.
@@ -11,16 +16,18 @@ Everything comes from the live "vms" topic (the backend samples usage about once
 their own.
 */
 
-import { MoreHorizontal } from "lucide-react";
+import { Loader2, MoreHorizontal, Pause, Play, Power } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import VMSettings from "@/VMSettings";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { StatusDot, VM_TONE } from "@/components/ui/status-dot";
-import { useLive } from "@/live";
+import { api, useLive } from "@/live";
 import { cn } from "@/lib/utils";
 
+// Seraph's own VM (sandbox/vms.py FIX_VM).
+const FIX_VM = "seraph";
 const SAMPLES = 60;
 // The internet chart never scales below this, so an idle VM's few packets don't look like a busy line.
 const INTERNET_CHART_MIN = 100_000;
@@ -43,14 +50,31 @@ function formatBytes(bytes: number): string {
 
 export default function VMList() {
   const vms = useLive("vms");
-  const imagesData = useLive("images");
   // The VM whose settings are open from its ⋯, or null.
   const [settingsFor, setSettingsFor] = useState<string | null>(null);
+  // The VM whose Halt (or taking it off) is on its way, or "".
+  const [halting, setHalting] = useState("");
+  // The VM whose Start or Shutdown is on its way, or "".
+  const [powering, setPowering] = useState("");
 
-  // A VM shows the image's name now (it may have been renamed since), or the name it was made with.
-  const imageNames: Record<string, string> = {};
-  for (const image of imagesData.images) {
-    imageNames[image.fingerprint] = image.name;
+  async function setHalted(name: string, enabled: boolean) {
+    setHalting(name);
+    try {
+      await api(`/api/vms/${encodeURIComponent(name)}/suspend`, { method: "PUT", body: { enabled: enabled } });
+    } catch (err) {
+      toast.error(`Could not ${enabled ? "halt" : "take the halt off"} ${name}: ${err instanceof Error ? err.message : err}`);
+    }
+    setHalting("");
+  }
+
+  async function power(name: string, action: "start" | "stop") {
+    setPowering(name);
+    try {
+      await api(`/api/vms/${encodeURIComponent(name)}/${action}`, { method: "POST" });
+    } catch (err) {
+      toast.error(`Could not ${action === "start" ? "start" : "shut down"} ${name}: ${err instanceof Error ? err.message : err}`);
+    }
+    setPowering("");
   }
 
   return (
@@ -64,7 +88,8 @@ export default function VMList() {
         const disk = vm.usage?.disk_used_gb ?? null;
         const down = vm.usage?.net_down_rate ?? null;
         const up = vm.usage?.net_up_rate ?? null;
-        const silent = on && vm.usage !== null && vm.usage.on && !vm.usage.responding;
+        // Someone still holds a desktop or a run still goes: Halting until neither does.
+        const working = vm.desktops.some((each) => each.holder !== null) || vm.runs.length > 0;
 
         // The internet chart shows download and upload together: it is all data used.
         const internetValues = vm.samples.map((sample) => {
@@ -112,15 +137,46 @@ export default function VMList() {
         return (
           <div key={vm.name} className="border-b px-3 py-2.5">
             <div className="flex min-w-0 items-center gap-2">
-              <StatusDot tone={VM_TONE[vm.status]} />
               <a href={page} className="truncate font-medium hover:underline">
                 {vm.name}
               </a>
-              <span className="text-muted-foreground">{silent ? "not answering" : vm.status}</span>
-              <span className="truncate text-xs text-muted-foreground">
-                {imageNames[vm.image_fingerprint] ?? (vm.image || "–")} · {vm.cpus} CPU · {vm.memory_gb} GB · {vm.disk_gb} GB disk
-                {vm.desktops.length > 1 && ` · ${vm.desktops.length} desktops`}
-              </span>
+              {vm.name !== FIX_VM && !vm.suspended && (
+                <Button size="sm" disabled={halting === vm.name} onClick={() => setHalted(vm.name, true)}>
+                  {halting === vm.name ? <Loader2 className="animate-spin" /> : <Pause />} Halt
+                </Button>
+              )}
+              {vm.name !== FIX_VM && vm.suspended && (
+                <Button
+                  size="sm"
+                  className="bg-neutral-500 text-white shadow-none hover:bg-neutral-500/90 hover:shadow-none"
+                  title="Take the halt off"
+                  disabled={halting === vm.name}
+                  onClick={() => setHalted(vm.name, false)}
+                >
+                  {halting === vm.name ? <Loader2 className="animate-spin" /> : <Pause />}
+                  {working ? "Halting" : "Halted"}
+                </Button>
+              )}
+              {(on || vm.status === "stopping") && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={powering === vm.name || vm.status === "stopping"}
+                  onClick={() => power(vm.name, "stop")}
+                >
+                  {powering === vm.name || vm.status === "stopping" ? <Loader2 className="animate-spin" /> : <Power />} Shutdown
+                </Button>
+              )}
+              {!on && vm.status !== "stopping" && (
+                <Button
+                  size="sm"
+                  className="bg-green-600 text-white shadow-none hover:bg-green-600/90 hover:shadow-none"
+                  disabled={powering === vm.name || (vm.status !== "stopped" && vm.status !== "failed")}
+                  onClick={() => power(vm.name, "start")}
+                >
+                  {powering === vm.name || vm.status === "starting" || vm.status === "creating" ? <Loader2 className="animate-spin" /> : <Play />} Start
+                </Button>
+              )}
               {vm.error !== null && (
                 <span className="truncate text-xs text-destructive" title={vm.error}>
                   {vm.error}

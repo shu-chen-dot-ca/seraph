@@ -441,6 +441,7 @@ export type VMSummary = {
   pointers: Record<string, VMPointer>; // per desktop number: where an agent last put the mouse (AgentCursor.tsx)
   error: string | null; // why the last create, start or stop failed
   graceful_shutdown: boolean; // shuts down once the agents on it are done; a start or restart ends it
+  suspended: boolean; // Suspend: no agent new to it gets a desktop, the ones on it go on; until Resume
 };
 
 // What an image has, listed once in a throwaway VM (sandbox/image/inventory.py). The live feed carries this
