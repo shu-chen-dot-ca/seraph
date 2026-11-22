@@ -19,7 +19,7 @@ from pathlib import Path
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from dotenv import load_dotenv
 
-from github_searcher import token_usage
+from github_searcher import secret_vault, token_usage
 from github_searcher.claude_models import MODELS, SIDE_MODEL
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -66,7 +66,11 @@ async def judge(prompt: str, schema: dict, effort: str = "medium", what: str = "
             token_usage.add("judgment", model, usage, what, effort, usage.get("costUSD"), message.duration_ms / 1000)
         if message.is_error:
             error = "; ".join(message.errors or []) or message.result or message.subtype
+            # The Claude token in use hit its usage limit: Settings → Secrets shows it on that token.
+            if "limit" in error and "resets" in error:
+                secret_vault.mark_limit(error)
             continue
+        secret_vault.mark_limit(None)
         answer = message.structured_output
     if not isinstance(answer, dict):
         raise JudgeError(f"Claude gave no usable answer: {error}")

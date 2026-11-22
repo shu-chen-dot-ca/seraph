@@ -4,7 +4,8 @@ AWS.
 
 The secrets, and where each is on this computer:
 - GITHUB_TOKEN, GITHUB_TOKEN_2, ...: the search tokens (token_balancer.py), in DATA_DIR/secrets.json.
-- CLAUDE_CODE_OAUTH_TOKEN: the agents' Claude login, in DATA_DIR/secrets.json.
+- CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN_2, ...: the agents' Claude logins (one per Claude account), in
+  DATA_DIR/secrets.json. One of them is in use (below).
 - CLAUDE_CODE_OAUTH_TOKEN_VM: the Claude login of Fix all's Claude Code in Seraph's own VM (problem_fixes.py), in
   DATA_DIR/secrets.json.
 - GITHUB_SIGN_IN_TOKEN: your GitHub sign-in (github_account.py), the "token" of DATA_DIR/github_account.json.
@@ -23,6 +24,14 @@ token_balancer.py reads them there (it imports this first), and the agents' Clau
 all of them, for github_account.py. When AWS or the keyring can't be reached (no internet yet after a reboot or a power
 cut, the keyring still locked until you log in), the app waits: it says why and asks again every RETRY_SECONDS until
 both answer, then starts. Nothing falls back to disk.
+
+The agents' Claude tokens are the exception: only the one in use goes into os.environ, as CLAUDE_CODE_OAUTH_TOKEN, where
+every Claude Code the app starts (agents, judgments) reads it, so a switch applies from the next run on. Which one is in
+use, the name you gave each and the usage limit Claude last reported on each are in CLAUDE_PATH (no secret there):
+{"in_use": "CLAUDE_CODE_OAUTH_TOKEN_2" | None, "names": {token: name}, "limits": {token: Claude's words}}. use_claude()
+switches (Use in Settings → Secrets), name_claude() names one, and mark_limit() keeps what a run on the one in use said
+about its usage limit ("You've hit your weekly limit · resets Nov 25, 7am (America/New_York)") until a run there goes
+through again. Nothing switches by itself.
 
 save() sets or removes one token, where they are kept, and in os.environ. move() moves what is on this computer to AWS:
 it adds it to the secret, reads the secret back to check it, keeps the access key in the keyring, and only then removes
@@ -57,11 +66,17 @@ SECRET_NAME = "seraph/secrets"
 KEYRING_ITEM = ["app", "seraph", "key", "aws"]
 # How long the app waits before asking the keyring or AWS again, when either can't be reached at start.
 RETRY_SECONDS = 15
+# The agents' Claude tokens: which is in use, their names and limits (module docstring).
+CLAUDE_PATH = DATA_DIR / "claude_tokens.json"
+CLAUDE = "CLAUDE_CODE_OAUTH_TOKEN"
 
 
 def is_token(name: str) -> bool:
-    """The secrets Settings sets: GITHUB_TOKEN, GITHUB_TOKEN_<n>, CLAUDE_CODE_OAUTH_TOKEN and CLAUDE_CODE_OAUTH_TOKEN_VM."""
-    if name in ["GITHUB_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_VM"]:
+    """The secrets Settings sets: GITHUB_TOKEN, GITHUB_TOKEN_<n>, CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN_<n> and
+    CLAUDE_CODE_OAUTH_TOKEN_VM."""
+    if name in ["GITHUB_TOKEN", CLAUDE, "CLAUDE_CODE_OAUTH_TOKEN_VM"]:
+        return True
+    if name.startswith(CLAUDE + "_") and name.removeprefix(CLAUDE + "_").isdigit():
         return True
     return name.startswith("GITHUB_TOKEN_") and name.removeprefix("GITHUB_TOKEN_").isdigit()
 
@@ -100,15 +115,94 @@ while SETTINGS is not None:
     except (BotoCoreError, ClientError) as error:
         print(f"Can't reach the vault (AWS Secrets Manager, {SETTINGS['region']}): {error}. Trying again in {RETRY_SECONDS} s.", flush=True)
         time.sleep(RETRY_SECONDS)
-# The search tokens and the Claude logins, for token_balancer.py, the agents' Claude Code and Fix all's.
+# The search tokens and Fix all's Claude login, for token_balancer.py and Fix all. The agents' Claude logins don't go in
+# here: only the one in use does, as CLAUDE_CODE_OAUTH_TOKEN (use_claude(), at the bottom of this file).
 for name, value in VALUES.items():
+    if name == CLAUDE or (name.startswith(CLAUDE + "_") and name.removeprefix(CLAUDE + "_").isdigit()):
+        continue
     if is_token(name):
         os.environ[name] = value
+CLAUDE_SETTINGS = {"in_use": None, "names": {}, "limits": {}}
+if os.environ.get("SERAPH_TESTS") != "1" and CLAUDE_PATH.is_file():
+    CLAUDE_SETTINGS.update(json.loads(CLAUDE_PATH.read_text()))
+
+
+def claude_tokens() -> list[str]:
+    """The agents' Claude tokens that are set, in order: CLAUDE_CODE_OAUTH_TOKEN, then CLAUDE_CODE_OAUTH_TOKEN_2, _3, ..."""
+    numbered = []
+    for name, value in VALUES.items():
+        if value == "":
+            continue
+        if name == CLAUDE:
+            numbered.append((1, name))
+        elif name.startswith(CLAUDE + "_") and name.removeprefix(CLAUDE + "_").isdigit():
+            numbered.append((int(name.removeprefix(CLAUDE + "_")), name))
+    numbered.sort()
+    return [name for number, name in numbered]
+
+
+def use_claude(name: str | None = None) -> None:
+    """Puts one of the agents' Claude tokens in use: name, else the one in use already, else (none yet, or it was
+    removed) the first one set. It goes in os.environ as CLAUDE_CODE_OAUTH_TOKEN: every Claude Code the app starts from
+    now on runs on it, the ones running keep theirs. ValueError: no such token."""
+    tokens = claude_tokens()
+    if name is not None and name not in tokens:
+        raise ValueError(f"No Claude Code token {name}.")
+    in_use = name
+    if in_use is None:
+        in_use = CLAUDE_SETTINGS["in_use"]
+    if in_use not in tokens and tokens:
+        in_use = tokens[0]
+    if in_use not in tokens:
+        in_use = None
+    if in_use is None:
+        os.environ.pop(CLAUDE, None)
+    else:
+        os.environ[CLAUDE] = VALUES[in_use]
+    # The names and limits of removed tokens go with them.
+    names = {}
+    for token, text in CLAUDE_SETTINGS["names"].items():
+        if token in tokens:
+            names[token] = text
+    limits = {}
+    for token, text in CLAUDE_SETTINGS["limits"].items():
+        if token in tokens:
+            limits[token] = text
+    changed = {"in_use": in_use, "names": names, "limits": limits}
+    if changed != CLAUDE_SETTINGS:
+        CLAUDE_SETTINGS.update(changed)
+        CLAUDE_PATH.write_text(json.dumps(CLAUDE_SETTINGS, indent=2))
+
+
+def name_claude(name: str, text: str) -> None:
+    """Names one of the agents' Claude tokens (the account it belongs to); "" takes the name off. ValueError: no such
+    token."""
+    if name not in claude_tokens():
+        raise ValueError(f"No Claude Code token {name}.")
+    if text == "":
+        CLAUDE_SETTINGS["names"].pop(name, None)
+    else:
+        CLAUDE_SETTINGS["names"][name] = text
+    CLAUDE_PATH.write_text(json.dumps(CLAUDE_SETTINGS, indent=2))
+
+
+def mark_limit(text: str | None) -> None:
+    """A Claude run on the token in use ended on its usage limit (text: Claude's words, with when it resets), or (None)
+    one went through: Settings → Secrets shows the limit on that token until then."""
+    in_use = CLAUDE_SETTINGS["in_use"]
+    if in_use is None or CLAUDE_SETTINGS["limits"].get(in_use) == text:
+        return
+    if text is None:
+        CLAUDE_SETTINGS["limits"].pop(in_use, None)
+    else:
+        CLAUDE_SETTINGS["limits"][in_use] = text
+    CLAUDE_PATH.write_text(json.dumps(CLAUDE_SETTINGS, indent=2))
 
 
 def status() -> dict:
-    """What Settings → Secrets shows: where they are, the tokens set (each with its last 4 characters only), and which
-    secrets are still on this computer. Never a whole value."""
+    """What Settings → Secrets shows: where they are, the tokens set (each with its last 4 characters only), which
+    secrets are still on this computer, and the agents' Claude tokens' "claude" (CLAUDE_SETTINGS). Never a whole
+    value."""
     tokens = []
     for name, value in VALUES.items():
         if is_token(name) and value != "":
@@ -125,12 +219,13 @@ def status() -> dict:
     if app_path.is_file() and "client_secret" in json.loads(app_path.read_text()):
         on_disk.append("GITHUB_APP_CLIENT_SECRET")
     if SETTINGS is None:
-        return {"kind": "computer", "tokens": tokens, "on_disk": on_disk}
+        return {"kind": "computer", "tokens": tokens, "on_disk": on_disk, "claude": CLAUDE_SETTINGS}
     region = SETTINGS["region"]
     return {
         "kind": "aws",
         "tokens": tokens,
         "on_disk": on_disk,
+        "claude": CLAUDE_SETTINGS,
         "region": region,
         "secret_name": SETTINGS["secret_name"],
         "moved_at": SETTINGS["moved_at"],
@@ -163,7 +258,11 @@ def save(name: str, value: str | None) -> None:
         temporary.replace(SECRETS_PATH)
         VALUES.clear()
         VALUES.update(values)
-    if value is None:
+    # One of the agents' Claude tokens: only the one in use is in os.environ (use_claude), and a new first one, or the
+    # one in use removed, puts another in use.
+    if name == CLAUDE or (name.startswith(CLAUDE + "_") and name.removeprefix(CLAUDE + "_").isdigit()):
+        use_claude()
+    elif value is None:
         os.environ.pop(name, None)
     else:
         os.environ[name] = value
@@ -262,6 +361,10 @@ def put(name: str, value: str | None) -> None:
         raise ValueError(f"AWS Secrets Manager didn't take it: {error}") from None
     VALUES.clear()
     VALUES.update(values)
+
+
+# The agents' Claude token in use goes in os.environ (here, below the functions it needs).
+use_claude()
 
 
 if __name__ == "__main__":

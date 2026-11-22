@@ -34,7 +34,7 @@ from pathlib import Path
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, SystemMessage, TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock, UserMessage, create_sdk_mcp_server
 from dotenv import load_dotenv
 
-from github_searcher import token_usage
+from github_searcher import secret_vault, token_usage
 from github_searcher.agent.github_tools import GithubTools
 from github_searcher.agent.review_tools import ReviewTools
 from github_searcher.agent.work_tools import WorkTools
@@ -235,6 +235,12 @@ class Agent:
                 if message.is_error and not stopped:
                     error = "; ".join(message.errors or []) or message.result or message.subtype
                     self.history.append({"type": "system", "text": f"Error: {error}", "time": datetime.now(UTC).isoformat()})
+                    # The Claude token in use hit its usage limit ("You've hit your weekly limit · resets Nov 25, 7am"):
+                    # Settings → Secrets shows it on that token, so you know to use another.
+                    if "limit" in error and "resets" in error:
+                        secret_vault.mark_limit(error)
+                if not message.is_error:
+                    secret_vault.mark_limit(None)
                 self.history.append({"type": "turn_end", "stopped": stopped, "cost_usd": turn_cost, "time": datetime.now(UTC).isoformat()})
 
             # The agent's text, thinking and tool calls come in its messages; tool results come back in user
