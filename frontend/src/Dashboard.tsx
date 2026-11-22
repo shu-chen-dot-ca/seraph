@@ -7,9 +7,9 @@ widget has the same frame: a header with its title, which opens its page, or the
 and cost has none), and on the right a detail. The Repositories dialog (RepositoryCards.tsx) is the cards and your pull
 requests' tabs; its own card opens it on the cards, the pull request numbers and charts on Open, Merged or Closed, and In
 progress on In progress.
-Smooth, left of the range (on at first, kept while the page is open), draws every line as a curve through its points
-instead of straight lines between them. Every point stays at its real value; between two points the curve never goes
-past either one's level (a monotone cubic curve, Steffen's), so it shows no peak or dip that isn't in the numbers.
+Every line is drawn as a curve through its points, not straight lines between them. Every point stays at its real
+value; between two points the curve never goes past either one's level (a monotone cubic curve, Steffen's), so it
+shows no peak or dip that isn't in the numbers.
 Under the top:
 - Opened, Merged, Closed, Merge rate, Time to merge (the median from opened to merged) and Tokens and cost (all the
   agents used, the cost in USD above the tokens): a big number, with the change from the previous range of the same
@@ -126,7 +126,6 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
   const connected = useConnected();
   const now = useNow();
   const [rangeKey, setRangeKey] = useState("7d");
-  const [smooth, setSmooth] = useState(true);
   // The period the mouse is on, in both charts.
   const [hovered, setHovered] = useState<number | null>(null);
   const [blockersOpen, setBlockersOpen] = useState(false);
@@ -630,7 +629,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
     },
   ];
   // Each line's points, at the middle of their column, in runs broken where a value is missing; each run a path. A
-  // lone point is a dot. Smoothed, a run of three or more is a curve through its points: a cubic between each two, its
+  // lone point is a dot. A run of three or more is a curve through its points: a cubic between each two, its
   // slope at a point Steffen's (0 at a peak or a dip, else no steeper than the gentler side allows), so it stays
   // between the two points' levels; at the ends, the slope that keeps the end segment's shape.
   for (const chart of charts) {
@@ -662,7 +661,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
           line.pieces.push(`${path} L${points[0].x.toFixed(2)},${points[0].y.toFixed(2)}`);
           continue;
         }
-        if (!smooth || points.length === 2) {
+        if (points.length === 2) {
           for (const point of points.slice(1)) {
             path += ` L${point.x.toFixed(2)},${point.y.toFixed(2)}`;
           }
@@ -901,18 +900,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
           <span className={cn(!connected && "text-destructive")}>{connected ? "Live" : "Offline"}</span>
           {prs.checked_at !== null && <span className="max-md:hidden">· Updated {new Date(prs.checked_at).toLocaleTimeString("en", CLOCK)}</span>}
         </span>
-        <button
-          type="button"
-          aria-pressed={smooth}
-          className={cn(
-            "ml-auto h-7 rounded-sm border px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground",
-            smooth && "bg-selected text-foreground hover:bg-selected",
-          )}
-          onClick={() => setSmooth(!smooth)}
-        >
-          Smooth
-        </button>
-        <div className="flex overflow-hidden rounded-sm border">
+        <div className="ml-auto flex overflow-hidden rounded-sm border">
           {RANGES.map((each) => (
             <button
               key={each.key}
