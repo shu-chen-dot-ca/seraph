@@ -27,6 +27,7 @@ The frontend pairs each tool entry with its tool_result by id:
     await agent.stop()
 """
 
+import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -46,6 +47,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 SYSTEM_PROMPT = (Path(__file__).parent / "prompt.md").read_text()
+# What the user excludes (the Explore dialog's Exclude), theirs, kept in the data, never in the code: added at the end of
+# the prompt each time an agent connects.
+PROFILE_FILE = PROJECT_ROOT / os.environ["DATA_DIR"] / "explore_profile.json"
 # Tools are served by an in-process MCP server with this name; their full names are mcp__<name>__<tool>.
 TOOL_SERVER = "agent"
 # How much of a tool's input and result the history keeps. The agent itself gets them in full.
@@ -107,6 +111,10 @@ class Agent:
         self.computer_names = [item.name for item in computer_tools.list()]
 
     async def connect(self) -> None:
+        exclude = ""
+        if PROFILE_FILE.exists():
+            exclude = json.loads(PROFILE_FILE.read_text()).get("exclude", "")
+        system_prompt = SYSTEM_PROMPT.rstrip() + "\n\n## What the user excludes\n\n" + (exclude.strip() or "Nothing.") + "\n"
         # GitHub tools still add old-style "activity" lines to the list they are given; nobody reads this one.
         tools = self.computer_tools.list() + self.work_tools.list() + GithubTools([], self.work_tools.agents.repo_signals).list()
         tools += self.review_tools.list()
@@ -117,7 +125,7 @@ class Agent:
         self.client = ClaudeSDKClient(
             ClaudeAgentOptions(
                 model=self.model,
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 # The only built-in tool: a todo list, which touches nothing on this machine.
                 tools=["TodoWrite"],
                 allowed_tools=allowed_tools,
