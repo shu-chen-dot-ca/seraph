@@ -18,7 +18,8 @@ they are filled in now (Agents.secrets_filled). Settings and the viewer make Inc
 endpoints are plain `def` (FastAPI runs them in a thread pool). The queue
 endpoints are `async def`: they are quick, and taking a VM from an agent
 interrupts that agent, which lives on the event loop. Stop ends one of the long runs agents
-left going in the VM (sandbox/agent/long_runs.py); its agent is told the user stopped it.
+left going in the VM (sandbox/agent/long_runs.py); its agent is told the user stopped it. Suspend (the VM's band on
+the Dashboard) stops agents new to the VM from getting a desktop, until Resume; the ones on it go on.
 """
 
 import asyncio
@@ -51,6 +52,10 @@ class CreateRequest(BaseModel):
 class LockRequest(BaseModel):
     enabled: bool
     desktop: int = 1
+
+
+class SuspendRequest(BaseModel):
+    enabled: bool
 
 
 class DesktopRequest(BaseModel):
@@ -244,6 +249,19 @@ async def graceful_shutdown_vm(name: str) -> dict:
         record.set_graceful_shutdown()
     except VMsError as error:
         raise HTTPException(status_code=409, detail=str(error))
+    return {}
+
+
+@router.put("/vms/{name}/suspend")
+async def suspend_vm(name: str, body: SuspendRequest) -> dict:
+    """Suspend (enabled) or Resume: while suspended, no agent new to it gets a desktop; the ones on it go on. It stays
+    until Resume, through stops and starts. async: it only sets a flag, so it never waits behind the thread pool's
+    Incus calls."""
+    try:
+        record = vms.get(name)
+    except VMsError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    record.set_suspended(body.enabled)
     return {}
 
 
