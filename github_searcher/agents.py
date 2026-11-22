@@ -53,7 +53,7 @@ After each turn the worker enforces the VM rule: an agent never holds a VM it ha
 An agent with open work never just stops: every HEARTBEAT_CHECK_SECONDS (keep_going), one with a job queued or working
 that has been out of its turn for HEARTBEAT_SECONDS is told to carry on, whatever ended it (a turn that failed,
 reminders that ran out, a VM released for it, a backend restart, a blocker it reported). Only a real wait is left alone:
-its place in a VM's line (the grant wakes it), a run of its going (watch_runs wakes it), the user (waiting_on_user, a
+its place in a VM's line (the grant wakes it), waiting for a VM while none takes agents (below), a run of its going (watch_runs wakes it), the user (waiting_on_user, a
 draft of the job still waiting with its reviewer or in the Inbox whatever the job's status says, or the user stopped it),
 or being archived. How long it has been out: since the newest entry in its history with a time
 (its turn's end, an error, a message), so restarts don't put it off.
@@ -71,6 +71,9 @@ An agent is never stuck on one VM: one waiting in a VM's line for any desktop, w
 goes to another running VM with a desktop free and nobody waiting (watch_room; queue_for_vm does the same when it
 queues for a VM that is off, gone, full or has every desktop taken). One whose project is set up there stays: setting it
 up again costs downloads and builds.
+When no VM takes agents at all (none running, or each suspended or shutting down), an agent that needs one waits for
+one (waiting_for_vm: from queue_for_vm, or taken out of a suspended or shutting-down VM's line) instead of trying them,
+and the Dashboard shows it waiting. keep_going wakes it once a VM takes agents again.
 A VM the user shuts down gracefully (graceful_shutdown, sandbox/vms.py) takes nobody new: the agents holding its desktops
 finish (none is taken back), whoever still waits for it is sent to pick another VM, and once nobody holds a desktop and
 no run goes, watch_room shuts it down. A VM the user suspended (suspended, sandbox/vms.py) is the same, but stays on.
@@ -348,6 +351,9 @@ class Agents:
         # The running VMs whose disk is low (watch_room), whose holders were told to free room. Not saved: after a restart
         # they are told once more.
         self.disk_low: set[str] = set()
+        # The agents waiting for a VM because none takes agents (module docstring), woken by keep_going once one does. Not
+        # saved: after a restart the heartbeat wakes them, and queue_for_vm puts them back.
+        self.waiting_for_vm: set[str] = set()
         self.loop = None
         self.loop_thread = None
         self.saver = None
@@ -709,7 +715,7 @@ class Agents:
                 continue
 
             waiting = [job for job in open_jobs if job["status"] == "queued" and job["vm"] is not None]
-            if place is not None or not waiting or nudge["count"] >= MAX_NUDGES:
+            if place is not None or not waiting or nudge["count"] >= MAX_NUDGES or agent.id in self.waiting_for_vm:
                 continue
             nudge["count"] += 1
             titles = ", ".join(f"{job['id']} ({job['title']})" for job in waiting)
@@ -767,6 +773,8 @@ class Agents:
                     # Messages wait to wake it, out of its turn: it waits for a place among the agents in a turn
                     # (MAX_AGENTS_AT_ONCE), or is about to start.
                     "waiting": not agent.busy and self.wake[agent.id].is_set() and agent.record["archived_at"] is None,
+                    # It needs a VM and none takes agents now: it waits for one (waiting_for_vm).
+                    "waiting_for_vm": not agent.busy and agent.id in self.waiting_for_vm,
                     "vm": vm_name,
                     # The desktop of that VM it holds or asked for (None: it waits for any).
                     "desktop": desktop,
@@ -1937,7 +1945,8 @@ class Agents:
 
     async def keep_going(self) -> None:
         """The heartbeat (module docstring), every HEARTBEAT_CHECK_SECONDS: an agent with a job queued or working, out of
-        its turn for HEARTBEAT_SECONDS, is woken to carry on, unless it waits in a VM's line, a run of its goes, the user
+        its turn for HEARTBEAT_SECONDS, is woken to carry on, unless it waits in a VM's line or for a VM while none takes
+        agents (woken here once one does), a run of its goes, the user
         stopped it, or it is archived. A job waiting on the user isn't open work here: the user's answer wakes it. Nor is
         one with a draft that still waits (a PR draft with its reviewer or in the Inbox), whatever its status
         says: the reviewer's verdict or the user's decision wakes it. A fix_issue job's claim holds nothing up. A blocker
@@ -1968,6 +1977,21 @@ class Agents:
                 )
                 self.pending[agent.id].append({"from": "System", "text": text, "shown": False})
                 self.wake[agent.id].set()
+            # Waiting for a VM because none took agents (waiting_for_vm): woken once one does.
+            takes = []
+            for vm_record in self.vms.list():
+                if vm_record.name != FIX_VM and vm_record.status == "running" and not vm_record.graceful_shutdown and not vm_record.suspended:
+                    takes.append(vm_record.name)
+            for agent_id in list(self.waiting_for_vm):
+                if not takes:
+                    break
+                self.waiting_for_vm.discard(agent_id)
+                self.version += 1
+                if agent_id not in self.agents or self.agents[agent_id].record["archived_at"] is not None:
+                    continue
+                text = f"A VM takes agents again ({', '.join(takes)}): carry on with your open jobs, queue_for_vm when you need it."
+                self.pending[agent_id].append({"from": "System", "text": text, "shown": False})
+                self.wake[agent_id].set()
             running = []
             for vm_record in self.vms.list():
                 running += [run["agent"] for run in vm_record.runs]
@@ -1992,9 +2016,9 @@ class Agents:
                 # A run of its goes: watch_runs wakes it when it ends.
                 if not open_jobs or agent.id in running:
                     continue
-                # Its place in a VM's line: the grant wakes it.
+                # Its place in a VM's line: the grant wakes it. Waiting for a VM while none takes agents: woken above.
                 vm_name, place = self.queue.place(agent.id)
-                if place is not None and place > 0:
+                if (place is not None and place > 0) or agent.id in self.waiting_for_vm:
                     continue
                 # Out of its turn long enough.
                 times = [entry["time"] for entry in agent.history[-500:] if entry.get("time")]
@@ -2106,6 +2130,18 @@ class Agents:
                     if agent_id not in self.agents:
                         continue
                     self.set_target_vm(agent_id, None, by_agent=True)
+                    # No other VM takes agents: it waits for one (waiting_for_vm), told when keep_going wakes it, so it
+                    # isn't woken just to end its turn.
+                    takes = []
+                    for each in self.vms.list():
+                        if each.name != FIX_VM and each.status == "running" and not each.graceful_shutdown and not each.suspended:
+                            takes.append(each.name)
+                    if not takes:
+                        self.waiting_for_vm.add(agent_id)
+                        text = f"{vm_record.name} {why} and takes nobody new, so you were taken out of its queue and have no target VM."
+                        self.pending[agent_id].append({"from": "System", "text": text, "shown": False})
+                        self.version += 1
+                        continue
                     self.notify(
                         agent_id,
                         f"{vm_record.name} {why} and takes nobody new, so you are out of its "

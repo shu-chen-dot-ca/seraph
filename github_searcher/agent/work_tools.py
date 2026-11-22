@@ -3978,7 +3978,7 @@ class WorkTools:
                 }
             vms.append(entry)
         if not vms:
-            return {"content": [{"type": "text", "text": "There are no VMs. Only the user can make one; ask them if a job needs it."}]}
+            return {"content": [{"type": "text", "text": "There are no VMs. When a job needs one, queue_for_vm: you wait for one and get a message once there is."}]}
         return {"content": [{"type": "text", "text": json.dumps(vms)}]}
 
     async def choose_vm(self, args: dict) -> dict:
@@ -4005,6 +4005,22 @@ class WorkTools:
         return {"content": [{"type": "text", "text": text}]}
 
     async def queue_for_vm(self, args: dict) -> dict:
+        # No VM takes agents now (none running, or each suspended or shutting down) and it holds or waits for none: it
+        # waits for one (Agents.waiting_for_vm, shown on the Dashboard) instead of trying them, woken once one does.
+        queued_vm, place = self.agents.queue.place(self.agent_id)
+        takes = []
+        for each in self.agents.vms.list():
+            if each.name != FIX_VM and each.status == "running" and not each.graceful_shutdown and not each.suspended:
+                takes.append(each.name)
+        if place is None and not takes:
+            self.agents.waiting_for_vm.add(self.agent_id)
+            self.agents.changed()
+            text = (
+                "No VM takes agents right now (none is running, or each is suspended or shutting down). You wait for one: end "
+                "your turn now, and you'll get a message once one does. Don't cancel jobs for this."
+            )
+            return {"content": [{"type": "text", "text": text}]}
+        self.agents.waiting_for_vm.discard(self.agent_id)
         vm_name = self.record["target_vm"]
         if vm_name is None:
             text = "You have no target VM. Pick the VM that suits your jobs with vms_list and choose_vm, then queue again."
@@ -4017,7 +4033,6 @@ class WorkTools:
         # waiting, since it sets its project up from nothing either way. Not when it asked for a desktop (its project is
         # there), or already waits or holds one.
         moved = ""
-        queued_vm, place = self.agents.queue.place(self.agent_id)
         target = None
         for each in self.agents.vms.list():
             if each.name == vm_name:
