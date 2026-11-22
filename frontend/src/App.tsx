@@ -209,7 +209,7 @@ export default function App() {
           href={__REPO_URL__}
           target="_blank"
           rel="noreferrer"
-          className="flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="flex size-7 items-center justify-center rounded-sm text-muted-foreground hover-line"
           title="This repo on GitHub"
           aria-label="This repo on GitHub"
         >

@@ -127,7 +127,7 @@ export default function VMList() {
                 </span>
               )}
               <Button
-                variant="ghost"
+                variant="icon"
                 size="icon-xs"
                 className="ml-auto shrink-0"
                 aria-label={`${vm.name} settings`}

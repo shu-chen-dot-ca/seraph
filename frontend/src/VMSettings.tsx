@@ -411,7 +411,7 @@ export default function VMSettings(props: { name: string }) {
                     }}
                   />
                   <Button
-                    variant="ghost"
+                    variant="icon"
                     size="icon"
                     aria-label={row.shown ? "Hide the value" : "Show the value"}
                     title={row.shown ? "Hide the value" : "Show the value"}
@@ -420,7 +420,7 @@ export default function VMSettings(props: { name: string }) {
                     {row.shown ? <EyeOff /> : <Eye />}
                   </Button>
                   <Button
-                    variant="ghost"
+                    variant="icon"
                     size="icon"
                     aria-label={`Remove ${row.name || "this variable"}`}
                     title="Remove"

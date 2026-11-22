@@ -559,7 +559,7 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                               <button
                                 type="button"
                                 title=""
-                                className="flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
+                                className="flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover-line data-[state=open]:bg-accent"
                                 aria-label={`Settings for ${card.repo.full_name}`}
                                 onPointerEnter={(event) => {
                                   if (event.pointerType === "mouse") {

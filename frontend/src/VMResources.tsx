@@ -115,11 +115,11 @@ function FilePane(props: {
     <div className="flex min-h-0 min-w-0 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-0.5 border-b px-2">
         <span className="mr-1.5 shrink-0 font-medium">{props.title}</span>
-        <Button variant="ghost" size="icon-xs" title="Home folder" aria-label="Home folder" disabled={props.off} onClick={() => setPath("")}>
+        <Button variant="icon" size="icon-xs" title="Home folder" aria-label="Home folder" disabled={props.off} onClick={() => setPath("")}>
           <Home />
         </Button>
         <Button
-          variant="ghost"
+          variant="icon"
           size="icon-xs"
           title="Up one folder"
           aria-label="Up one folder"
@@ -153,7 +153,7 @@ function FilePane(props: {
             ))}
         </div>
         <Button
-          variant="ghost"
+          variant="icon"
           size="icon-xs"
           title={showHidden ? "Hide hidden files" : "Show hidden files"}
           aria-label={showHidden ? "Hide hidden files" : "Show hidden files"}
@@ -161,7 +161,7 @@ function FilePane(props: {
         >
           {showHidden ? <EyeOff /> : <Eye />}
         </Button>
-        <Button variant="ghost" size="icon-xs" title="Read the folder again" aria-label="Refresh" disabled={props.off} onClick={() => setReload(reload + 1)}>
+        <Button variant="icon" size="icon-xs" title="Read the folder again" aria-label="Refresh" disabled={props.off} onClick={() => setReload(reload + 1)}>
           <RotateCw />
         </Button>
       </div>

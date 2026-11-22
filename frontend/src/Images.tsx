@@ -251,7 +251,7 @@ export default function Images(props: { tabs: ReactNode }) {
             </span>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-xs" aria-label={`Actions for ${image.name}`}>
+                <Button variant="icon" size="icon-xs" aria-label={`Actions for ${image.name}`}>
                   <MoreHorizontal />
                 </Button>
               </DropdownMenuTrigger>
@@ -294,7 +294,7 @@ export default function Images(props: { tabs: ReactNode }) {
             </span>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-xs" aria-label={`Actions for ${image.name}`}>
+                <Button variant="icon" size="icon-xs" aria-label={`Actions for ${image.name}`}>
                   <MoreHorizontal />
                 </Button>
               </DropdownMenuTrigger>

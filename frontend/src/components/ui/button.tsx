@@ -18,6 +18,8 @@ const buttonVariants = cva(
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost:
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+        // Icon buttons: a thin accent line on hover instead of a fill (hover-line in index.css).
+        icon: "hover-line",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

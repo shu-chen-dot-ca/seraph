@@ -7,7 +7,8 @@
    --destructive red.
 
    Motion (the base layer below): anything clickable eases its colors out over 150ms, but turns on at once on hover,
-   so a click shows right away; a page fades up 4px as it opens (not when the OS asks for reduced motion);
+   so a click shows right away; Dashboard cards and icon buttons don't brighten on hover, a thin accent line fades in around them instead
+   (hover-line, below); a page fades up 4px as it opens (not when the OS asks for reduced motion);
    pop-ups and menus fade and grow in.
 
    Where color goes:
@@ -389,6 +390,21 @@
 
 .markdown :where(h2) {
   font-size: 1.3em;
+}
+
+/* Hover on the Dashboard's cards (Repositories, Automation, Blockers, ...) and range buttons, and on icon buttons
+   (Button's icon variant, the header's GitHub icon, a card's ⋯, a dialog's close): a 1px accent line fades in around
+   the element over 200ms (and out the same way), with no fill. It sits on the element's
+   edge, so nothing moves or gets clipped. Outside any layer, so it wins over outline-none and transition-* classes. */
+.hover-line {
+  outline: 1px solid transparent;
+  outline-offset: -1px;
+  transition: outline-color 200ms var(--ease-out);
+}
+
+/* Half strength, so it reads as a hairline: a screen can't draw less than 1px, and 0.5px drew nothing. */
+.hover-line:hover {
+  outline-color: color-mix(in oklab, var(--primary) 50%, transparent);
 }
 
 /* Touch screens (a phone) have no hover, so what shows on hover shows always there: the sidebar's + and ⋯ (in place

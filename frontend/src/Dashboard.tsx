@@ -918,8 +918,8 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
               key={each.key}
               type="button"
               className={cn(
-                "h-7 border-l px-2.5 text-xs font-medium text-muted-foreground tabular-nums first:border-l-0 hover:bg-accent hover:text-foreground",
-                rangeKey === each.key && "bg-selected text-foreground hover:bg-selected",
+                "h-7 border-l px-2.5 text-xs font-medium text-muted-foreground tabular-nums first:border-l-0 hover-line",
+                rangeKey === each.key && "bg-selected text-foreground",
               )}
               onClick={() => setRangeKey(each.key)}
             >
@@ -1003,7 +1003,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
                 })}
               </div>
             </div>
-            <button type="button" className={cn(WIDGET, "text-left hover:bg-accent/40")} onClick={() => setReposTab("")}>
+            <button type="button" className={cn(WIDGET, "text-left hover-line")} onClick={() => setReposTab("")}>
               <div className={WIDGET_HEADER}>
                 <span className="truncate font-medium">Repositories</span>
               </div>
@@ -1011,7 +1011,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
                 <span className="font-mono text-3xl font-light tabular-nums">{repoNames.length}</span>
               </div>
             </button>
-            <button type="button" className={cn(WIDGET, "text-left hover:bg-accent/40")} onClick={() => setAutomationOpen(true)}>
+            <button type="button" className={cn(WIDGET, "text-left hover-line")} onClick={() => setAutomationOpen(true)}>
               <div className={WIDGET_HEADER}>
                 <span className="truncate font-medium">Automation</span>
                 <span className={DETAIL}>Activities</span>
@@ -1022,7 +1022,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
                 </span>
               </div>
             </button>
-            <button type="button" className={cn(WIDGET, "text-left hover:bg-accent/40")} onClick={() => setBlockersOpen(true)}>
+            <button type="button" className={cn(WIDGET, "text-left hover-line")} onClick={() => setBlockersOpen(true)}>
               <div className={WIDGET_HEADER}>
                 <span className="truncate font-medium">Blockers</span>
               </div>
@@ -1030,7 +1030,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
                 <span className={cn("font-mono text-3xl font-light tabular-nums", blockers > 0 && "text-warn")}>{blockers}</span>
               </div>
             </button>
-            <button type="button" className={cn(WIDGET, "text-left hover:bg-accent/40")} onClick={() => setFeedbackOpen(true)}>
+            <button type="button" className={cn(WIDGET, "text-left hover-line")} onClick={() => setFeedbackOpen(true)}>
               <div className={WIDGET_HEADER}>
                 <span className="truncate font-medium">Feedback</span>
                 <span className={DETAIL}>Open</span>
@@ -1039,7 +1039,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
                 <span className="font-mono text-3xl font-light tabular-nums">{feedbackOpenCount}</span>
               </div>
             </button>
-            <button type="button" className={cn(WIDGET, "text-left hover:bg-accent/40")} onClick={props.onOpenSettings}>
+            <button type="button" className={cn(WIDGET, "text-left hover-line")} onClick={props.onOpenSettings}>
               <div className={WIDGET_HEADER}>
                 <span className="truncate font-medium">Settings</span>
               </div>
