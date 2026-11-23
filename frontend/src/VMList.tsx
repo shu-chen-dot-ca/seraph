@@ -3,11 +3,11 @@ Every VM's band, on the Dashboard's Virtual machines (its VMs tab), split by a l
 the Dashboard opens its page in a dialog, App.tsx), Halt, Shutdown or Start, and a ⋯ that opens the VM's settings
 (VMSettings, as on its page's Settings tab) in a dialog, titled with the VM's name and, in gray, the image it was made
 from (its name now, as images can be renamed).
-- Halt stops agents new to the VM from getting a desktop (the ones on it go on; record.suspended in the backend). The
+- Halt (no color: outlined, like a plain button) stops agents new to the VM from getting a desktop (the ones on it go on; record.suspended in the backend). The
   button then says Halting while anyone still holds a desktop or a run still goes, and Halted once nothing does, both
   solid gray. Clicking either takes the halt off. Not on Seraph's own VM (FIX_VM): no agent gets it anyway.
 - Shutdown (red) while it runs, Start (green) while it's off or failed; each spins while it goes.
-All solid with white text, the size of New VM (Dashboard.tsx), like the app's other buttons.
+The others solid with white text; all the size of New VM (Dashboard.tsx), like the app's other buttons.
 Under it a row of cards, all the same size, side by side (the row scrolls sideways when the page is narrow):
 - CPU, Memory and Internet: the number now and a chart of the last minute. Internet also has the total since it
   was last reset.
@@ -150,7 +150,7 @@ export default function VMList() {
                 {vm.name}
               </a>
               {vm.name !== FIX_VM && !vm.suspended && (
-                <Button size="sm" disabled={halting === vm.name} onClick={() => setHalted(vm.name, true)}>
+                <Button variant="outline" size="sm" disabled={halting === vm.name} onClick={() => setHalted(vm.name, true)}>
                   {halting === vm.name ? <Loader2 className="animate-spin" /> : <Pause />} Halt
                 </Button>
               )}
