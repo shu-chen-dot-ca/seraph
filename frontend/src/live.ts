@@ -632,13 +632,15 @@ export type ActivityData = {
 
 export type Topics = {
   // archived, removed, prioritized, target (by name: when it went there), restored (by name: when it left Removed): the
-  // Repositories dialog (repo_list.py).
+  // Repositories dialog (repo_list.py). contributors: how many each listed repo has, by name in lower case (from its
+  // signals; null: not known yet, or GitHub won't count them).
   repos: ListData<RepoItem> & {
     archived: string[];
     removed: string[];
     prioritized: string[];
     target: Record<string, string>;
     restored: Record<string, string>;
+    contributors: Record<string, number | null>;
   };
   jobs: Job[];
   inbox: Draft[]; // only the approval requests still waiting: the Dashboard's Blockers card and dialog
@@ -657,7 +659,7 @@ export type Topics = {
 // `loaded` says which topics have arrived, for the few places that must tell "empty" from "not yet".
 const store = {
   topics: {
-    repos: { items: [], can_undo: false, can_redo: false, archived: [], removed: [], prioritized: [], target: {}, restored: {} },
+    repos: { items: [], can_undo: false, can_redo: false, archived: [], removed: [], prioritized: [], target: {}, restored: {}, contributors: {} },
     jobs: [],
     inbox: [],
     prs: { items: [], issues: [], checked_at: null, error: null, refreshing: false },

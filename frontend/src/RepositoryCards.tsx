@@ -20,8 +20,11 @@ bottom that scrolls on its own (on a narrow window the columns keep their width 
   closed without a merge after that count.
 Every repo with a pull request of yours has a card, also one that isn't in the Repos list (a PR you opened by hand, a
 repo taken out of the list): made from its pull requests, so it goes to its column like any other (only closed ones:
-Removed). Its stars aren't known (–), so it comes last in its column, and its ⋯ has only the moves (none in Catalog: no ⋯ there).
-A card: the owner's picture as its logo, owner/name, and under it in color: its stars (yellow), then of your pull
+Removed). Its stars (and contributors) are asked of POST /api/repos/counts once; until they come it shows – and comes
+last in its column. Its ⋯ has only the moves (none in Catalog: no ⋯ there).
+A card: the owner's picture as its logo, owner/name, and under it in color: its stars (yellow), outside Prioritized and
+Contributed how many contributors it has (blue, a people icon: the number on its GitHub page, from the live repos topic,
+or for a card made from PRs asked of POST /api/repos/counts; none while not known), then of your pull
 requests there how many it merged (purple), closed without a merge (red) and are still open (green), then the issues in
 progress there (yellow, a draft PR icon: fix_issue jobs still open with no pull request on GitHub yet, as the Pull
 requests page's In progress has them, from the live "jobs" topic); a count of 0 isn't shown. The mouse on the open
@@ -52,7 +55,7 @@ Your pull requests are the ones the app follows (github_searcher/pr_tracking.py)
 numbers update themselves.
 */
 
-import { ChevronDown, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MoreHorizontal, Settings, Star } from "lucide-react";
+import { ChevronDown, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MoreHorizontal, Settings, Star, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -120,6 +123,10 @@ export default function RepositoryCards(props: { state: string; onState: (state:
   const [moved, setMoved] = useState<Record<string, string>>({});
   // The cards taken out of Removed here, until the live feed has it.
   const [restored, setRestored] = useState<string[]>([]);
+  // The stars and contributors of repos with no signals (found by the boxes, cards made from PRs alone), by name in
+  // lower case (null: not known), and the ones asked already (each once).
+  const [repoCounts, setRepoCounts] = useState<Record<string, { stars: number | null; contributors: number | null }>>({});
+  const asked = useRef<string[]>([]);
   // The column switches flipped here, until the live feed has them.
   const [switched, setSwitched] = useState<Record<string, boolean>>({});
   // The column settings saved here, until the live feed has them; the column whose settings pop-up is open ("": none),
@@ -217,10 +224,11 @@ export default function RepositoryCards(props: { state: string; onState: (state:
       continue;
     }
     listedNames.push(key);
+    // Its stars once asked (0 until then: last in its column).
     const repo = {
       full_name: pr.repo,
       description: "",
-      stars: 0,
+      stars: repoCounts[key]?.stars ?? 0,
       default_branch: "",
       html_url: `https://github.com/${pr.repo}`,
       note: "",
@@ -282,6 +290,22 @@ export default function RepositoryCards(props: { state: string; onState: (state:
     { title: "Catalog", key: "catalog", removed: false, moveTo: "", cards: catalog },
     { title: "Removed", key: "", removed: true, moveTo: "", cards: removed },
   ];
+
+  // The stars and contributors of repos the live feed has no numbers for: cards made from PRs alone, asked ten at a
+  // time, each answer shown as it comes. A failed ask is asked again next time.
+  useEffect(() => {
+    const names = shown.filter((card) => !card.listed).map((card) => card.repo.full_name);
+    const keys = names.map((name) => name.toLowerCase()).filter((key) => repos.contributors[key] === undefined && !asked.current.includes(key));
+    asked.current = [...asked.current, ...keys];
+    for (let start = 0; start < keys.length; start += 10) {
+      const group = keys.slice(start, start + 10);
+      api<Record<string, { stars: number | null; contributors: number | null }>>("/api/repos/counts", { method: "POST", body: { names: group } })
+        .then((answer) => setRepoCounts((old) => ({ ...old, ...answer })))
+        .catch(() => {
+          asked.current = asked.current.filter((key) => !group.includes(key));
+        });
+    }
+  }, [prs, repos]);
 
   // The tabs, each with its count. Like the header's tabs (App.tsx): quiet until hovered; the open one in full color
   // with the accent under it.
@@ -489,6 +513,11 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                     // Its ⋯ has a move, Remove from Target, or Delete or Add to Removed (and in Catalog Add to Target), or in Removed
                     // the way back.
                     const menu = column.moveTo !== "" || column.title === "Target" || column.removed || card.listed;
+                    // Its contributors, outside Prioritized and Contributed: null when not known.
+                    let people: number | null = null;
+                    if (column.title !== "Prioritized" && column.title !== "Contributed") {
+                      people = repos.contributors[card.repo.full_name.toLowerCase()] ?? repoCounts[card.repo.full_name.toLowerCase()]?.contributors ?? null;
+                    }
                     return (
                       <div
                         key={card.repo.full_name}
@@ -520,8 +549,16 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                           <div className="flex items-center gap-2.5 text-xs text-muted-foreground tabular-nums" title="">
                             <span className="flex items-center gap-0.5 text-yellow-600 dark:text-yellow-400">
                               <Star className="size-3" />
-                              {card.listed ? card.repo.stars.toLocaleString("en", { notation: "compact" }) : "–"}
+                              {card.listed || (repoCounts[card.repo.full_name.toLowerCase()]?.stars ?? null) !== null
+                                ? card.repo.stars.toLocaleString("en", { notation: "compact" })
+                                : "–"}
                             </span>
+                            {people !== null && (
+                              <span className="flex items-center gap-0.5 text-blue-500">
+                                <Users className="size-3" />
+                                {people.toLocaleString("en", { notation: "compact" })}
+                              </span>
+                            )}
                             {card.merged > 0 && (
                               <span className="flex items-center gap-0.5 text-violet-500">
                                 <GitMerge className="size-3" />
