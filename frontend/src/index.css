@@ -9,7 +9,7 @@
    Motion (the base layer below): anything clickable eases its colors out over 150ms, but turns on at once on hover,
    so a click shows right away; Dashboard cards and icon buttons don't brighten on hover, a thin accent line fades in around them instead
    (hover-line, below); a page fades up 4px as it opens (not when the OS asks for reduced motion);
-   pop-ups and menus fade and grow in.
+   pop-ups (dialogs, menus, dropdowns) open and close at once, with no fade, zoom or slide (components/ui).
 
    Where color goes:
    - The accent marks what you can act on and where you are: the main button, links, the selected row, the focus ring,

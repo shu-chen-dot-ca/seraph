@@ -918,7 +918,6 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                                   <DropdownMenuContent
                                     align="start"
                                     sideOffset={0}
-                                    style={{ animation: "none" }}
                                     onPointerEnter={() => window.clearTimeout(closeTimer.current)}
                                     onPointerLeave={() => {
                                       closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
@@ -978,8 +977,6 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                             <DropdownMenuContent
                               align="end"
                               sideOffset={0}
-                              // At once, with no fade or zoom in or out.
-                              style={{ animation: "none" }}
                               onPointerEnter={() => window.clearTimeout(closeTimer.current)}
                               onPointerLeave={() => {
                                 closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
