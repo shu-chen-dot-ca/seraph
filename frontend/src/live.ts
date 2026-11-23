@@ -615,20 +615,6 @@ export type Feedback = {
   closed_at: string | null;
 };
 
-// Each repo's record with us (github_searcher/repo_stats.py), by its name in lower case: one round of its tests (the
-// median after run of the scope its rules ask for: seconds and CPU seconds; exact false: only rough times from before
-// 11-20; scope full: the project's official checks, focused: the tests that cover the change). null: not known.
-export type RepoStats = Record<
-  string,
-  {
-    round_seconds: number | null;
-    round_cpu_seconds: number | null;
-    rounds: number;
-    exact: boolean;
-    scope: "full" | "focused" | null;
-  }
->;
-
 // What runs besides the agents (backend/app.py, topic "activity"), for the Dashboard's Agents: the images whose agent is
 // in a turn, a Fix all run (null: none runs), the checks running now (github_searcher/claude_judge.py, how many by what),
 // and the model each of these uses.
@@ -654,7 +640,6 @@ export type Topics = {
   automation: AutomationData;
   tokens: TokensData;
   problems: Feedback[];
-  repo_stats: RepoStats;
   activity: ActivityData;
 };
 
@@ -701,7 +686,6 @@ const store = {
     },
     tokens: { slices: [] },
     problems: [],
-    repo_stats: {},
     activity: { images: [], fix_all: null, checks: {}, models: { checks: "", image: "", fix_all: "" } },
   } as Topics,
   loaded: {} as Partial<Record<keyof Topics, boolean>>,
