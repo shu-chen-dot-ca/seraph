@@ -181,6 +181,9 @@ async def act_on_drafts() -> None:
     per_repo = automation.get("max_open_per_repo")
     max_open = automation.get("max_open_prs")
     per_day = automation.get("max_prs_per_day")
+    # The Repositories page's columns' settings (their ⚙), and each repo's column there (backend/issues_api.py
+    # take_from_catalog works it out).
+    column_settings = automation.get("columns", {})
     # New PRs sent since midnight here (local time), for Pull requests per day.
     midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC).isoformat()
     sent_today = inbox.new_prs_sent_since(midnight)
@@ -240,6 +243,10 @@ async def act_on_drafts() -> None:
             limit = rules.get("max_prs", 5)
         if per_repo is not None:
             limit = min(limit, per_repo)
+        # Its column's Open PRs per repository goes over both.
+        column_limit = (column_settings.get(agents.repo_columns.get(name, "")) or {}).get("max_open_per_repo")
+        if column_limit is not None:
+            limit = column_limit
         if send and new_pr and open_prs.get(name, 0) >= limit:
             send = False
         # The Automation page: Create pull requests is every new PR (also one made again in place of an old one), Reply

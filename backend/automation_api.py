@@ -18,8 +18,11 @@ Its settings and what it did, in AUTOMATION_FILE (DATA_DIR/automation.json):
      "send_prs", "send_comments": bool,             Create pull requests, Reply to reviews and comments
      "max_prs_per_day", "max_open_prs", "max_open_per_repo": int | None,    the limits (None: no limit)
      "ai_policies": ["welcome", ...],               the AI policies whose repos may be worked on (never no_ai)
-     "take_from": {"target", "prioritized", "contributed", "catalog": bool}}
+     "take_from": {"target", "prioritized", "contributed", "catalog": bool},
                                                     the Repositories page's column switches (below)
+     "columns": {"target", "prioritized", "contributed", "catalog": {"max_open_per_repo": int | None,
+                 "model": "default" | "fable" | "opus" | "sonnet"}}}
+                                                    those columns' settings (below)
 
 The Explore dialog's Include and Exclude are not in it: they are Explore's profile's (DATA_DIR/explore_profile.json,
 explore.py), so they stay out of the code and out of git. summary() adds them.
@@ -79,6 +82,13 @@ The Repositories page's column switches (take_from, one per column but Removed):
 repos in that column, ours too (backend/issues_api.py take_from_catalog); what is going there goes on. PUT
 /api/automation/take_from sets one.
 
+The same columns' settings (their ⚙ on that page; PUT /api/automation/column sets one):
+- Open PRs per repository (max_open_per_repo): the most PRs of ours open at once in each repo of the column, over the
+  repo's own Open PRs at once and the Automation's Open pull requests per repository (None: those). What keep_drafts
+  sends (backend/repo_automation_api.py) and taking issues (backend/issues_api.py take_from_catalog) both go by it.
+- Model: the Claude model of the agents fixing issues and following up on PRs in the column's repos (default: the
+  usual, claude_models.py), for new jobs: a job keeps the one it started with (agents.py work).
+
 The page's settings, and where each is obeyed:
 - Manage repositories (on): everything above that archives and closes.
 - Add repositories (add_repos, the switch in the Explore dialog's header): above.
@@ -111,6 +121,7 @@ from pydantic import BaseModel
 from backend.issues_api import AUTO_REMOVE_FILE, AUTO_REMOVE_OFF, AUTOMATION_VERSION, REPO_COLUMNS, auto_remove_issues
 from backend.repo_automation_api import DEFAULTS, SETTINGS_FILE
 from backend.shared import agents, explore, github_account, inbox, issues, jobs, pr_tracking, repo_signals, repos
+from github_searcher.claude_models import COLUMN_MODELS
 from github_searcher.explore import FIT_LEVELS, MIN_CLOSED_PRS, MIN_CONTRIBUTORS, MIN_OPEN_ISSUES, MIN_STARS
 from github_searcher.github_account import SendError
 from github_searcher.issue_tags import DATA_DIR
@@ -144,6 +155,7 @@ SETTINGS = {
     "max_open_per_repo": None,
     "ai_policies": list(POLICY_ORDER),
     "take_from": {column: True for column in REPO_COLUMNS},
+    "columns": {column: {"max_open_per_repo": None, "model": "default"} for column in REPO_COLUMNS},
 }
 EMPTY = {"on": False, "active_repos": MAX_ACTIVE, "take_new": True, "rules": RULES, "new_repos": AUTO_SETTINGS, "archived": {}, "closed": [], "run": None, "log": [], "labels": {}, **SETTINGS}
 
@@ -178,6 +190,12 @@ class AutomationRequest(BaseModel):
 class TakeFromRequest(BaseModel):
     column: str
     on: bool
+
+
+class ColumnRequest(BaseModel):
+    column: str
+    max_open_per_repo: int | None
+    model: str
 
 
 def summary() -> dict:
@@ -242,6 +260,22 @@ async def put_take_from(body: TakeFromRequest) -> dict:
     if body.column not in REPO_COLUMNS:
         raise HTTPException(status_code=400, detail=f"The columns are {', '.join(REPO_COLUMNS)}.")
     automation["take_from"][body.column] = body.on
+    AUTOMATION_FILE.write_text(json.dumps(automation, indent=2))
+    AUTOMATION_VERSION["version"] += 1
+    return summary()
+
+
+@router.put("/automation/column")
+async def put_column(body: ColumnRequest) -> dict:
+    """A column's settings on the Repositories page (its ⚙): Open PRs per repository and Model (see the top of this
+    file)."""
+    if body.column not in REPO_COLUMNS:
+        raise HTTPException(status_code=400, detail=f"The columns are {', '.join(REPO_COLUMNS)}.")
+    if body.max_open_per_repo is not None and body.max_open_per_repo < 1:
+        raise HTTPException(status_code=400, detail="Open PRs per repository is at least 1.")
+    if body.model != "default" and body.model not in COLUMN_MODELS:
+        raise HTTPException(status_code=400, detail=f"The models are default, {', '.join(COLUMN_MODELS)}.")
+    automation["columns"][body.column] = {"max_open_per_repo": body.max_open_per_repo, "model": body.model}
     AUTOMATION_FILE.write_text(json.dumps(automation, indent=2))
     AUTOMATION_VERSION["version"] += 1
     return summary()

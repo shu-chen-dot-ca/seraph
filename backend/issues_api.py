@@ -81,7 +81,8 @@ its agent is told to keep going when someone else shows up (Agents.issue_taken).
 
 Take new issues off on the Automation page (take_new in its file, backend/automation_api.py) stops
 keep_catalog_agents from giving out any of Catalog's cards, ours too, until it is on again; the rest goes on. The same
-page's Open pull requests per repository (max_open_per_repo) lowers every repo's Open PRs at once to it, its Open pull
+page's Open pull requests per repository (max_open_per_repo) lowers every repo's Open PRs at once to it (and a column's
+Open PRs per repository on the Repositories page, its ⚙, goes over both for its repos), its Open pull
 requests (max_open_prs) holds all repos together the same way (the same count, summed), and its AI policy (ai_policies)
 says which repos' cards may be taken: a repo whose policy isn't read yet counts as unclear, no_ai never goes, and ours
 go anyway.
@@ -117,6 +118,7 @@ import traceback
 from datetime import UTC, datetime, timedelta
 
 from backend.shared import agents, inbox, issue_facts, issue_tags, issues, jobs, pr_tracking, repo_signals, repos
+from github_searcher.claude_models import COLUMN_MODELS
 from github_searcher.inbox import AUTOMATION_FILE
 from github_searcher.issue_tags import CHECKS, DATA_DIR, NAME_VERSION, RULES_VERSION
 
@@ -611,9 +613,11 @@ def take_from_catalog() -> None:
         repo = job["repo"].lower()
         counts.setdefault(repo, {"merged": 0, "closed": 0, "open": 0, "working": 0})
         counts[repo]["working"] += 1
+    # Every repo's: the ones taking issues, with PRs of yours or issues in progress, in Repos, and those of the cards.
     columns = {}
-    for issue_id in waiting:
-        repo = issue_id.split("#")[0].lower()
+    names = set(taking) | set(counts) | {item["full_name"].lower() for item in repos.items()}
+    names |= {issue_id.split("#")[0].lower() for issue_id in waiting}
+    for repo in names:
         each = counts.get(repo, {"merged": 0, "closed": 0, "open": 0, "working": 0})
         closed_only = each["merged"] == 0 and each["open"] == 0 and each["working"] == 0 and each["closed"] > 0
         if repo in removed or (closed_only and repo not in target):
@@ -626,6 +630,16 @@ def take_from_catalog() -> None:
             columns[repo] = "target"
         else:
             columns[repo] = "catalog"
+    # The agents' model by repo (agents.py work), from its column's Model on the page (claude_models.py COLUMN_MODELS;
+    # none for Default); and each repo's column, for what keep_drafts sends (backend/repo_automation_api.py).
+    column_settings = automation.get("columns", {})
+    models = {}
+    for repo, column in columns.items():
+        model = (column_settings.get(column) or {}).get("model", "default")
+        if model in COLUMN_MODELS:
+            models[repo] = COLUMN_MODELS[model]
+    agents.repo_models = models
+    agents.repo_columns = columns
     # Removed's cards wait, ours too, and so do those of a column switched off on the page.
     take_from = automation.get("take_from", {})
     kept = []
@@ -657,6 +671,11 @@ def take_from_catalog() -> None:
     if per_repo is not None:
         for repo in taking:
             limits[repo] = min(limits.get(repo, 1), per_repo)
+    # Its column's Open PRs per repository on the Repositories page goes over both.
+    for repo, column in columns.items():
+        column_limit = (column_settings.get(column) or {}).get("max_open_per_repo")
+        if column_limit is not None:
+            limits[repo] = column_limit
     HELD["repos"] = [repo for repo in taking if busy.get(repo, 0) >= limits.get(repo, 1)]
     # And its Open pull requests, all repos together: the same count, summed.
     total = sum(busy.values())
