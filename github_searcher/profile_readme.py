@@ -3,11 +3,12 @@
 Seraph runs (backend/github_api.py's keep_profile_readme()).
 
 update(your_repositories) searches GitHub, as you, for every pull request of yours merged into a public repository
-that isn't yours (is:pr is:merged is:public author:<you> -user:<you>), and writes how many there are and in how many
-repositories ("Seraph has merged 12 PRs across 8 repositories", Seraph a link to SELF_REPO), then a table: one row per
+that isn't yours (is:pr is:merged is:public author:<you> -user:<you>), and writes how many there are, in how many
+repositories and the merge rate, merged ÷ (merged + closed without a merge), open ones left out ("Seraph has merged 12
+PRs across 8 repositories with a merge rate of 80%", Seraph a link to SELF_REPO), then a table: one row per
 repository with its stars, the most starred first, with a link to each pull request and, in a column of their own, its
 lines added (green) and removed (red). Pull requests of fewer than MIN_LINES lines (added and removed together) are left
-out, not counted or shown. The table stops after MAX_SHOWN pull requests, in its own order; below it, a line says how
+out, not counted or shown, closed ones too. The table stops after MAX_SHOWN pull requests, in its own order; below it, a line says how
 many more there are, with a link to them on GitHub. Only the part between START and END changes; everything else in
 README.md
 stays as you wrote it. When nothing changed, nothing is committed. A README.md without both markers is left alone.
@@ -63,6 +64,18 @@ def table(your_repositories, login: str) -> str:
     # Only the ones of MIN_LINES lines or more.
     nodes = [node for node in nodes if node["additions"] + node["deletions"] >= MIN_LINES]
 
+    # The ones closed without a merge, for the merge rate. Open ones aren't decided yet: they don't count.
+    closed_query = f"is:pr is:closed is:unmerged is:public author:{login} -user:{login}"
+    closed = []
+    after = None
+    for _ in range(MAX_PAGES):
+        search = your_repositories.graphql(SEARCH_QUERY, {"query": closed_query, "after": after})["search"]
+        closed.extend(search["nodes"])
+        if not search["pageInfo"]["hasNextPage"]:
+            break
+        after = search["pageInfo"]["endCursor"]
+    closed = [node for node in closed if node["additions"] + node["deletions"] >= MIN_LINES]
+
     # By repository, each one's pull requests newest first.
     repos = {}
     for node in nodes:
@@ -88,7 +101,8 @@ def table(your_repositories, login: str) -> str:
     repositories = f"{len(repos):,} repositories"
     if len(repos) == 1:
         repositories = "1 repository"
-    lines = [f"{seraph} has merged {prs} across {repositories}", ""]
+    rate = round(len(nodes) * 100 / (len(nodes) + len(closed)))
+    lines = [f"{seraph} has merged {prs} across {repositories} with a merge rate of {rate}%", ""]
     lines.append("| Repository 🚀 | Stars 🌟 | Merged PR | Lines changed |")
     lines.append("| --- | --- | --- | --- |")
     # The most starred first, until MAX_SHOWN pull requests are in the table.
