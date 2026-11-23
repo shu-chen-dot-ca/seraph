@@ -1,6 +1,7 @@
 """The Repositories page's cards (frontend/src/RepositoryCards.tsx): the moves between Prioritized and Contributed, Add
 to and Remove from Target, Delete (Add to Removed for a repo with PRs of yours), Add to Catalog, Target or Contributed
-from Removed, Stop all on its issues in progress and Close all on its open PRs, and keeping the repos' signals fresh.
+from Removed, Stop all on its issues in progress and Close all on its open PRs, the stars and contributors of repos
+with no signals, and keeping the repos' signals fresh.
 
 The list reaches the browser through /api/live (topic "repos"). The Automation fills it (backend/automation_api.py,
 through Explore).
@@ -24,7 +25,7 @@ from backend.issues_api import auto_remove_issues
 from backend.shared import agents, github_account, issues, jobs, pr_tracking, repo_signals, repos
 from github_searcher.github_account import SendError
 from github_searcher.repo_signals import NEWCOMER_VERSION, NON_LATIN_SHARE, POLICY_VERSION
-from github_searcher.search import count_contributors, get_readme, get_repo_totals
+from github_searcher.search import count_contributors, get_readme, get_repo_totals, get_repository
 
 router = APIRouter(prefix="/api")
 
@@ -34,6 +35,10 @@ SIGNALS_CHECK_SECONDS = 10
 SIGNALS_RETRY_SECONDS = 60 * 60
 # Repos whose signals are fetched at the same time in a full round.
 SIGNALS_AT_ONCE = 4
+# The stars and contributors of each repo the page asked about, by name in lower case, read once and kept as long as
+# the backend runs (like a listed repo's, never read again): repos with no signals (repo_signals.py), the ones the boxes
+# found and cards made from PRs alone.
+REPO_COUNTS = {}
 
 
 class MoveRequest(BaseModel):
@@ -43,6 +48,10 @@ class MoveRequest(BaseModel):
 
 class RepoRequest(BaseModel):
     name: str
+
+
+class NamesRequest(BaseModel):
+    names: list[str]
 
 
 @router.post("/repos/move")
@@ -77,6 +86,41 @@ def restore_repo(body: MoveRequest) -> dict:
     repos.set_target([body.name], body.to == "target")
     repos.set_prioritized([body.name], False)
     return {"restored": body.name}
+
+
+@router.post("/repos/counts")
+async def repo_counts(body: NamesRequest) -> dict:
+    """The stars and contributors (the number on its GitHub page) of each of these repos (owner/name): from its signals
+    when it has them, else REPO_COUNTS, else asked of GitHub now, all at once. {name in lower case: {"stars",
+    "contributors"}}, each None when not known: GitHub won't count the contributors (a huge history), or the read failed
+    (then not kept: asked again next time)."""
+    signals = {name.lower(): each for name, each in repo_signals.all().items()}
+    answer = {}
+    asking = []
+    for name in body.names:
+        key = name.lower()
+        if key in signals:
+            answer[key] = {"stars": signals[key].get("stars"), "contributors": signals[key].get("contributors_total")}
+        elif key in REPO_COUNTS:
+            answer[key] = REPO_COUNTS[key]
+        else:
+            asking.append(key)
+    # Each repo's read, then each one's count, at the same time.
+    calls = [asyncio.to_thread(get_repository, *key.split("/", 1)) for key in asking]
+    calls += [asyncio.to_thread(count_contributors, *key.split("/", 1)) for key in asking]
+    results = await asyncio.gather(*calls, return_exceptions=True)
+    for index, key in enumerate(asking):
+        repo = results[index]
+        people = results[len(asking) + index]
+        counts = {"stars": None, "contributors": None}
+        if not isinstance(repo, Exception):
+            counts["stars"] = repo["stargazers_count"]
+        if not isinstance(people, Exception):
+            counts["contributors"] = people
+        if not isinstance(repo, Exception) and not isinstance(people, Exception):
+            REPO_COUNTS[key] = counts
+        answer[key] = counts
+    return answer
 
 
 @router.post("/repos/stop_in_progress")
