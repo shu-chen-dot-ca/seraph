@@ -46,8 +46,10 @@ def get_contents(owner: str, repo: str, path: str, ref: str = "") -> dict | list
 
 def count_contributors(owner: str, repo: str) -> int | None:
     """Everyone who ever contributed to the repo, the number on its GitHub page. Never cached. Asked one per page, so
-    the last page's number is the count. None when GitHub won't list them (a repo with a huge history)."""
-    response = BALANCER.request("GET", f"https://api.github.com/repos/{owner}/{repo}/contributors", params={"per_page": 1})
+    the last page's number is the count. With the anonymous ones (anon): without them GitHub lists only the authors of
+    its first 500 commit emails that link to an account, so a repo with thousands read a few hundred (openclaw/openclaw:
+    388 instead of 3,822). None when GitHub won't list them (a repo with a huge history)."""
+    response = BALANCER.request("GET", f"https://api.github.com/repos/{owner}/{repo}/contributors", params={"per_page": 1, "anon": "true"})
     if response.status_code == 403 and "too large" in response.text:
         return None
     if response.status_code == 204:

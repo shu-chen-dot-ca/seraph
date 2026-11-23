@@ -52,8 +52,9 @@ comments count as a maintainer's.
 stale_outside_prs: their open PRs over 30 days old that no maintainer has answered (among the 100 oldest
 open PRs). active_mergers_30d: how many people merged a PR in the last 30 days (bots not counted); the page calls
 them its maintainers. active_contributors: how many people opened a PR in that window, anyone but bots.
-contributors_total: everyone who ever contributed, the number on the repo's GitHub page (None when GitHub won't count
-them: a repo with a huge history). commits_total: the commits on the default branch, in all. open_prs_total,
+contributors_total: everyone who ever contributed, the number on the repo's GitHub page, anonymous ones too (None when
+GitHub won't count them: a repo with a huge history); contributors_anonymous true says so (signals from before it
+counted only up to about 500: backend/repos_api.py keep_signals counts them again). commits_total: the commits on the default branch, in all. open_prs_total,
 merged_prs_total, closed_prs_total (closed without a merge) and open_issues_total: GitHub's counts, in all.
 beginner_issues: open issues under a good-first / beginner / easy / help-wanted label, newest first. Unclaimed
 ones have no assignee and no cross reference (a PR or issue that mentions them).
@@ -823,6 +824,7 @@ class RepoSignals:
             "active_mergers_30d": len(mergers),
             "active_contributors": len(contributors),
             "contributors_total": contributors_total,
+            "contributors_anonymous": True,
             "commits_30d": commits,
             "commits_total": commits_total,
             "open_prs_total": data["openPullRequests"]["totalCount"],

@@ -7,7 +7,8 @@ through Explore).
 
 The signals (github_searcher/repo_signals.py) are read by keep_signals(), which the app runs in the background: a new
 repo gets them within SIGNALS_CHECK_SECONDS, and keeps them. Signals kept from before the totals (commits, open, merged
-and closed PRs, open issues) were counted get just those, with one small read each, and those from before the README's
+and closed PRs, open issues) were counted get just those, with one small read each, those from before the anonymous
+contributors were counted get that count again, and those from before the README's
 language was checked get that, the README alone.
 """
 
@@ -23,7 +24,7 @@ from backend.issues_api import auto_remove_issues
 from backend.shared import agents, github_account, issues, jobs, pr_tracking, repo_signals, repos
 from github_searcher.github_account import SendError
 from github_searcher.repo_signals import NEWCOMER_VERSION, NON_LATIN_SHARE, POLICY_VERSION
-from github_searcher.search import get_readme, get_repo_totals
+from github_searcher.search import count_contributors, get_readme, get_repo_totals
 
 router = APIRouter(prefix="/api")
 
@@ -209,6 +210,18 @@ async def keep_signals() -> None:
                 failed.append(name)
                 continue
             repo_signals.update(name, totals)
+        # Signals from before the anonymous contributors were counted (up to about 500 then: search.py count_contributors)
+        # get the count again with one small read each.
+        known = repo_signals.all()
+        for name in names:
+            if name in failed or name not in known or known[name].get("contributors_anonymous"):
+                continue
+            try:
+                total = await asyncio.to_thread(count_contributors, name.split("/")[0], name.split("/")[1])
+            except (httpx.HTTPError, ValueError):
+                failed.append(name)
+                continue
+            repo_signals.update(name, {"contributors_total": total, "contributors_anonymous": True})
         # Signals from before the README's language was checked get it with one small read each, the README alone, as
         # repo_signals.py does it (None without a README).
         known = repo_signals.all()
