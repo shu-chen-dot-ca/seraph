@@ -36,6 +36,11 @@ A card also moves by dragging it with the mouse between Prioritized and Contribu
 while it's dragged.
 A move, Add to or Remove from Target (POST /api/repos/move) shows at once, before the live feed has it (the repos topic comes every
 few seconds).
+Every column but Removed has a ⚙ right after its count, which opens its settings in a pop-up (a dialog over the page,
+titled "<column> settings"; Save sends them, PUT /api/automation/column, the live "automation" topic's columns;
+backend/automation_api.py): Open PRs per repository (the most PRs of ours open at once in each of its repos; empty: the
+usual limits; else a whole number from 1) and Model (Default, Fable, Opus or Sonnet: the agents fixing issues and
+following up on PRs in its repos, for new jobs).
 Every column but Removed has a switch in its header: on, agents take new issues of its repos; off, they don't, and what
 is going there goes on (PUT /api/automation/take_from, the live "automation" topic's take_from). Agents take new issues
 column by column: Target, Prioritized, Contributed, then Catalog (backend/issues_api.py take_from_catalog); Removed
@@ -44,7 +49,7 @@ Your pull requests are the ones the app follows (github_searcher/pr_tracking.py)
 numbers update themselves.
 */
 
-import { ChevronDown, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MoreHorizontal, Star } from "lucide-react";
+import { ChevronDown, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MoreHorizontal, Settings, Star } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -56,12 +61,24 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import PullRequests from "@/PullRequests";
 import { api, useLive, useLoaded } from "@/live";
 import { cn } from "@/lib/utils";
 
 type Sort = "stars" | "merged" | "open" | "closed" | "working";
+// A column's settings (its ⚙), and the models it can pick.
+type ColumnSetting = { max_open_per_repo: number | null; model: string };
+const MODEL_CHOICES = [
+  { value: "default", title: "Default" },
+  { value: "fable", title: "Fable" },
+  { value: "opus", title: "Opus" },
+  { value: "sonnet", title: "Sonnet" },
+];
 
 const OPEN_JOB = ["queued", "working", "waiting_on_user", "waiting_on_maintainers"];
 // The page's tabs: the cards (state "") and the pull requests' tables.
@@ -100,12 +117,21 @@ export default function RepositoryCards(props: { state: string; onState: (state:
   const [moved, setMoved] = useState<Record<string, string>>({});
   // The column switches flipped here, until the live feed has them.
   const [switched, setSwitched] = useState<Record<string, boolean>>({});
+  // The column settings saved here, until the live feed has them; the column whose settings pop-up is open ("": none),
+  // and what its Open PRs per repository box and Model say.
+  const [columnEdits, setColumnEdits] = useState<Record<string, ColumnSetting>>({});
+  const [settingsFor, setSettingsFor] = useState("");
+  const [limitText, setLimitText] = useState("");
+  const [modelPick, setModelPick] = useState("default");
   // The card being dragged, and the column it comes from.
   const [dragging, setDragging] = useState<{ name: string; from: string } | null>(null);
 
   // Once the live feed comes again, it has them.
   useEffect(() => setMoved({}), [repos]);
-  useEffect(() => setSwitched({}), [automation]);
+  useEffect(() => {
+    setSwitched({});
+    setColumnEdits({});
+  }, [automation]);
 
   // Your pull requests in each repo, by its name in lower case: merged, closed without a merge (and when the last one
   // of those closed), and open.
@@ -293,6 +319,28 @@ export default function RepositoryCards(props: { state: string; onState: (state:
     }
   }
 
+  async function saveColumn(key: string, setting: ColumnSetting) {
+    setColumnEdits((old) => ({ ...old, [key]: setting }));
+    try {
+      await api("/api/automation/column", { method: "PUT", body: { column: key, ...setting } });
+    } catch (err) {
+      setColumnEdits({});
+      toast.error(`Could not save: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  // The settings pop-up's Open PRs per repository: empty is none, else a whole number from 1 (NaN: not one).
+  const limitTyped = limitText.trim() === "" ? null : Number(limitText.trim());
+  const limitValid = limitTyped === null || (Number.isInteger(limitTyped) && limitTyped >= 1);
+
+  function saveSettings() {
+    if (!limitValid) {
+      return;
+    }
+    saveColumn(settingsFor, { max_open_per_repo: limitTyped, model: modelPick });
+    setSettingsFor("");
+  }
+
   async function stopInProgress(name: string) {
     try {
       await api("/api/repos/stop_in_progress", { method: "POST", body: { name: name } });
@@ -333,6 +381,9 @@ export default function RepositoryCards(props: { state: string; onState: (state:
           {columns.map((column) => {
             // A card dragged from the column this one pairs with can drop here.
             const dropHere = dragging !== null && column.moveTo === dragging.from;
+            // Its settings (none for Removed): saved here, else the live feed's, else none.
+            const none: ColumnSetting = { max_open_per_repo: null, model: "default" };
+            const setting = columnEdits[column.key] ?? automation.columns?.[column.key as keyof typeof automation.columns] ?? none;
 
             return (
               <section
@@ -354,6 +405,21 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                 <h2 className="mb-2 flex h-6 shrink-0 items-center gap-2 text-xs font-medium text-muted-foreground">
                   {column.title}
                   <span className="tabular-nums">{column.cards.length}</span>
+                  {/* Its settings, in a pop-up. */}
+                  {column.key !== "" && (
+                    <button
+                      type="button"
+                      className="-ml-1 flex size-5 items-center justify-center rounded-sm hover:text-foreground"
+                      aria-label={`${column.title} settings`}
+                      onClick={() => {
+                        setLimitText(setting.max_open_per_repo === null ? "" : String(setting.max_open_per_repo));
+                        setModelPick(setting.model);
+                        setSettingsFor(column.key);
+                      }}
+                    >
+                      <Settings className="size-3.5" />
+                    </button>
+                  )}
                   <span className="flex-1" />
                   {column.title === "Contributed" && (
                     <DropdownMenu>
@@ -561,6 +627,69 @@ export default function RepositoryCards(props: { state: string; onState: (state:
           })}
         </div>
       )}
+
+      {/* A column's settings (its ⚙). */}
+      <Dialog
+        open={settingsFor !== ""}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSettingsFor("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle>{columns.find((each) => each.key === settingsFor)?.title} settings</DialogTitle>
+          </DialogHeader>
+          <form
+            className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-3 gap-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveSettings();
+            }}
+          >
+            <label htmlFor="column-open-prs" className="text-muted-foreground">
+              Open PRs per repository
+            </label>
+            <Input
+              id="column-open-prs"
+              type="number"
+              min={1}
+              step={1}
+              value={limitText}
+              placeholder="Default"
+              autoFocus
+              aria-invalid={!limitValid}
+              onChange={(event) => setLimitText(event.target.value)}
+            />
+            {!limitValid && <p className="col-start-2 text-xs text-destructive">A whole number from 1.</p>}
+            <label htmlFor="column-model" className="text-muted-foreground">
+              Model
+            </label>
+            <Select value={modelPick} onValueChange={setModelPick}>
+              <SelectTrigger id="column-model" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MODEL_CHOICES.map((each) => (
+                  <SelectItem key={each.value} value={each.value}>
+                    {each.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <button type="submit" className="hidden" />
+          </form>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSettingsFor("")}>
+              Cancel
+            </Button>
+            <Button onClick={saveSettings} disabled={!limitValid}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

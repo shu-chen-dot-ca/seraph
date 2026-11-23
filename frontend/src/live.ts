@@ -596,6 +596,9 @@ export type AutomationData = {
   exclude: string;
   // The Repositories dialog's column switches (PUT /api/automation/take_from): off, no new issues of its repos.
   take_from: Record<"target" | "prioritized" | "contributed" | "catalog", boolean>;
+  // The same columns' settings (their ⚙, PUT /api/automation/column): the most PRs open at once per repo (null: the
+  // usual limits), and the agents' model ("default": the usual).
+  columns: Record<"target" | "prioritized" | "contributed" | "catalog", { max_open_per_repo: number | null; model: string }>;
 };
 
 // The tokens every Claude run used (github_searcher/token_usage.py), per model, kind of work (claude_models.py; "agent":
@@ -683,6 +686,12 @@ const store = {
       include: "",
       exclude: "",
       take_from: { target: true, prioritized: true, contributed: true, catalog: true },
+      columns: {
+        target: { max_open_per_repo: null, model: "default" },
+        prioritized: { max_open_per_repo: null, model: "default" },
+        contributed: { max_open_per_repo: null, model: "default" },
+        catalog: { max_open_per_repo: null, model: "default" },
+      },
     },
     tokens: { slices: [] },
     problems: [],
