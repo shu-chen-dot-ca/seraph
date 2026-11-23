@@ -51,9 +51,15 @@ What each does:
   board's Catalog, before every other card, where another agent takes it first, whatever the repo's Take issues and
   Open PRs at once say (keep_catalog_agents in backend/issues_api.py). Never one out of scope: open_issue refuses it.
 
+A repo in Target (repo_list.py target, the Repositories page's Target column) always gets worked: each round,
+keep_adding() first puts it in Repos when it isn't there, takes it out of Archived, and turns on every level of its
+automation (TARGET_LEVELS; the Automation's new_repos when it has no settings yet), so one you add with the box over the
+cards is read like any other within ADD_CHECK_SECONDS. Its newcomer verdict doesn't keep it out either (below), nor its
+other numbers its issues' merge (issue_tags.py): only its AI policy does.
+
 keep_adding() runs in the background, every ADD_CHECK_SECONDS. For each repo in Repos (not archived, not one that
 doesn't take AI-made contributions: AI policy no_ai, repo_signals.py, not one closed to outside contributors: its
-newcomer verdict, whose issues are all No outside PRs, and not one at its Open PRs at once: HELD in
+newcomer verdict, whose issues are all No outside PRs, unless it is in Target, and not one at its Open PRs at once: HELD in
 backend/issues_api.py, whose issues can't be taken now, to save GitHub's quota) with Add issues on,
 it reads all its open issues from GitHub, every ADD_REFRESH_SECONDS (at once after Add issues is turned on, or the
 backend starts). Each issue only once: one it added, or that was in the Issues list when it looked, is kept in
@@ -84,6 +90,7 @@ Repository page still does). A failed run is tried again next round.
 """
 
 import asyncio
+import copy
 import hashlib
 import json
 import time
@@ -92,13 +99,13 @@ from datetime import UTC, datetime
 
 import httpx
 
-from backend.issues_api import DASHBOARD_AUTOMATION_FILE, HELD, TAGGED
+from backend.issues_api import AUTOMATION_VERSION, DASHBOARD_AUTOMATION_FILE, HELD, TAGGED
 from backend.shared import agents, explore, github_account, inbox, issue_facts, issue_tags, issues, jobs, pr_tracking, repo_signals, repos
 from github_searcher.claude_judge import judge
 from github_searcher.github_account import SendError
 from github_searcher.inbox import AUTOMATION_FILE, ISSUE_AUTOMATION_FILE
 from github_searcher.issue_tags import DATA_DIR, RULES_VERSION
-from github_searcher.search import get_open_issues
+from github_searcher.search import get_open_issues, get_repository
 
 SETTINGS_FILE = AUTOMATION_FILE
 ISSUE_SETTINGS_FILE = ISSUE_AUTOMATION_FILE
@@ -120,6 +127,8 @@ DEFAULTS = {
     "levels": ["easy", "medium", "hard"],
     "instructions": "",
 }
+# What a repo in Target always has on (add_issues): a repo in Target always gets worked.
+TARGET_LEVELS = ["add_issues", "queue_issues", "take_issues", "questions", "comments", "pull_requests"]
 CATALOG_CHECK_SECONDS = 60
 ADD_CHECK_SECONDS = 60
 # How often Add issues reads a repo's open issues from GitHub again.
@@ -295,21 +304,66 @@ async def keep_adding() -> None:
 
 
 async def add_issues() -> None:
+    # A repo in Target always gets worked (repo_list.py target): it goes in Repos when it isn't there (Explore's minimums
+    # took it out, or it went to Target from a card made from PRs alone), and comes out of Archived.
+    listed_names = [item["full_name"].lower() for item in repos.items()]
+    for name in repos.target():
+        if name.lower() in listed_names:
+            continue
+        try:
+            repo = await asyncio.to_thread(get_repository, name.split("/")[0], name.split("/")[1])
+        except (httpx.HTTPError, ValueError):
+            continue
+        item = {
+            "full_name": repo["full_name"],
+            "description": repo["description"] or "",
+            "stars": repo["stargazers_count"],
+            "default_branch": repo["default_branch"],
+            "html_url": repo["html_url"],
+            "note": "",
+            "added_by": "user",
+            "added_at": datetime.now(UTC).isoformat(),
+        }
+        repos.add([item])
+    target = [name.lower() for name in repos.target()]
+    unarchive = [name for name in repos.archived() if name.lower() in target]
+    if unarchive:
+        repos.set_archived(unarchive, False)
+
     settings = {}
     if SETTINGS_FILE.is_file():
         settings = json.loads(SETTINGS_FILE.read_text())
+    # And a repo in Target has every level of its automation on: the Automation's new_repos when it has no settings of
+    # its own yet (Add to Target gives it none), else TARGET_LEVELS turned on in its own.
+    automation = {}
+    if DASHBOARD_AUTOMATION_FILE.is_file():
+        automation = json.loads(DASHBOARD_AUTOMATION_FILE.read_text())
+    before = json.dumps(settings)
+    spelled = {repo.lower(): repo for repo in settings}
+    for name in repos.target():
+        if name.lower() not in spelled:
+            settings[name] = copy.deepcopy(automation.get("new_repos", DEFAULTS))
+            spelled[name.lower()] = name
+        for key in TARGET_LEVELS:
+            settings[spelled[name.lower()]][key] = True
+    if json.dumps(settings) != before:
+        SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+        AUTOMATION_VERSION["version"] += 1
     # By repo name in lower case: the settings may spell a name their own way.
     by_name = {repo.lower(): rules for repo, rules in settings.items()}
     added = []
     if ADDED_FILE.is_file():
         added = json.loads(ADDED_FILE.read_text())["added"]
     # Not an archived repo, nor one that doesn't take AI-made contributions (its AI policy, repo_signals.py), nor one that
-    # isn't open to outside contributors (its newcomer verdict): none of their issues would be merge likely.
+    # isn't open to outside contributors (its newcomer verdict) unless it is in Target: none of their issues would be
+    # merge likely.
     skipped = [name.lower() for name in repos.archived()]
     # Nor a removed one (repo_list.py): no new work there.
     skipped += [name.lower() for name in repos.removed()]
     skipped += [name.lower() for name, each in repo_signals.all().items() if (each.get("ai_policy") or {}).get("tag") == "no_ai"]
-    skipped += [name.lower() for name, each in repo_signals.all().items() if (each.get("newcomer_verdict") or {}).get("verdict") == "closed"]
+    for name, each in repo_signals.all().items():
+        if (each.get("newcomer_verdict") or {}).get("verdict") == "closed" and name.lower() not in target:
+            skipped.append(name.lower())
     # Nor one at its Open PRs at once: its issues can't be taken now.
     skipped += HELD["repos"]
     names = [item["full_name"] for item in repos.items() if item["full_name"].lower() not in skipped]

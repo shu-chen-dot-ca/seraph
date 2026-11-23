@@ -49,7 +49,8 @@ keep_automation() runs as long as the backend, every CHECK_SECONDS. It works out
 repo to Explore's minimums (explore.py MIN_*: over 1k stars, 40 contributors or more, over 400 closed PRs, over 10 open
 issues), so no personal repo stays: once its signals are read, one in Repos that falls short leaves (archived when it
 has a PR of ours, else off Repos and kept as checked by Explore, so it never comes back), and so does one in Explore's
-found list (also one found before these were checked, which a later run checks anew). On or off too, while Add
+found list (also one found before these were checked, which a later run checks anew). Never one in Target (repo_list.py
+target): you picked it, so it stays, and nothing below archives it either. On or off too, while Add
 repositories is on, it keeps active_repos repos active (below). And while on:
 - archives a repo that is Not merging (Repos' Archived, repo_list.py): its issues leave the board's Open and Catalog,
   the jobs on its issues with no PR yet stop, and no new PR goes there (repo_automation_api.py keep_drafts). Our open
@@ -75,8 +76,9 @@ first (Explore.set_profile). Not within RUN_PAUSE_MINUTES of a run that ended sh
 Explore's found list, no Explore run starts, and the one it started stops.
 
 Take new issues off (take_new False, on or off): agents take no new issues from the Issues board's Catalog
-(backend/issues_api.py take_from_catalog), not even ours; the cards wait there until it is on again. Everything else goes
-on: the jobs already started, follow-ups on our PRs, tagging, Explore, the labels and the archiving.
+(backend/issues_api.py take_from_catalog), not even ours, but those of repos in Target (a repo in Target always gets
+worked); the cards wait there until it is on again. Everything else goes on: the jobs already started, follow-ups on
+our PRs, tagging, Explore, the labels and the archiving.
 
 The Repositories page's column switches (take_from, one per column but Removed): off, agents take no new issues of the
 repos in that column, ours too (backend/issues_api.py take_from_catalog); what is going there goes on. PUT
@@ -412,11 +414,13 @@ async def automate() -> None:
         elif each["open_issues_total"] <= MIN_OPEN_ISSUES:
             short[name] = f"{each['open_issues_total']} open issues, {MIN_OPEN_ISSUES} or fewer"
     ours = [pr["repo"].lower() for pr in prs]
+    # Never one in Target: you picked it (repo_list.py target). Not archived below either.
+    target = [name.lower() for name in repos.target()]
     leave_archived = []
     leave_removed = []
     for item in repos.items():
         name = item["full_name"]
-        if name not in short or name in archived:
+        if name not in short or name in archived or name.lower() in target:
             continue
         if name.lower() in ours:
             leave_archived.append(name)
@@ -509,7 +513,7 @@ async def automate() -> None:
     for item in repos.items():
         name = item["full_name"]
         label = labels[name]
-        if name in archived:
+        if name in archived or name.lower() in target:
             continue
         if label["label"] == "Not merging" or (label["label"] == "No issues" and label["idle"] >= rules["leave_days"]):
             archive.append(name)

@@ -80,7 +80,8 @@ takes one off the board (not even its repo leaving Repos or being archived), no 
 its agent is told to keep going when someone else shows up (Agents.issue_taken).
 
 Take new issues off on the Automation page (take_new in its file, backend/automation_api.py) stops
-keep_catalog_agents from giving out any of Catalog's cards, ours too, until it is on again; the rest goes on. The same
+keep_catalog_agents from giving out Catalog's cards, ours too, until it is on again, but for those of repos in the
+Repositories page's Target column: a repo in Target always gets worked. The rest goes on. The same
 page's Open pull requests per repository (max_open_per_repo) lowers every repo's Open PRs at once to it (and a column's
 Open PRs per repository on the Repositories page, its ⚙, goes over both for its repos), its Open pull
 requests (max_open_prs) holds all repos together the same way (the same count, summed), and its AI policy (ai_policies)
@@ -681,9 +682,10 @@ def take_from_catalog() -> None:
     total = sum(busy.values())
     max_open = automation.get("max_open_prs")
 
-    # Pause new issues on the Dashboard's Automation page: Catalog's cards wait there, ours too; everything else goes on.
+    # Take new issues off on the Automation page: only Target's cards go (a repo in Target always gets worked); the
+    # others wait in Catalog, ours too; everything else goes on.
     if not automation.get("take_new", True):
-        return
+        waiting = [issue_id for issue_id in waiting if columns[issue_id.split("#")[0].lower()] == "target"]
 
     for issue_id in waiting:
         if room <= 0:
