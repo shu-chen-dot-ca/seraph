@@ -63,7 +63,8 @@ requests the repo merged. The first that holds:
                       PRs are closed or left waiting, of MIN_SAMPLE or more outside PRs that ended in 90 days none
                       was merged, or the newcomer verdict (repo_signals.py) is closed: its contributing guide says so,
                       or its people write the code (mastra: pull requests disabled for outside contributors). Or this
-                      issue's maintainers closed a pull request for it that looked AI-made (hydro#3281): ours would be too
+                      issue's maintainers closed a pull request for it that looked AI-made (hydro#3281): ours would be too.
+                      For a repo in Target (repo_list.py) only its AI policy counts: the user picked it to take on.
     large feature     a new subsystem, integration, driver or the like the maintainers would have to keep up
     big change        over BIG_LINES lines while the user has no merged pull request in the repo yet
     can't validate    our agent can't prove the fix works in its VM (long builds and tests are fine)
@@ -331,6 +332,8 @@ class IssueTags:
         # merge reads the repo's numbers, and how many pull requests of the user's (by their login) the repo merged.
         self.repo_signals = repo_signals
         self.github_account = github_account
+        # The Repos list (repo_list.py), set by backend/shared.py: its Target repos are judged by their AI policy alone.
+        self.repos = None
         self.path = DATA_DIR / "issue_tags.json"
         self.lock = threading.Lock()
         self.version = 0
@@ -436,10 +439,16 @@ class IssueTags:
         merged = data["yourMerged"] or 0
         # Why the repo doesn't merge outsiders' pull requests, "" when it does or its numbers aren't in yet.
         closed = ""
+        # A repo in Target is one the user picked to take on: only its AI policy keeps it closed.
+        target = []
+        if self.repos is not None:
+            target = [name.lower() for name in self.repos.target()]
         signals = self.repo_signals.get(full_name)
         if signals is not None:
             if signals["ai_policy"]["tag"] == "no_ai":
                 closed = "the project doesn't accept AI-made contributions"
+            elif full_name.lower() in target:
+                closed = ""
             elif signals["newcomers"]["tag"] in ("turned_away", "left_waiting"):
                 closed = "most newcomers' first pull requests are closed or left waiting"
             elif signals["outside_merged_90d"] == 0 and signals["outside_closed_90d"] >= MIN_SAMPLE:

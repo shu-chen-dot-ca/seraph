@@ -51,6 +51,8 @@ github_account = GithubAccount(inbox)
 github_account.jobs = jobs
 # Its merge reads the repos' numbers and your merged pull requests (by your login).
 issue_tags = IssueTags(repo_signals, github_account)
+# A Target repo's issues are judged by its AI policy alone (issue_tags.py).
+issue_tags.repos = repos
 pr_tracking = PRTracking(inbox, github_account)
 your_repositories = YourRepositories(github_account)
 vms = VMs()
