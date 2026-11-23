@@ -32,10 +32,9 @@ A run is a dict, kept with its VM (VMQueue.add_run) until it ends:
     run = start(record, agent_id, 2, "bash", "pip install -e .", "pip install -e .")
     result = check(record, run)    # None while it runs, else {"ended", "exit_code", "output", "seconds", ...}
 
-A run's seconds are from its start to its end as the VM saw them, and cpu_seconds the CPU its commands used (user and
-system, bash's times: every process it started and waited for, so not a Docker container's, which dockerd runs), both
-written with its exit code. Runs started before those were written (and any run that didn't end by itself) count from
-started_at to when check() saw it ended, which can be much later.
+A run's seconds are from its start to its end as the VM saw them, written with its exit code. Runs started before
+those were written (and any run that didn't end by itself) count from started_at to when check() saw it ended, which
+can be much later.
 """
 
 import asyncio
@@ -78,7 +77,6 @@ def start(record: VMRecord, agent_id: str, desktop: int, kind: str, command: str
     run_id = "run_" + secrets.token_hex(3)
     log = f"{RUNS_DIR}/{run_id}.log"
     exit_file = f"{RUNS_DIR}/{run_id}.exit"
-    times_file = f"{RUNS_DIR}/{run_id}.times"
     # on_desktop starts something on the desktop, as in bash (computer_use.py). Python prints as it goes instead
     # of in chunks, so the window keeps up. Math libraries use one thread each (MATH_THREADS), unless the command says
     # otherwise.
@@ -88,12 +86,11 @@ def start(record: VMRecord, agent_id: str, desktop: int, kind: str, command: str
         script = "set -o pipefail; " + script
     script += WATCH.format(log=log, pid=f"{RUNS_DIR}/watch-{agent_id}.pid")
     # The newline ends a comment on the command's last line. The exit code is written last, with when the run started and
-    # ended: once that file is there, the run is over. Before it, the CPU the run's commands used (times, a builtin: no
-    # subshell, so it counts this shell's children).
+    # ended: once that file is there, the run is over.
     inner = f"{{ {command}\n}}"
     if folder:
         inner = f"cd {folder} && {inner}"
-    script += f"{{ {inner}\n}} > {log} 2>&1; code=$?; times > {times_file}; echo $code $start $(date +%s) > {exit_file}"
+    script += f"{{ {inner}\n}} > {log} 2>&1; code=$?; echo $code $start $(date +%s) > {exit_file}"
     # setsid -f: a session of its own that outlives this call; the tag is the last word of its command line.
     result = record.desktop_vm(desktop).exec(f"setsid -f bash -c {shlex.quote(script)} sandbox-{run_id} < /dev/null > /dev/null 2>&1", 30)
     if result.returncode != 0:
@@ -112,9 +109,7 @@ def start(record: VMRecord, agent_id: str, desktop: int, kind: str, command: str
 
 
 def check(record: VMRecord, run: dict) -> dict | None:
-    """None while the run goes. Once it ended: {"ended", "exit_code", "output", "seconds"} (and for one that exited
-    "exact", whether seconds are its own start to end, and "cpu_seconds", None when not known: see the top of this file),
-    where ended is "exit"
+    """None while the run goes. Once it ended: {"ended", "exit_code", "output", "seconds"}, where ended is "exit"
     (it finished, with exit_code), "timeout" (stopped after RUN_LIMIT_SECONDS) or "gone" (it ended without
     finishing: the user or its agent stopped it, the VM stopped or restarted, the disk filled up, or something else
     ended its processes); a gone one also has "why", that cause as far as the VM shows it. Blocking (an incus call);
@@ -127,13 +122,12 @@ def check(record: VMRecord, run: dict) -> dict | None:
         return {"ended": "gone", "exit_code": None, "output": "", "seconds": seconds, "why": "the VM stopped or restarted"}
     pattern = shlex.quote(f" sandbox-{run['id']}$")
     exit_file = run["log"].removesuffix(".log") + ".exit"
-    times_file = run["log"].removesuffix(".log") + ".times"
     # Still going is asked first: once it isn't, its exit code (if any) is already written. An empty exit file (a full
     # disk let it make the file but not write the code) counts as none. With none: the seconds since the VM booted, the
     # KB free in the home, and whether its log is still there, to tell why it ended.
     script = (
         f"if pgrep -f -- {pattern} > /dev/null; then echo running; "
-        f"elif [ -s {exit_file} ]; then echo exit $(cat {exit_file}) $(tail -n 1 {times_file} 2>/dev/null); tail -c {OUTPUT_LIMIT} {run['log']}; "
+        f"elif [ -s {exit_file} ]; then echo exit $(cat {exit_file}); tail -c {OUTPUT_LIMIT} {run['log']}; "
         f"else echo gone $(cut -d . -f 1 /proc/uptime) $(df -Pk ~ | awk 'NR == 2 {{print $4}}') "
         f"$([ -f {run['log']} ] && echo kept || echo deleted); tail -c {OUTPUT_LIMIT} {run['log']} 2>/dev/null; fi"
     )
@@ -148,22 +142,11 @@ def check(record: VMRecord, run: dict) -> dict | None:
         output = vm.exec(f"tail -c {OUTPUT_LIMIT} {run['log']}", 30).stdout
         return {"ended": "timeout", "exit_code": None, "output": output, "seconds": seconds}
     if first.startswith("exit "):
-        # "exit CODE START END USER SYSTEM" (USER and SYSTEM as times has them: 1m2.345s), or "exit CODE" from a run
-        # started before the rest was written.
+        # "exit CODE START END", or "exit CODE" from a run started before the rest was written.
         words = first.split()
-        cpu_seconds = None
         if len(words) >= 4:
             seconds = int(words[3]) - int(words[2])
-        if len(words) == 6:
-            try:
-                cpu_seconds = 0.0
-                for value in words[4:6]:
-                    minutes, _, rest = value.partition("m")
-                    cpu_seconds += int(minutes) * 60 + float(rest.rstrip("s").replace(",", "."))
-                cpu_seconds = round(cpu_seconds)
-            except ValueError:
-                cpu_seconds = None
-        return {"ended": "exit", "exit_code": int(words[1]), "output": output, "seconds": seconds, "exact": len(words) >= 4, "cpu_seconds": cpu_seconds}
+        return {"ended": "exit", "exit_code": int(words[1]), "output": output, "seconds": seconds}
     if first.startswith("gone"):
         # Why it ended without its exit code: the VM booted after it started, its folder of runs was deleted (a clean-up
         # of ~/.cache), the disk is full (whatever it ran failed for lack of room, or it couldn't write its result), or
