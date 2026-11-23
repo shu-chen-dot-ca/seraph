@@ -12,7 +12,7 @@ bottom that scrolls on its own (on a narrow window the columns keep their width 
   Repos list's target, with when each went there). Remove from Target takes one back to Catalog; besides, one leaves by
   its PRs: once one of yours is merged there it is in Contributed, and once one is closed without a merge after it went
   there it is rejected: back in Catalog. Add to Target there puts it back. By stars.
-- Catalog: the rest. By stars.
+- Catalog: the rest. The ones with an open PR of yours first, then the others, each by stars.
 - Removed: the ones you deleted that have pull requests of yours (the Repos list's removed), and every other one with a
   PR of yours closed that isn't in another column (none merged or open, no issue in progress, never in Target). By
   stars. Its ⋯ takes one out with another chance (POST /api/repos/restore, the Repos list's restored, with when): Add to
@@ -408,8 +408,9 @@ export default function RepositoryCards(props: { state: string; onState: (state:
   });
   // Target: none merged, and you added it there (not rejected).
   const target = shown.filter((card) => card.merged === 0 && !removed.includes(card) && targetNames.includes(card.repo.full_name));
-  // Catalog: the rest, by stars.
+  // Catalog: the rest. Those with an open PR of yours first, each group by stars (cards are by stars already).
   const catalog = shown.filter((card) => !removed.includes(card) && !prioritized.includes(card) && !contributed.includes(card) && !target.includes(card));
+  catalog.sort((a, b) => (b.open > 0 ? 1 : 0) - (a.open > 0 ? 1 : 0));
   // moveTo: the column a card here can move to (its ⋯ or a drag), and back. key: its switch in take_from ("" for none).
   const columns = [
     { title: "Prioritized", key: "prioritized", removed: false, moveTo: "Contributed", cards: prioritized },
