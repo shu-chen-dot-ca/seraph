@@ -42,6 +42,17 @@ A card also moves by dragging it with the mouse between Prioritized and Contribu
 while it's dragged.
 A move, Add to or Remove from Target (POST /api/repos/move) or out of Removed shows at once, before the live feed has it
 (the repos topic comes every few seconds).
+Over the cards on the right, left of the dialog's close button, two boxes, Owner / Repository, add a repo to Target, each
+with a cross that empties it. Typing in Owner shows under it the GitHub accounts whose login has the text in it (GET
+/api/repos/owners: logo, login, User or Organization; "NVIDIA": NVIDIA, NVIDIA-NeMo, ...); a click on one, or Enter for
+the first, puts it in Owner and goes on to Repository. In Repository (a moment after the last key) they find on GitHub
+(GET /api/repos/find): the repo a link or owner/name points to; with an Owner, its repos (the most stars first), only
+those whose name has the Repository text in it; with no Owner, the best matches of the Repository text. They show as
+cards under the boxes (logo, owner/name, stars, contributors as on the cards). In both, a click on the name (the text itself) opens it on GitHub in a
+new tab instead. A click on one, or Enter for the first, adds it to the Repos list if it isn't there
+and to Target (POST /api/repos/add_target; one in Removed leaves it with another chance), shown at once; the boxes and
+what they found stay, for the next one. What they found shows from a click in a box until a click elsewhere on the page:
+it stays while the window is away (another tab, a name opened on GitHub).
 Every column but Removed has a ⚙ right after its count, which opens its settings in a pop-up (a dialog over the page,
 titled "<column> settings"; Save sends them, PUT /api/automation/column, the live "automation" topic's columns;
 backend/automation_api.py): Open PRs per repository (the most PRs of ours open at once in each of its repos; empty: the
@@ -55,7 +66,19 @@ Your pull requests are the ones the app follows (github_searcher/pr_tracking.py)
 numbers update themselves.
 */
 
-import { ChevronDown, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MoreHorizontal, Settings, Star, Users } from "lucide-react";
+import {
+  ChevronDown,
+  GitMerge,
+  GitPullRequest,
+  GitPullRequestClosed,
+  GitPullRequestDraft,
+  MoreHorizontal,
+  Search,
+  Settings,
+  Star,
+  Users,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -85,6 +108,9 @@ const MODEL_CHOICES = [
   { value: "opus", title: "Opus" },
   { value: "sonnet", title: "Sonnet" },
 ];
+// A repo the boxes over the cards found on GitHub, and an account the Owner box found.
+type Found = { full_name: string; description: string; stars: number };
+type Owner = { login: string; type: string };
 
 const OPEN_JOB = ["queued", "working", "waiting_on_user", "waiting_on_maintainers"];
 // The page's tabs: the cards (state "") and the pull requests' tables.
@@ -123,6 +149,21 @@ export default function RepositoryCards(props: { state: string; onState: (state:
   const [moved, setMoved] = useState<Record<string, string>>({});
   // The cards taken out of Removed here, until the live feed has it.
   const [restored, setRestored] = useState<string[]>([]);
+  // The repos added to Target with the boxes over the cards, until the live feed has them.
+  const [added, setAdded] = useState<Found[]>([]);
+  // The boxes' text (Owner, Repository), the repos they found and for which text ("owner/repository"), the accounts the
+  // Owner box found and for which text, and which box's list shows ("owner", "repository" or ""): the accounts are
+  // Owner's, the repos Repository's. It is set when a box gets the focus and cleared by a click elsewhere on the page
+  // only, not when the window loses the focus. searchArea: the boxes and their lists.
+  const [owner, setOwner] = useState("");
+  const [query, setQuery] = useState("");
+  const [found, setFound] = useState<Found[]>([]);
+  const [foundFor, setFoundFor] = useState("");
+  const [owners, setOwners] = useState<Owner[]>([]);
+  const [ownersFor, setOwnersFor] = useState("");
+  const [list, setList] = useState("");
+  const repositoryBox = useRef<HTMLInputElement>(null);
+  const searchArea = useRef<HTMLDivElement>(null);
   // The stars and contributors of repos with no signals (found by the boxes, cards made from PRs alone), by name in
   // lower case (null: not known), and the ones asked already (each once).
   const [repoCounts, setRepoCounts] = useState<Record<string, { stars: number | null; contributors: number | null }>>({});
@@ -142,7 +183,73 @@ export default function RepositoryCards(props: { state: string; onState: (state:
   useEffect(() => {
     setMoved({});
     setRestored([]);
+    setAdded([]);
   }, [repos]);
+
+  // The Owner box finds accounts a moment after the last key; an answer to older text is dropped.
+  useEffect(() => {
+    const text = owner.trim();
+    if (list !== "owner" || text.length < 2) {
+      setOwners([]);
+      return;
+    }
+    let old = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const answer = await api<{ items: Owner[] }>(`/api/repos/owners?q=${encodeURIComponent(text)}`);
+        if (!old) {
+          setOwners(answer.items);
+          setOwnersFor(text);
+        }
+      } catch (err) {
+        toast.error(`Could not search GitHub: ${err instanceof Error ? err.message : err}`);
+      }
+    }, 300);
+    return () => {
+      old = true;
+      window.clearTimeout(timer);
+    };
+  }, [owner, list]);
+
+  // The Repository box finds repos the same way, while its list shows. An Owner alone is enough.
+  useEffect(() => {
+    const text = query.trim();
+    const by = owner.trim();
+    if (list !== "repository") {
+      return;
+    }
+    if (by === "" && text.length < 2) {
+      setFound([]);
+      return;
+    }
+    let old = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const answer = await api<{ items: Found[] }>(`/api/repos/find?owner=${encodeURIComponent(by)}&q=${encodeURIComponent(text)}`);
+        if (!old) {
+          setFound(answer.items);
+          setFoundFor(`${by}/${text}`);
+        }
+      } catch (err) {
+        toast.error(`Could not search GitHub: ${err instanceof Error ? err.message : err}`);
+      }
+    }, 300);
+    return () => {
+      old = true;
+      window.clearTimeout(timer);
+    };
+  }, [owner, query, list]);
+
+  // A click elsewhere on the page closes the boxes' list.
+  useEffect(() => {
+    function onPointerDown(event: PointerEvent) {
+      if (searchArea.current !== null && !searchArea.current.contains(event.target as Node)) {
+        setList("");
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, []);
   useEffect(() => {
     setSwitched({});
     setColumnEdits({});
@@ -218,6 +325,25 @@ export default function RepositoryCards(props: { state: string; onState: (state:
   });
   // A repo with pull requests of yours that isn't in the list: a card of its own, made from its pull requests.
   const listedNames = repos.items.map((repo) => repo.full_name.toLowerCase());
+  // A repo added to Target here: its card at once, until the live feed has it.
+  for (const each of added) {
+    const key = each.full_name.toLowerCase();
+    if (listedNames.includes(key)) {
+      continue;
+    }
+    listedNames.push(key);
+    const repo = {
+      full_name: each.full_name,
+      description: each.description,
+      stars: each.stars,
+      default_branch: "",
+      html_url: `https://github.com/${each.full_name}`,
+      note: "",
+      added_by: "user",
+      added_at: "",
+    };
+    cards.push({ repo: repo, listed: true, merged: merged[key] ?? 0, closed: closed[key] ?? 0, open: open[key] ?? 0, working: working[key] ?? 0 });
+  }
   for (const pr of prs.items) {
     const key = pr.repo.toLowerCase();
     if (pr.relation !== "author" || listedNames.includes(key)) {
@@ -291,10 +417,10 @@ export default function RepositoryCards(props: { state: string; onState: (state:
     { title: "Removed", key: "", removed: true, moveTo: "", cards: removed },
   ];
 
-  // The stars and contributors of repos the live feed has no numbers for: cards made from PRs alone, asked ten at a
-  // time, each answer shown as it comes. A failed ask is asked again next time.
+  // The stars and contributors of repos the live feed has no numbers for: what the boxes found and cards made from PRs
+  // alone, asked ten at a time, each answer shown as it comes. A failed ask is asked again next time.
   useEffect(() => {
-    const names = shown.filter((card) => !card.listed).map((card) => card.repo.full_name);
+    const names = [...found.map((each) => each.full_name), ...shown.filter((card) => !card.listed).map((card) => card.repo.full_name)];
     const keys = names.map((name) => name.toLowerCase()).filter((key) => repos.contributors[key] === undefined && !asked.current.includes(key));
     asked.current = [...asked.current, ...keys];
     for (let start = 0; start < keys.length; start += 10) {
@@ -305,7 +431,7 @@ export default function RepositoryCards(props: { state: string; onState: (state:
           asked.current = asked.current.filter((key) => !group.includes(key));
         });
     }
-  }, [prs, repos]);
+  }, [found, prs, repos]);
 
   // The tabs, each with its count. Like the header's tabs (App.tsx): quiet until hovered; the open one in full color
   // with the accent under it.
@@ -362,6 +488,33 @@ export default function RepositoryCards(props: { state: string; onState: (state:
         return next;
       });
       toast.error(`Could not move ${name}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  // An account the Owner box found: it goes in Owner, and Repository takes the focus (and shows its repos).
+  function pickOwner(login: string) {
+    setOwner(login);
+    setOwners([]);
+    repositoryBox.current?.focus();
+  }
+
+  // A repo the boxes found, to Target (and the Repos list): shown there at once, as a move is. The boxes and their list
+  // stay, for the next one.
+  async function addTarget(each: Found) {
+    setAdded((old) => [...old, each]);
+    setRestored((old) => [...old, each.full_name]);
+    setMoved((old) => ({ ...old, [each.full_name]: "Target" }));
+    try {
+      await api("/api/repos/add_target", { method: "POST", body: { name: each.full_name } });
+    } catch (err) {
+      setAdded((old) => old.filter((other) => other.full_name !== each.full_name));
+      setRestored((old) => old.filter((other) => other !== each.full_name));
+      setMoved((old) => {
+        const next = { ...old };
+        delete next[each.full_name];
+        return next;
+      });
+      toast.error(`Could not add ${each.full_name}: ${err instanceof Error ? err.message : err}`);
     }
   }
 
@@ -429,7 +582,153 @@ export default function RepositoryCards(props: { state: string; onState: (state:
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-9 shrink-0 items-center border-b px-1">{tabs}</div>
+      <div className="flex h-9 shrink-0 items-center border-b px-1">
+        {tabs}
+        {/* pr-10: room for the dialog's close button. The crosses: onMouseDown keeps the focus in the box. Enter takes
+        only what was found for the text now, not for the text before the last keys. */}
+        <div ref={searchArea} className="relative ml-auto flex items-center gap-1.5 pr-10">
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={owner}
+              placeholder="Owner"
+              aria-label="Owner"
+              className="w-48 pr-7 pl-7"
+              onChange={(event) => setOwner(event.target.value)}
+              onFocus={() => setList("owner")}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") {
+                  return;
+                }
+                if (owners.length > 0 && ownersFor === owner.trim()) {
+                  pickOwner(owners[0].login);
+                } else {
+                  repositoryBox.current?.focus();
+                }
+              }}
+            />
+            {owner !== "" && (
+              <button
+                type="button"
+                aria-label="Clear owner"
+                className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setOwner("")}
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+            {/* The accounts it found, as cards like the repos'. onMouseDown: a click keeps the focus in the box. A div, not a
+            button: the name in it is a link (to GitHub, not a pick). */}
+            {list === "owner" && owners.length > 0 && (
+              <div
+                className="absolute top-full left-0 z-50 mt-1 flex max-h-[60vh] w-64 flex-col gap-1 overflow-y-auto rounded-md border bg-popover p-1 shadow-md"
+                onMouseDown={(event) => event.preventDefault()}
+              >
+                {owners.map((each) => (
+                  <div
+                    key={each.login}
+                    className="flex min-w-0 shrink-0 cursor-pointer items-center gap-2 rounded-md border bg-card px-2 py-1.5 hover-line"
+                    onClick={() => pickOwner(each.login)}
+                  >
+                    <img src={`https://github.com/${each.login}.png?size=64`} alt="" className="size-8 shrink-0 rounded" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium text-foreground">
+                        <a
+                          href={`https://github.com/${each.login}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {each.login}
+                        </a>
+                      </div>
+                      <div className="text-xs text-muted-foreground">{each.type}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <span className="text-muted-foreground">/</span>
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              ref={repositoryBox}
+              value={query}
+              placeholder="Repository"
+              aria-label="Repository"
+              className="w-64 pr-7 pl-7"
+              onChange={(event) => setQuery(event.target.value)}
+              onFocus={() => setList("repository")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && found.length > 0 && foundFor === `${owner.trim()}/${query.trim()}`) {
+                  addTarget(found[0]);
+                }
+              }}
+            />
+            {query !== "" && (
+              <button
+                type="button"
+                aria-label="Clear repository"
+                className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setQuery("")}
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+          {/* Cards like the ones below. onMouseDown: a click keeps the focus in the box. A div, not a button: the name in it is
+          a link (to GitHub, not an add). */}
+          {list === "repository" && found.length > 0 && (
+            <div
+              className="absolute top-full right-10 z-50 mt-1 flex max-h-[60vh] w-80 flex-col gap-1 overflow-y-auto rounded-md border bg-popover p-1 shadow-md"
+              onMouseDown={(event) => event.preventDefault()}
+            >
+              {found.map((each) => {
+                // Its contributors: null when not known.
+                const people = repos.contributors[each.full_name.toLowerCase()] ?? repoCounts[each.full_name.toLowerCase()]?.contributors ?? null;
+                return (
+                  <div
+                    key={each.full_name}
+                    className="flex min-w-0 shrink-0 cursor-pointer items-center gap-2 rounded-md border bg-card px-2 py-1.5 hover-line"
+                    onClick={() => addTarget(each)}
+                  >
+                    <img src={`https://github.com/${each.full_name.split("/")[0]}.png?size=64`} alt="" className="size-8 shrink-0 rounded" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium text-foreground">
+                        <a
+                          href={`https://github.com/${each.full_name}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {each.full_name}
+                        </a>
+                      </div>
+                      <div className="flex items-center gap-2.5 text-xs text-muted-foreground tabular-nums">
+                        <span className="flex items-center gap-0.5 text-yellow-600 dark:text-yellow-400">
+                          <Star className="size-3" />
+                          {each.stars.toLocaleString("en", { notation: "compact" })}
+                        </span>
+                        {people !== null && (
+                          <span className="flex items-center gap-0.5 text-blue-500">
+                            <Users className="size-3" />
+                            {people.toLocaleString("en", { notation: "compact" })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
 
       {loaded && shown.length === 0 && <div className="p-3 text-muted-foreground">No repositories yet.</div>}
       {shown.length > 0 && (
