@@ -26,7 +26,6 @@ from github_searcher.problem_fixes import ProblemFixes
 from github_searcher.problems import Problems
 from github_searcher.repo_list import RepoList
 from github_searcher.repo_signals import RepoSignals
-from github_searcher.repo_stats import RepoStats
 from github_searcher.token_usage import TokenUsage
 from github_searcher.token_balancer import BALANCER
 from github_searcher.updates import Updates
@@ -43,7 +42,6 @@ jobs = Jobs()
 issues = IssueList(jobs)
 issue_facts = IssueFacts()
 repo_signals = RepoSignals()
-repo_stats = RepoStats()
 # Explore skips the repos on this old list; nothing adds to it any more.
 tracked = RepoList("tracked.json")
 explore = Explore(repos, tracked, repo_signals)
