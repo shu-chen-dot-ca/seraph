@@ -60,7 +60,8 @@ by the column its repo is in on the Repositories page (frontend/src/RepositoryCa
 Target first (not one rejected there: a PR of yours closed without a merge after it went there, which is in that page's
 Catalog), then Prioritized, Contributed and last that page's Catalog (REPO_COLUMNS); ours stay first. The cards of a
 repo in its Removed column wait, ours too: the ones you deleted (repo_list.py removed), and the ones where every PR of
-yours was closed, none merged or open and no issue in progress, unless added to Target. So do the cards of a column
+yours was closed, none merged or open and no issue in progress, unless added to Target or taken out of Removed with
+none closed since (repo_list.py restored: another chance). So do the cards of a column
 whose switch is off on that page (take_from in the Automation's file, backend/automation_api.py), ours too; what is
 going there goes on. Only cards that are Catalog's own:
 no job (or only cancelled ones), not paused, open on GitHub, and, like Assign, with its Merge in and not fixed, out of
@@ -595,6 +596,7 @@ def take_from_catalog() -> None:
     removed = [name.lower() for name in repos.removed()]
     prioritized = [name.lower() for name in repos.prioritized()]
     target = {name.lower(): at for name, at in repos.target().items()}
+    restored = {name.lower(): at for name, at in repos.restored().items()}
     mine = [pr for pr in pr_tracking.summary()["items"] if pr["relation"] == "author"]
     pr_jobs = [pr["job"] for pr in mine]
     counts = {}
@@ -621,6 +623,9 @@ def take_from_catalog() -> None:
     for repo in names:
         each = counts.get(repo, {"merged": 0, "closed": 0, "open": 0, "working": 0})
         closed_only = each["merged"] == 0 and each["open"] == 0 and each["working"] == 0 and each["closed"] > 0
+        # Another chance: taken out of Removed, and none closed since.
+        if repo in restored and last_closed.get(repo, "") <= restored[repo]:
+            closed_only = False
         if repo in removed or (closed_only and repo not in target):
             columns[repo] = "removed"
         elif each["merged"] > 0 and repo in prioritized:

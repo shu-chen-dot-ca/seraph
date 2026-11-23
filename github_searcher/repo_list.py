@@ -6,7 +6,8 @@ list in its own file: RepoList("tracked.json").
 One JSON file, DATA_DIR/repos.json:
 
     {"items": [RepoItem, ...], "undo": [[RepoItem, ...], ...], "redo": [[RepoItem, ...], ...], "archived": [full_name, ...],
-     "removed": [full_name, ...], "prioritized": [full_name, ...], "target": {full_name: when it went there, ...}}
+     "removed": [full_name, ...], "prioritized": [full_name, ...], "target": {full_name: when it went there, ...},
+     "restored": {full_name: when it left Removed, ...}}
 
     RepoItem = {"full_name", "description", "stars", "default_branch", "html_url",
                 "note", "added_by": "user" | "<agent id>", "added_at", "tag"?}
@@ -30,6 +31,10 @@ removed is the repos with pull requests of the user's (merged, closed or open) d
 card on that page: they stay, in its Removed section, stopped: no new work there, what is going finishes (set_removed,
 backend/repos_api.py). backend/issues_api.py, backend/repo_automation_api.py and agents.py act on it. Not an undo step
 either.
+restored is the repos taken out of that Removed section with Add to Catalog, Add to Target or Add to Contributed in the
+⋯ of their card (restore), each with when (the same format as target's): another chance. The page still puts a repo
+there by the same rules, but for one restored only its PRs closed without a merge after that time count. Not an undo
+step either.
 The backend keeps one RepoList that the API and every agent share, so each method takes the
 lock. version goes up by one on every change; the live feed compares it to see what to send.
 """
@@ -59,14 +64,15 @@ class RepoList:
         self.path = DATA_DIR / filename
         self.lock = threading.Lock()
         self.version = 0
-        self.data = {"items": [], "undo": [], "redo": [], "archived": [], "removed": [], "prioritized": [], "target": {}}
+        self.data = {"items": [], "undo": [], "redo": [], "archived": [], "removed": [], "prioritized": [], "target": {}, "restored": {}}
         if self.path.exists():
             self.data = json.loads(self.path.read_text())
-            # Lists from before archived, removed, prioritized or target have none.
+            # Lists from before archived, removed, prioritized, target or restored have none.
             self.data.setdefault("archived", [])
             self.data.setdefault("removed", [])
             self.data.setdefault("prioritized", [])
             self.data.setdefault("target", {})
+            self.data.setdefault("restored", {})
             # target was a list of names for a few hours on 2026-11-20, before its times were kept: each from now.
             if isinstance(self.data["target"], list):
                 now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -86,6 +92,7 @@ class RepoList:
             "removed": self.data["removed"],
             "prioritized": self.data["prioritized"],
             "target": self.data["target"],
+            "restored": self.data["restored"],
         }
         temporary = self.path.with_name(self.path.name + ".tmp")
         temporary.write_text(json.dumps(saved))
@@ -115,6 +122,19 @@ class RepoList:
             self.data["removed"] = [name for name in self.data["removed"] if name not in full_names]
             if removed:
                 self.data["removed"] += full_names
+            self.save()
+
+    def restored(self) -> dict[str, str]:
+        with self.lock:
+            return dict(self.data["restored"])
+
+    def restore(self, full_names: list[str]) -> None:
+        """Take them out of Removed, with another chance from now on (see the top of this file)."""
+        with self.lock:
+            now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            self.data["removed"] = [name for name in self.data["removed"] if name not in full_names]
+            for name in full_names:
+                self.data["restored"][name] = now
             self.save()
 
     def prioritized(self) -> list[str]:

@@ -226,7 +226,7 @@ TEXTS = {}
 
 def topic_data(topic: str):
     """One topic of the live feed as the pages get it."""
-    # The Repositories cards: the list, and which are archived, removed, prioritized or target.
+    # The Repositories cards: the list, and which are archived, removed, prioritized, target or restored.
     if topic == "repos":
         return {
             "items": repos.items(),
@@ -236,6 +236,7 @@ def topic_data(topic: str):
             "removed": repos.removed(),
             "prioritized": repos.prioritized(),
             "target": repos.target(),
+            "restored": repos.restored(),
         }
     # Jobs without what no page shows (their evidence and timeline: half the topic), and a finished one with only the
     # start of its notes and no test runs: the topic goes out again on every change, and the jobs only grow.

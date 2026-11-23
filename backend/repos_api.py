@@ -1,6 +1,6 @@
 """The Repositories page's cards (frontend/src/RepositoryCards.tsx): the moves between Prioritized and Contributed, Add
-to and Remove from Target, Delete (Add to Removed for a repo with PRs of yours), Stop all on its issues in progress and
-Close all on its open PRs, and keeping the repos' signals fresh.
+to and Remove from Target, Delete (Add to Removed for a repo with PRs of yours), Add to Catalog, Target or Contributed
+from Removed, Stop all on its issues in progress and Close all on its open PRs, and keeping the repos' signals fresh.
 
 The list reaches the browser through /api/live (topic "repos"). The Automation fills it (backend/automation_api.py,
 through Explore).
@@ -62,6 +62,20 @@ def move_repo(body: MoveRequest) -> dict:
     else:
         raise HTTPException(status_code=400, detail="A repo moves to prioritized, contributed, target or catalog.")
     return {"prioritized": repos.prioritized(), "target": repos.target()}
+
+
+@router.post("/repos/restore")
+def restore_repo(body: MoveRequest) -> dict:
+    """Add to Catalog or Add to Target (none of your PRs there merged), or Add to Contributed (some merged), in the ⋯ of a
+    card in Removed on the Repositories page: the repo leaves Removed with another chance (repo_list.py restored), so
+    only its PRs closed without a merge from now on send it back there. Any name, also a repo with PRs of yours that
+    isn't in the list."""
+    if body.to not in ["catalog", "target", "contributed"]:
+        raise HTTPException(status_code=400, detail="A repo goes back to catalog, target or contributed.")
+    repos.restore([body.name])
+    repos.set_target([body.name], body.to == "target")
+    repos.set_prioritized([body.name], False)
+    return {"restored": body.name}
 
 
 @router.post("/repos/stop_in_progress")
