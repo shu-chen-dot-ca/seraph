@@ -1,6 +1,7 @@
 """The Repositories page's cards (frontend/src/RepositoryCards.tsx): the moves between Prioritized and Contributed, Add
 to and Remove from Target, Delete (Add to Removed for a repo with PRs of yours), Add to Catalog, Target or Contributed
-from Removed, Stop all on its issues in progress and Close all on its open PRs, the stars and contributors of repos
+from Removed, Stop all on its issues in progress and Close all on its open PRs, the box over the cards that finds a repo
+on GitHub (by owner too, picked from the owners it finds) and adds it to Target, the stars and contributors of repos
 with no signals, and keeping the repos' signals fresh.
 
 The list reaches the browser through /api/live (topic "repos"). The Automation fills it (backend/automation_api.py,
@@ -16,6 +17,7 @@ language was checked get that, the README alone.
 import asyncio
 import re
 import time
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -26,6 +28,7 @@ from backend.shared import agents, github_account, issues, jobs, pr_tracking, re
 from github_searcher.github_account import SendError
 from github_searcher.repo_signals import NEWCOMER_VERSION, NON_LATIN_SHARE, POLICY_VERSION
 from github_searcher.search import count_contributors, get_readme, get_repo_totals, get_repository
+from github_searcher.token_balancer import BALANCER
 
 router = APIRouter(prefix="/api")
 
@@ -35,6 +38,18 @@ SIGNALS_CHECK_SECONDS = 10
 SIGNALS_RETRY_SECONDS = 60 * 60
 # Repos whose signals are fetched at the same time in a full round.
 SIGNALS_AT_ONCE = 4
+# The boxes over the cards: a GitHub link to a repo ("https://github.com/owner/name/tree/main", "git@github.com:owner/name.git"),
+# or its owner/name; a link to an owner; how many repos a search shows, and an owner's; and how long an owner's are kept,
+# so its Repository box filters them as you type without asking GitHub again (OWNER_REPOS: by owner in lower case, when
+# asked and the repos).
+REPO_LINK = re.compile(r"github\.com[/:]([\w.-]+)/([\w.-]+)")
+REPO_NAME = re.compile(r"^([\w.-]+)/([\w.-]+)$")
+OWNER_LINK = re.compile(r"github\.com/([\w.-]+)")
+FIND_RESULTS = 6
+OWNERS_RESULTS = 10
+OWNER_RESULTS = 100
+OWNER_CACHE_SECONDS = 60
+OWNER_REPOS = {}
 # The stars and contributors of each repo the page asked about, by name in lower case, read once and kept as long as
 # the backend runs (like a listed repo's, never read again): repos with no signals (repo_signals.py), the ones the boxes
 # found and cards made from PRs alone.
@@ -88,6 +103,81 @@ def restore_repo(body: MoveRequest) -> dict:
     return {"restored": body.name}
 
 
+@router.get("/repos/owners")
+def find_owners(q: str) -> dict:
+    """The Owner box over the Repositories cards, as you type: the GitHub accounts (people and organizations) whose login
+    has the text in it, the one that is exactly the text first, then the most followed, the first OWNERS_RESULTS
+    ("NVIDIA": NVIDIA, NVIDIA-NeMo, ...).
+    {"items": [{"login", "type": "User" | "Organization"}, ...]}."""
+    params = {"q": f"{q.strip()} in:login", "sort": "followers", "order": "desc", "per_page": OWNERS_RESULTS}
+    response = BALANCER.request("GET", "https://api.github.com/search/users", params=params)
+    # 422: GitHub can't search for that text.
+    if response.status_code == 422:
+        return {"items": []}
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"GitHub search answered {response.status_code}.")
+    items = []
+    for account in response.json()["items"]:
+        items.append({"login": account["login"], "type": account["type"]})
+    items.sort(key=lambda item: item["login"].lower() != q.strip().lower())
+    return {"items": items}
+
+
+@router.get("/repos/find")
+def find_repos(q: str = "", owner: str = "") -> dict:
+    """The Owner / Repository boxes over the Repositories cards, as you type. A GitHub link to a repo, or its owner/name,
+    in Repository (q) finds that one repo. With an Owner (its name, or a link to it): its repos, the OWNER_RESULTS with
+    the most stars, only those whose name has the Repository text in it (or else its repo of that exact name). Without:
+    the Repository text searches GitHub's repositories (an owner/name that isn't one yet too), best match first, the first
+    FIND_RESULTS. {"items": [{"full_name", "description", "stars"}, ...]}."""
+    text = q.strip()
+    link = REPO_LINK.search(text) or REPO_NAME.match(text)
+    if link is not None:
+        try:
+            repo = get_repository(link.group(1), link.group(2).removesuffix(".git"))
+        except httpx.HTTPStatusError:
+            repo = None
+        if repo is not None:
+            return {"items": [{"full_name": repo["full_name"], "description": repo["description"] or "", "stars": repo["stargazers_count"]}]}
+    # A link to no repo finds nothing.
+    if "github.com" in text:
+        return {"items": []}
+    owner = owner.strip()
+    owner_link = OWNER_LINK.search(owner)
+    if owner_link is not None:
+        owner = owner_link.group(1)
+    if owner == "":
+        params = {"q": text, "per_page": FIND_RESULTS}
+    else:
+        params = {"q": f"user:{owner}", "sort": "stars", "order": "desc", "per_page": OWNER_RESULTS}
+    cached = OWNER_REPOS.get(owner.lower())
+    if owner != "" and cached is not None and time.monotonic() - cached[0] < OWNER_CACHE_SECONDS:
+        items = cached[1]
+    else:
+        response = BALANCER.request("GET", "https://api.github.com/search/repositories", params=params)
+        # 422: GitHub can't search for that text, or there is no such owner.
+        if response.status_code == 422:
+            return {"items": []}
+        if response.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"GitHub search answered {response.status_code}.")
+        items = []
+        for repo in response.json()["items"]:
+            items.append({"full_name": repo["full_name"], "description": repo["description"] or "", "stars": repo["stargazers_count"]})
+        if owner != "":
+            OWNER_REPOS[owner.lower()] = (time.monotonic(), items)
+    if owner == "":
+        return {"items": items}
+    matching = [item for item in items if text.lower() in item["full_name"].split("/")[1].lower()]
+    if matching or text == "":
+        return {"items": matching}
+    # Not among its repos with the most stars: its repo of that exact name.
+    try:
+        repo = get_repository(owner, text)
+    except httpx.HTTPStatusError:
+        return {"items": []}
+    return {"items": [{"full_name": repo["full_name"], "description": repo["description"] or "", "stars": repo["stargazers_count"]}]}
+
+
 @router.post("/repos/counts")
 async def repo_counts(body: NamesRequest) -> dict:
     """The stars and contributors (the number on its GitHub page) of each of these repos (owner/name): from its signals
@@ -121,6 +211,40 @@ async def repo_counts(body: NamesRequest) -> dict:
             REPO_COUNTS[key] = counts
         answer[key] = counts
     return answer
+
+
+@router.post("/repos/add_target")
+def add_target(body: RepoRequest) -> dict:
+    """A click on a repo the box over the Repositories cards found: it goes in the Repos list (repo_list.py, added by
+    you; its signals come with keep_signals) if it isn't there yet, and in Target from now. One in Removed leaves it,
+    with another chance (repo_list.py restored). Its automation comes on with the next round of Add issues
+    (backend/repo_automation_api.py keep_adding): a repo in Target always gets worked."""
+    owner, _, name = body.name.partition("/")
+    try:
+        repo = get_repository(owner, name)
+    except httpx.HTTPStatusError as error:
+        raise HTTPException(status_code=502, detail=f"GitHub answered {error.response.status_code} for {body.name}.")
+    # The list's own spelling, when it has the repo already.
+    full_name = repo["full_name"]
+    listed = [item["full_name"] for item in repos.items() if item["full_name"].lower() == full_name.lower()]
+    if listed:
+        full_name = listed[0]
+    else:
+        item = {
+            "full_name": full_name,
+            "description": repo["description"] or "",
+            "stars": repo["stargazers_count"],
+            "default_branch": repo["default_branch"],
+            "html_url": repo["html_url"],
+            "note": "",
+            "added_by": "user",
+            "added_at": datetime.now(UTC).isoformat(),
+        }
+        repos.add([item])
+    if full_name in repos.removed():
+        repos.restore([full_name])
+    repos.set_target([full_name], True)
+    return {"target": full_name}
 
 
 @router.post("/repos/stop_in_progress")
