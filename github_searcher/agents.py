@@ -329,6 +329,11 @@ class Agents:
         self.version = 0
         # Each agent's todo progress as summaries() last worked it out: (its history's length then, done, total).
         self.todo_progress = {}
+        # By repo in lower case, its column on the Repositories page and the model that column's settings pick (only
+        # where it isn't Default), worked out every round by backend/issues_api.py take_from_catalog; repo_models is None
+        # until the first round.
+        self.repo_columns = {}
+        self.repo_models = None
         self.agents: dict[str, Agent] = {}
         # Messages for each agent's next turn: {"from": "User" | "System", "text", "shown"}.
         # shown: already in the history (a kick), so it isn't added again when it is sent.
@@ -630,6 +635,13 @@ class Agents:
                     stars = item["stars"]
             if work in ["fix_issue", "follow_up"] and stars >= BIG_REPO_STARS:
                 model = BIG_REPO_MODEL
+            # Over that, the Model of the repo's column on the Repositories page (repo_models), picked for the job's first
+            # turn once the columns are worked out; the job keeps it, so a change there is for new jobs.
+            if work in ["fix_issue", "follow_up"] and current.get("model"):
+                model = current["model"]
+            elif work in ["fix_issue", "follow_up"] and self.repo_models is not None:
+                model = self.repo_models.get((repo or "").lower(), model)
+                self.jobs.update(current["id"], model=model)
             agent.work = {"work": work, "job": current["id"] if current is not None else None, "repo": repo}
             # Its process starts with the turn (below), so it starts on this model.
             agent.model = model

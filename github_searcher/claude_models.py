@@ -19,7 +19,9 @@ job (agents.py work), never per step: a switch re-reads the whole conversation a
 
 The kinds of work:
 - fix_issue, follow_up: an agent fixing an issue, or following up on its pull request. In a repository with
-  BIG_REPO_STARS stars or more, BIG_REPO_MODEL instead: work for the big names is worth the most.
+  BIG_REPO_STARS stars or more, BIG_REPO_MODEL instead: work for the big names is worth the most. Over both, the Model
+  of the repo's column on the Repositories page (its settings: COLUMN_MODELS, or Default for these), picked for the
+  job's first turn and kept by the job (agents.py work).
 - review: the reviewer before a pull request goes out. chat: an agent with no job (talking with you). task: any other
   job.
 - judgment: one question answered as JSON with no tools (claude_judge.py): issue tags, repository checks, which pull
@@ -53,6 +55,8 @@ MODELS = {
     "image": OPUS,
     "fix_problems": OPUS,
 }
+# A column's Model on the Repositories page, by its name there ("default": the ones above).
+COLUMN_MODELS = {"fable": FABLE, "opus": OPUS, "sonnet": SONNET}
 BIG_REPO_STARS = 20000
 BIG_REPO_MODEL = FABLE
 SIDE_MODEL = SONNET

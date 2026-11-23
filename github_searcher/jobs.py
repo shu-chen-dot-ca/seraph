@@ -55,6 +55,8 @@ The project's tests, run by the agent with run_tests: on the finished change (af
 drafted), and on the unchanged code (before) only as the agent's last resort, when a failure with the change isn't
 clearly its own; the main branch is trusted otherwise. The scope is focused, the basic checks (the tests that cover
 the change: the default), or full, the project's official checks (what its rules ask to run before a PR).
+model: the Claude model a fix_issue or follow_up job runs on, kept from its first turn (agents.py work: its repo's
+column's Model on the Repositories page, claude_models.py); missing until then.
 skip_checks: the user pressed Skip checks (backend/agents_api.py): its PR may be drafted now, without passing tests,
 and goes straight to the Inbox without a reviewer (work_tools.py draft_pr). It still waits for the user's Approve.
 
@@ -102,7 +104,7 @@ DATA_DIR = PROJECT_ROOT / os.environ["DATA_DIR"]
 EVIDENCE_DIR = DATA_DIR / "evidence"
 STATUSES = ["queued", "working", "waiting_on_user", "waiting_on_maintainers", "paused", "done", "cancelled"]
 # The fields update() may change. The others are set once, by create().
-UPDATABLE = ["status", "notes", "vm", "drafts", "title", "instructions", "step", "about", "headline", "detail", "tests", "paused_from", "skip_checks"]
+UPDATABLE = ["status", "notes", "vm", "drafts", "title", "instructions", "step", "about", "headline", "detail", "tests", "paused_from", "skip_checks", "model"]
 # The steps each kind of job goes through, in order. Kinds not listed use "task".
 STEPS = {
     "fix_issue": ["understand", "set_up", "reproduce", "fix", "test", "draft"],
