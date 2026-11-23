@@ -631,8 +631,15 @@ export type ActivityData = {
 // ---- The live store ----
 
 export type Topics = {
-  // archived, removed, prioritized, target (by name: when it went there): the Repositories dialog (repo_list.py).
-  repos: ListData<RepoItem> & { archived: string[]; removed: string[]; prioritized: string[]; target: Record<string, string> };
+  // archived, removed, prioritized, target (by name: when it went there), restored (by name: when it left Removed): the
+  // Repositories dialog (repo_list.py).
+  repos: ListData<RepoItem> & {
+    archived: string[];
+    removed: string[];
+    prioritized: string[];
+    target: Record<string, string>;
+    restored: Record<string, string>;
+  };
   jobs: Job[];
   inbox: Draft[]; // only the approval requests still waiting: the Dashboard's Blockers card and dialog
   prs: PRsData;
@@ -650,7 +657,7 @@ export type Topics = {
 // `loaded` says which topics have arrived, for the few places that must tell "empty" from "not yet".
 const store = {
   topics: {
-    repos: { items: [], can_undo: false, can_redo: false, archived: [], removed: [], prioritized: [], target: {} },
+    repos: { items: [], can_undo: false, can_redo: false, archived: [], removed: [], prioritized: [], target: {}, restored: {} },
     jobs: [],
     inbox: [],
     prs: { items: [], issues: [], checked_at: null, error: null, refreshing: false },

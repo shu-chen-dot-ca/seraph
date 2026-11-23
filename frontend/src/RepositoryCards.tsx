@@ -15,10 +15,12 @@ bottom that scrolls on its own (on a narrow window the columns keep their width 
 - Catalog: the rest. By stars.
 - Removed: the ones you deleted that have pull requests of yours (the Repos list's removed), and every other one with a
   PR of yours closed that isn't in another column (none merged or open, no issue in progress, never in Target). By
-  stars.
+  stars. Its ⋯ takes one out with another chance (POST /api/repos/restore, the Repos list's restored, with when): Add to
+  Catalog or Add to Target, or Add to Contributed for one with a merged PR. The same rules put it back, but only its PRs
+  closed without a merge after that count.
 Every repo with a pull request of yours has a card, also one that isn't in the Repos list (a PR you opened by hand, a
 repo taken out of the list): made from its pull requests, so it goes to its column like any other (only closed ones:
-Removed). Its stars aren't known (–), so it comes last in its column, and its ⋯ has only the moves (none in Catalog or Removed: no ⋯ there).
+Removed). Its stars aren't known (–), so it comes last in its column, and its ⋯ has only the moves (none in Catalog: no ⋯ there).
 A card: the owner's picture as its logo, owner/name, and under it in color: its stars (yellow), then of your pull
 requests there how many it merged (purple), closed without a merge (red) and are still open (green), then the issues in
 progress there (yellow, a draft PR icon: fix_issue jobs still open with no pull request on GitHub yet, as the Pull
@@ -28,14 +30,15 @@ in-progress one Stop all (those jobs stopped and their issues dropped, POST /api
 opens. None of these has a tooltip.
 A click on a card's owner/name (the text itself, with no tooltip) opens the repo on GitHub in a new tab; elsewhere on a
 card it does nothing yet. A card has a ⋯, whose menu opens when the mouse is on it: Move to
-Contributed in Prioritized and back; in Catalog Add to Target, in Target Remove from Target; and outside Removed Delete, or Add to Removed for a repo
+Contributed in Prioritized and back; in Catalog Add to Target, in Target Remove from Target; in Removed Add to Catalog
+and Add to Target (or Add to Contributed); and outside Removed Delete, or Add to Removed for a repo
 with pull requests of yours (merged, closed or open), at once, with no "are you sure?" (POST /api/repos/delete): every
 agent working on the repo stops, and one with pull requests of yours goes to Removed, any other leaves the page and the
-list. A card with none of these (every one in Removed) has no ⋯.
+list. A card with none of these has no ⋯.
 A card also moves by dragging it with the mouse between Prioritized and Contributed; the column it can go to lights up
 while it's dragged.
-A move, Add to or Remove from Target (POST /api/repos/move) shows at once, before the live feed has it (the repos topic comes every
-few seconds).
+A move, Add to or Remove from Target (POST /api/repos/move) or out of Removed shows at once, before the live feed has it
+(the repos topic comes every few seconds).
 Every column but Removed has a ⚙ right after its count, which opens its settings in a pop-up (a dialog over the page,
 titled "<column> settings"; Save sends them, PUT /api/automation/column, the live "automation" topic's columns;
 backend/automation_api.py): Open PRs per repository (the most PRs of ours open at once in each of its repos; empty: the
@@ -115,6 +118,8 @@ export default function RepositoryCards(props: { state: string; onState: (state:
   const [sort, setSort] = useState<Sort>("stars");
   // The cards moved here, by name: the column each went to, until the live feed has it.
   const [moved, setMoved] = useState<Record<string, string>>({});
+  // The cards taken out of Removed here, until the live feed has it.
+  const [restored, setRestored] = useState<string[]>([]);
   // The column switches flipped here, until the live feed has them.
   const [switched, setSwitched] = useState<Record<string, boolean>>({});
   // The column settings saved here, until the live feed has them; the column whose settings pop-up is open ("": none),
@@ -127,7 +132,10 @@ export default function RepositoryCards(props: { state: string; onState: (state:
   const [dragging, setDragging] = useState<{ name: string; from: string } | null>(null);
 
   // Once the live feed comes again, it has them.
-  useEffect(() => setMoved({}), [repos]);
+  useEffect(() => {
+    setMoved({});
+    setRestored([]);
+  }, [repos]);
   useEffect(() => {
     setSwitched({});
     setColumnEdits({});
@@ -226,17 +234,23 @@ export default function RepositoryCards(props: { state: string; onState: (state:
   const shown = cards.filter((card) => !deleted.includes(card.repo.full_name) || card.merged + card.closed + card.open > 0);
   const removedNames = [...repos.removed, ...deleted];
   // Removed: the ones you deleted, and the ones where every PR of ours was closed, none merged or open and no issue in
-  // progress, unless they were in Target (rejected there: Catalog).
-  const removed = shown.filter(
-    (card) =>
-      removedNames.includes(card.repo.full_name) ||
-      (card.merged === 0 &&
-        card.open === 0 &&
-        card.working === 0 &&
-        card.closed > 0 &&
-        !targetNames.includes(card.repo.full_name) &&
-        !rejectedNames.includes(card.repo.full_name)),
-  );
+  // progress, unless they were in Target (rejected there: Catalog), or taken out of Removed with none closed since
+  // (another chance).
+  const removed = shown.filter((card) => {
+    const name = card.repo.full_name;
+    if (restored.includes(name)) {
+      return false;
+    }
+    if (removedNames.includes(name)) {
+      return true;
+    }
+    if (repos.restored[name] !== undefined && (lastClosed[name.toLowerCase()] ?? "") <= repos.restored[name]) {
+      return false;
+    }
+    return (
+      card.merged === 0 && card.open === 0 && card.working === 0 && card.closed > 0 && !targetNames.includes(name) && !rejectedNames.includes(name)
+    );
+  });
   // Prioritized: merged ones you moved there.
   const prioritized = shown.filter((card) => card.merged > 0 && !removed.includes(card) && prioritizedNames.includes(card.repo.full_name));
   // Contributed by the sort menu's pick, the most first, then by stars (cards are by stars already).
@@ -300,6 +314,24 @@ export default function RepositoryCards(props: { state: string; onState: (state:
     try {
       await api("/api/repos/move", { method: "POST", body: { name: name, to: to.toLowerCase() } });
     } catch (err) {
+      setMoved((old) => {
+        const next = { ...old };
+        delete next[name];
+        return next;
+      });
+      toast.error(`Could not move ${name}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  // Out of Removed, to Catalog, Target or Contributed: shown there at once, as a move is.
+  async function restore(name: string, to: string) {
+    setRestored((old) => [...old, name]);
+    setDeleted((old) => old.filter((each) => each !== name));
+    setMoved((old) => ({ ...old, [name]: to }));
+    try {
+      await api("/api/repos/restore", { method: "POST", body: { name: name, to: to.toLowerCase() } });
+    } catch (err) {
+      setRestored((old) => old.filter((each) => each !== name));
       setMoved((old) => {
         const next = { ...old };
         delete next[name];
@@ -454,8 +486,9 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                 </h2>
                 <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
                   {column.cards.map((card) => {
-                    // Its ⋯ has a move, Remove from Target, or Delete or Add to Removed (and in Catalog Add to Target).
-                    const menu = column.moveTo !== "" || column.title === "Target" || (card.listed && !column.removed);
+                    // Its ⋯ has a move, Remove from Target, or Delete or Add to Removed (and in Catalog Add to Target), or in Removed
+                    // the way back.
+                    const menu = column.moveTo !== "" || column.title === "Target" || column.removed || card.listed;
                     return (
                       <div
                         key={card.repo.full_name}
@@ -609,6 +642,15 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                               )}
                               {column.title === "Target" && (
                                 <DropdownMenuItem onSelect={() => move(card.repo.full_name, "Catalog")}>Remove from Target</DropdownMenuItem>
+                              )}
+                              {column.removed && card.merged === 0 && (
+                                <DropdownMenuItem onSelect={() => restore(card.repo.full_name, "Catalog")}>Add to Catalog</DropdownMenuItem>
+                              )}
+                              {column.removed && card.merged === 0 && (
+                                <DropdownMenuItem onSelect={() => restore(card.repo.full_name, "Target")}>Add to Target</DropdownMenuItem>
+                              )}
+                              {column.removed && card.merged > 0 && (
+                                <DropdownMenuItem onSelect={() => restore(card.repo.full_name, "Contributed")}>Add to Contributed</DropdownMenuItem>
                               )}
                               {card.listed && !column.removed && (
                                 <DropdownMenuItem variant="destructive" onSelect={() => deleteRepo(card.repo.full_name)}>
