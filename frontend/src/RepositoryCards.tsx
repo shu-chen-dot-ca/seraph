@@ -37,7 +37,8 @@ Contributed in Prioritized and back; in Catalog Add to Target, in Target Remove 
 and Add to Target (or Add to Contributed); and outside Removed Delete, or Add to Removed for a repo
 with pull requests of yours (merged, closed or open), at once, with no "are you sure?" (POST /api/repos/delete): every
 agent working on the repo stops, and one with pull requests of yours goes to Removed, any other leaves the page and the
-list. A card with none of these has no ⋯.
+list. A card with none of these has no ⋯. In Catalog a card also has a red trash button left of its ⋯ (with a border) that
+does that Delete (or Add to Removed) at once.
 A card also moves by dragging it with the mouse between Prioritized and Contributed; the column it can go to lights up
 while it's dragged.
 A move, Add to or Remove from Target (POST /api/repos/move) or out of Removed shows at once, before the live feed has it
@@ -76,6 +77,7 @@ import {
   Search,
   Settings,
   Star,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
@@ -932,6 +934,18 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                               ))}
                           </div>
                         </div>
+                        {/* Catalog's trash: its ⋯'s Delete (or Add to Removed), at once. title="": no tooltip (the card's name). */}
+                        {column.title === "Catalog" && card.listed && (
+                          <button
+                            type="button"
+                            title=""
+                            className="flex size-6 shrink-0 items-center justify-center rounded-sm border text-destructive hover:bg-destructive/10"
+                            aria-label={`${card.merged + card.closed + card.open > 0 ? "Add to Removed" : "Delete"} ${card.repo.full_name}`}
+                            onClick={() => deleteRepo(card.repo.full_name)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        )}
                         {menu && (
                           <DropdownMenu
                             modal={false}
