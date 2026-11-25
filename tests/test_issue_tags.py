@@ -1079,3 +1079,12 @@ def test_prompt_keeps_each_incidents_rule(tags, prompts, incident, words):
     asyncio.run(tags.tag_batch("owner/repo", [7]))
 
     assert words in prompts[0], incident
+
+
+def test_openclaw_204530_tests_failing_on_main_are_the_maintainers():
+    # A collaborator's tracking issue for tests red on main, whose fix the project's rules keep from outside contributors,
+    # went to agents three times.
+    question = dict(issue_tags.CHECKS)["open"]
+
+    assert "only tracks the project's own tests, CI jobs or QA scenarios failing on its default branch" in question
+    assert RULES_VERSION >= 9

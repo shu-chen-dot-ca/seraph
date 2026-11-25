@@ -191,7 +191,10 @@ CHECKS = [
         "internal work, or the maintainers said they don't want outside pull requests for it. Someone who acts for the "
         "project (triages, labels or assigns its issues, answers for it) counts as a maintainer even when their role shows "
         "CONTRIBUTOR or NONE: an organization's members often keep that hidden. So 'this will be handled by the internal "
-        "team' from them is a no, unless a maintainer opened it to others later.",
+        "team' from them is a no, unless a maintainer opened it to others later. No too when it only tracks the project's "
+        "own tests, CI jobs or QA scenarios failing on its default branch (main is red), opened or triaged by its own "
+        "people, so its fix is a change to tests or CI only: that is the maintainers' cleanup, and many projects close an "
+        "outside pull request for a known failure on main.",
     ),
     (
         "any_contributor",
@@ -279,8 +282,8 @@ NAME_VERSION = 3
 # ai_ok, a fix that lives in an image built elsewhere and a host setting a shared VM can't change; and the old checks are
 # answered afresh; WeKnora#4652, runanywhere-sdks#1181, dioxus#6063, openchoreo#5371, openinference#4288,
 # DeskcommCRM#4410, hydro#3281, bambuddy#3524, openchoreo#5129. 8: the user's own Exclude in place of the fixed
-# politics and games checks).
-RULES_VERSION = 8
+# politics and games checks. 9: tests, CI or QA failing on the default branch are the maintainers' own cleanup).
+RULES_VERSION = 9
 EFFORT = "high"
 # A line where an issue template asks whether the author will fix it themselves: "Are you willing to submit a PR?",
 # "Would you like to work on this?", "I'm interested in implementing this", ... The line and the next few (the answer) are kept.
