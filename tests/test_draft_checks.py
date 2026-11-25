@@ -1237,3 +1237,16 @@ def test_serverpod_6000_diff_of_a_file_with_windows_line_ends_keeps_them(agents,
 
     assert result.get("is_error") is None
     assert agents.inbox.list()[0]["diff"] == crlf
+
+
+@pytest.mark.parametrize("short", ["ccccccc", "cccccccccc"])
+def test_tabularis_1542_body_naming_a_commit_of_the_branch_is_refused(agents, tools, job, short):
+    # Sending replays the commits under new shas: the push comment named two that were never on the PR. Git may print a
+    # sha longer than the 7 characters it is cited by.
+    agents.vm.log = LOG.replace("ccccccc", short)
+
+    result = asyncio.run(tools.draft_pr(dict(PR_ARGS, job_id=job, body="Fixes #12.\n\nThe help change is in ccccccc.")))
+
+    assert result["is_error"] is True
+    assert result["content"][0]["text"].startswith(f"The body names {short}, a commit of your branch here.")
+    assert agents.inbox.list() == []

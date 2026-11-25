@@ -3302,6 +3302,21 @@ class WorkTools:
                 "own change), run the tests again if the code changed, and draft again."
             )
             return {"content": [{"type": "text", "text": text}], "is_error": True}
+        # Sending replays the branch's commits on GitHub, where they get new shas: a body that names one of them as it is
+        # here names a commit that is never on the PR, and a posted comment can't be corrected.
+        named = []
+        for line in result.stdout.split("\n")[2:]:
+            fields = line.split("\x1f", 3)
+            # By its first 7 characters, the shortest a sha is cited by (git may print more of it).
+            if len(fields) == 4 and fields[2] != "" and re.search(r"(?<![0-9a-fA-F])" + re.escape(fields[2][:7]), args["body"]):
+                named.append(fields[2])
+        if named:
+            text = (
+                f"The body names {', '.join(named)}, a commit of your branch here. Sending replays your commits on GitHub, where "
+                "they get new shas, so the PR would never have that commit. Say what changed instead (or name a commit by its "
+                "message), then draft again."
+            )
+            return {"content": [{"type": "text", "text": text}], "is_error": True}
 
         # The branch's commits on top of base, as they are: sending replays them (their messages), so the history goes
         # out too. %x1e starts each commit, %x1f splits its fields, its patch comes last; the VM's git address comes
