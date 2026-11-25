@@ -659,3 +659,16 @@ def test_pkl_2011_commands_run_with_a_utf8_locale(monkeypatch, tag):
     VM("sandbox-vm1", desktop=2).exec("./gradlew test", 60, None, tag)
 
     assert 'export LANG="${LANG:-C.UTF-8}"; ' in sent[0][-1]
+
+
+def test_serverpod_6000_exact_command_keeps_windows_line_ends(monkeypatch):
+    # Text mode turns "\r\n" into "\n": a diff read so no longer applies to a file with Windows line ends.
+    def run(command, **kwargs):
+        assert "text" not in kwargs
+        return subprocess.CompletedProcess(command, 0, b"-var port = 80;\r\n+var port = 8080;\r\n", b"")
+
+    monkeypatch.setattr(subprocess, "run", run)
+
+    result = VM("sandbox-vm1").exec("git diff origin/main", 120, exact=True)
+
+    assert result.stdout == "-var port = 80;\r\n+var port = 8080;\r\n"

@@ -364,7 +364,7 @@ class VM:
                 return lease["address"]
         return None
 
-    def exec(self, command: str, timeout: float = 600, input: str | None = None, tag: str | None = None) -> subprocess.CompletedProcess:
+    def exec(self, command: str, timeout: float = 600, input: str | None = None, tag: str | None = None, exact: bool = False) -> subprocess.CompletedProcess:
         """Run a shell command as this desktop's user, in their home, with the image's PATH and SANDBOX_DESKTOP set, and
         a UTF-8 locale when the VM gives none (LOCALE).
 
@@ -372,6 +372,8 @@ class VM:
         tag runs it in a session of its own, with tag as the last word of its command line, so
         kill_tagged(tag) can end it and everything it started, even while this call still waits.
         Output that isn't valid UTF-8 (binary files, a cut character) comes back with U+FFFD in its place.
+        Line ends come back as "\n" (a "\r\n" too), except with exact: then as the command printed them. A diff needs
+        that: one of a file with Windows line ends, read without its "\r", no longer applies to that file.
         """
         script = f"set -a; . /etc/environment; set +a; {LOCALE}export SANDBOX_DESKTOP={self.desktop}; {command}"
         if tag is not None:
@@ -383,6 +385,21 @@ class VM:
             user = f"desktop{self.desktop}"
         # Set as root, before runuser: everything the command starts gets it too.
         as_user = f"echo {OOM_SCORE_ADJ} > /proc/self/oom_score_adj; exec runuser -l {user} -c {shlex.quote(script)}"
+        # Read as bytes and turned into text here: text mode would turn every "\r\n" into "\n".
+        if exact:
+            data = None
+            stdin = subprocess.DEVNULL
+            if input is not None:
+                data = input.encode()
+                stdin = None
+            result = subprocess.run(
+                ["incus", "exec", self.name, "--", "bash", "-c", as_user],
+                capture_output=True,
+                stdin=stdin,
+                input=data,
+                timeout=timeout,
+            )
+            return subprocess.CompletedProcess(result.args, result.returncode, result.stdout.decode(errors="replace"), result.stderr.decode(errors="replace"))
         if input is None:
             return subprocess.run(
                 ["incus", "exec", self.name, "--", "bash", "-c", as_user],
