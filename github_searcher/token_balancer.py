@@ -22,7 +22,10 @@ So for every request this:
    takes (401 Bad credentials: revoked or expired) is left out for every kind for BAD_TOKEN_PAUSE the same way, so the
    others carry on; it is tried again after that, in case it is back;
 3. gives up when that would take more than MAX_WAIT seconds, with a 429 answer that says when a
-   token is free again, so callers handle it like any other GitHub error.
+   token is free again (in UTC, and in how many minutes), so callers handle it like any other GitHub error. When every
+   token is one GitHub refused (401), it is no rate limit and nothing to wait out: the answer is a 401 that says so, and
+   that only the user can replace them. The message is also the answer's reason, so the error a tool shows
+   (raise_for_status) says it too, not only "429 Too Many Requests".
 
 Requests run in threads (the agents' tools use asyncio.to_thread, FastAPI runs plain endpoints
 in threads), so waiting here only holds up that one request.
@@ -44,7 +47,7 @@ counted in the bars, since the search tokens can't see private repos.
 import os
 import threading
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 
 import httpx
 
@@ -102,7 +105,8 @@ class TokenBalancer:
             for kind in RUNNING:
                 # remaining None: not known yet. Times are time.monotonic().
                 kinds[kind] = {"running": 0, "next_at": 0.0, "paused_until": 0.0, "remaining": None, "limit": None, "reset_at": 0.0}
-            tokens.append({"name": name, "value": value, "kinds": kinds})
+            # refused_until: GitHub answered 401 for it (revoked or expired) and it is left out until then (time.monotonic()).
+            tokens.append({"name": name, "value": value, "kinds": kinds, "refused_until": 0.0})
         with self.condition:
             self.tokens = tokens
             self.version += 1
@@ -134,12 +138,25 @@ class TokenBalancer:
                 # The last token was removed in Settings meanwhile.
                 if not self.tokens:
                     return httpx.Response(401, json={"message": NO_TOKEN}, request=httpx.Request(method, url))
-                free_at = datetime.fromtimestamp(token).strftime("%H:%M:%S")
+                # In UTC and in minutes from now: an agent reads it right whatever time zone this computer is in.
+                free_at = datetime.fromtimestamp(token, UTC).strftime("%H:%M:%S UTC")
+                minutes = max(1, round((token - time.time()) / 60))
+                status = 429
                 message = (
-                    f"GitHub rate limit: all {len(self.tokens)} tokens are paused for {kind} requests until {free_at}. "
-                    "Try again after that."
+                    f"GitHub rate limit: all {len(self.tokens)} tokens are paused for {kind} requests until {free_at} (in "
+                    f"{minutes} minutes). Try again after that."
                 )
-                return httpx.Response(429, json={"message": message}, request=httpx.Request(method, url))
+                # Every token is one GitHub refused: no limit to wait out, the tokens need replacing.
+                now = time.monotonic()
+                if all(each["refused_until"] > now for each in self.tokens):
+                    status = 401
+                    message = (
+                        f"GitHub refuses all {len(self.tokens)} tokens (401 Bad credentials): they were revoked or expired, and "
+                        f"only the user can replace them (Settings, Secrets). This is no rate limit. They are tried again at "
+                        f"{free_at} (in {minutes} minutes)."
+                    )
+                extensions = {"reason_phrase": message.encode("ascii", "replace")}
+                return httpx.Response(status, json={"message": message}, request=httpx.Request(method, url), extensions=extensions)
 
             headers = {"Accept": accept, "Authorization": f"Bearer {token['value']}", "X-GitHub-Api-Version": "2022-11-28"}
             try:
@@ -239,6 +256,7 @@ class TokenBalancer:
             if response.status_code == 401:
                 for each in token["kinds"].values():
                     each["paused_until"] = now + BAD_TOKEN_PAUSE
+                token["refused_until"] = now + BAD_TOKEN_PAUSE
                 print(f"[github] {token['name']} doesn't work any more (GitHub answered 401: Bad credentials). Left out for an hour; replace it.")
                 # On the Feedback page too, once while it is open there.
                 text = (

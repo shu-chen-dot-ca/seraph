@@ -260,6 +260,36 @@ def test_gives_up_with_a_429_when_every_token_is_paused_too_long(balancer, githu
     assert balancer.waiting["search"] == 0
 
 
+def test_opencodex_9100_rate_limit_error_says_when_in_utc(balancer, github):
+    # The tools showed only "429 Too Many Requests": GitHub's message, with when to try again, is in the error itself.
+    for token in balancer.tokens:
+        token["kinds"]["core"]["paused_until"] = time.monotonic() + MAX_WAIT + 600
+
+    response = balancer.request("GET", "https://api.github.com/repos/owner/name/git/trees/dev")
+
+    with pytest.raises(httpx.HTTPStatusError) as error:
+        response.raise_for_status()
+    assert "429 GitHub rate limit: all 3 tokens are paused for core requests until" in str(error.value)
+    assert "UTC (in 12 minutes). Try again after that." in str(error.value)
+
+
+def test_openclaw_204530_every_token_github_refuses_is_no_rate_limit(balancer, github):
+    # All four tokens were revoked, and every tool said they were paused for a rate limit until 18:47:17.
+    for _ in balancer.tokens:
+        github.answers.append((401, {}, '{"message": "Bad credentials"}'))
+
+    response = balancer.request("POST", "https://api.github.com/graphql", json={"query": "{ viewer { login } }"})
+
+    assert response.status_code == 401
+    message = response.json()["message"]
+    assert message.startswith("GitHub refuses all 3 tokens (401 Bad credentials): they were revoked or expired")
+    assert "This is no rate limit." in message
+    assert len(github.sent) == 3
+    with pytest.raises(httpx.HTTPStatusError) as error:
+        response.raise_for_status()
+    assert "GitHub refuses all 3 tokens" in str(error.value)
+
+
 def test_rate_limited_request_goes_again_with_the_next_token(balancer, github):
     # What the agents hit: a few searches at once right after a burst of GraphQL, and GitHub answers with a
     # secondary limit. The token is paused and the same request goes again with another token.
