@@ -1250,3 +1250,23 @@ def test_tabularis_1542_body_naming_a_commit_of_the_branch_is_refused(agents, to
     assert result["is_error"] is True
     assert result["content"][0]["text"].startswith(f"The body names {short}, a commit of your branch here.")
     assert agents.inbox.list() == []
+
+
+def test_reticle_2208_big_draft_comes_to_its_reviewer_in_parts_text_first(agents, follow_up):
+    # 110,000 characters in one answer went to a file the reviewer had no tool to open, the PR's text with it.
+    review = {"state": "waiting", "agent": "reviewer-1", "job": None, "notes": "", "at": "2026-11-21T10:00:00+00:00"}
+    diff = DIFF + "".join(f"+line {number}\n" for number in range(10_000))
+    draft = agents.inbox.create("pr", "agent-1", "Fix the help output", "Fixes #12.", job=follow_up, repo="owner/proj", target=ISSUE, diff=diff, review=review)
+    reviewer = ReviewTools(agents, {"id": "reviewer-1", "name": "agent-3", "role": "reviewer", "target_vm": None})
+
+    first = asyncio.run(reviewer.review_read({"draft_id": draft["id"]}))["content"][0]["text"]
+    second = asyncio.run(reviewer.review_read({"draft_id": draft["id"], "part": 2}))["content"][0]["text"]
+    third = asyncio.run(reviewer.review_read({"draft_id": draft["id"], "part": 3}))["content"][0]["text"]
+
+    assert len(first) < 41_000
+    assert first.startswith('{"id": "' + draft["id"] + '"')
+    assert '"body": "Fixes #12."' in first
+    assert "this is part 1 of 3. review_read with part 2, 3, ... reads the rest" in first
+    assert second.startswith(f"The diff of {draft['id']}, part 2 of 3:\n")
+    assert len(second) < 41_000
+    assert third.endswith("+line 9999\n")

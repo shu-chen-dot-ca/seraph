@@ -6,7 +6,8 @@ project is set up and built. Only an agent whose record's role is "reviewer" get
 - review_read: a PR draft it was given to review, as the user would see it (title, text, overview with its checklist,
   commits, diff, the test runs, the evidence with its pictures as pictures), the repo's AI policy now and what it means
   for the PR's text (only a disclose repo's PRs say AI helped), and, while it holds the VM, the diff in
-  ~/review-<draft id>.diff, with how to check the author's folder still has the draft's code;
+  ~/review-<draft id>.diff, with how to check the author's folder still has the draft's code. A big diff comes in parts
+  (REVIEW_PART_CHARS), the draft's text always in the first;
 - review_done: pass (the draft goes to the user's Inbox) or changes (back to its author, with the notes),
   through Agents.review_finished.
 
@@ -26,8 +27,10 @@ from github_searcher.agent.work_tools import EMOJI, NO_EMOJI
 from github_searcher.jobs import EVIDENCE_DIR
 from sandbox.vms import VMsError
 
-# review_read shows this much of a draft's diff; the rest is in the VM's file.
-REVIEW_DIFF_CHARS = 150_000
+# review_read answers in parts of at most this many characters: one longer answer is more than a tool's answer may be (a
+# 110,000-character one went to a file the reviewer has no tool to open, with the draft's text in it). The first part has
+# the draft (title, text, overview, commits, tests, evidence) and the start of its diff, each next one more of the diff.
+REVIEW_PART_CHARS = 40_000
 # The evidence's picture types, by file ending (inbox_api.py serves the same).
 PICTURE_TYPES = {"jpg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp"}
 
@@ -51,8 +54,13 @@ class ReviewTools:
                 "overview for the user (with the author's checklist of every point asked, and the cases it also tested), its "
                 "commits, the diff, the test runs and the evidence, with the pictures, and the repo's AI policy as it is now "
                 "with what it means for the PR's text (ai_policy: only a disclose repo's PRs say AI helped). While you hold "
-                "the VM, the whole diff is also put in ~/review-<draft id>.diff, to apply on the commit it starts from (base_sha).",
-                {"draft_id": str},
+                "the VM, the whole diff is also put in ~/review-<draft id>.diff, to apply on the commit it starts from (base_sha). "
+                "A big diff comes in parts: the answer says how many, and part (2, 3, ...) reads the rest.",
+                {
+                    "type": "object",
+                    "properties": {"draft_id": {"type": "string"}, "part": {"type": "integer"}},
+                    "required": ["draft_id"],
+                },
             )(self.review_read),
             tool(
                 "review_done",
@@ -91,7 +99,6 @@ class ReviewTools:
                 pass
         author = self.agents.agents.get(draft["agent"])
         diff = draft["diff"]
-        cut = len(diff) > REVIEW_DIFF_CHARS
         report = {
             "id": draft["id"],
             "author": author.name if author is not None else draft["agent"],
@@ -139,7 +146,25 @@ class ReviewTools:
                     "missing. This is the repo's tag now: go by it, not by older drafts or PRs."
                 )
             report["ai_policy"] = {"tag": policy, "rule": rule}
-        text = json.dumps(report) + "\n\nThe diff" + (f" (cut at {REVIEW_DIFF_CHARS:,} characters; all of it is in the VM's file)" if cut else "") + ":\n" + diff[:REVIEW_DIFF_CHARS]
+        # The draft first, then as much of the diff as fits in the part; the rest in the next parts.
+        head = json.dumps(report)
+        first = max(0, REVIEW_PART_CHARS - len(head))
+        parts = 1 + (max(0, len(diff) - first) + REVIEW_PART_CHARS - 1) // REVIEW_PART_CHARS
+        part = args.get("part") or 1
+        if not isinstance(part, int) or part < 1 or part > parts:
+            return {"content": [{"type": "text", "text": f"{draft['id']} comes in {parts} parts: part is 1 to {parts}."}], "is_error": True}
+        if part > 1:
+            start = first + (part - 2) * REVIEW_PART_CHARS
+            text = f"The diff of {draft['id']}, part {part} of {parts}:\n" + diff[start:start + REVIEW_PART_CHARS]
+            if part < parts:
+                text += f"\n\n[End of part {part} of {parts}: review_read with part {part + 1} reads on.]"
+            return {"content": [{"type": "text", "text": text}]}
+        text = head + "\n\nThe diff:\n" + diff[:first]
+        if parts > 1:
+            text += (
+                f"\n\n[The diff goes on: this is part 1 of {parts}. review_read with part 2, 3, ... reads the rest; while you "
+                f"hold the VM, all of it is in ~/review-{draft['id']}.diff too.]"
+            )
 
         # The diff as a file in the VM, while it holds one: to apply on base_sha and run the tests on.
         vm_name = self.record["target_vm"]
