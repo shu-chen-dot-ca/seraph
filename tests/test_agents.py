@@ -68,3 +68,20 @@ def test_vm_shutting_down_with_another_running_says_to_pick_that(agents):
         agents.set_target_vm("agent-1", "vm1", by_agent=True)
 
     assert str(error.value) == "vm1 shuts down once the agents on it are done and takes nobody new: pick another VM."
+
+
+# Decisions on drafts
+
+
+def test_opencodex_8598_draft_the_app_sent_back_tells_its_agent_to_draft_it_again(agents):
+    # Its text changed since it was drafted, so it could never go; its agent never heard, and it waited for good.
+    job = agents.jobs.create("follow_up", "Follow up on owner/proj#40", "agent-1", "user", thread="owner/proj#40")
+    draft = agents.inbox.create("edit", "agent-1", "feat(codex): add a login policy", "New text.", job=job["id"], repo="owner/proj", target="owner/proj#40")
+    agents.jobs.update(job["id"], status="waiting_on_user", drafts=[draft["id"]])
+    why = "Its title or description changed since the agent drafted this: Redraft, so the agent works on the text as it is now."
+
+    agents.decide(draft["id"], "rejected", why, answered_by="automation")
+
+    text = agents.pending["agent-1"][-1]["text"]
+    assert text.startswith(f"The app didn't send your title and description draft {draft['id']} (feat(codex): add a login policy): {why}")
+    assert agents.jobs.get(job["id"])["status"] == "queued"

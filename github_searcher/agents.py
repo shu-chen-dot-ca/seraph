@@ -1824,6 +1824,12 @@ class Agents:
         elif decision == "cleared":
             # The agent took its own blocker back: it went away by itself (work_tools.py clear_blocker).
             text = f"{about} is off the Blockers page: it doesn't hold {job_name} up any more. Carry on with it."
+        elif decision == "rejected" and answered_by == "automation":
+            # Sending found it can't go as drafted (backend/repo_automation_api.py): the user never saw it.
+            text = (
+                f"The app didn't send {about}: {reply} Draft it again on what is there now, or stop {job_name} when that "
+                "says the issue is taken."
+            )
         elif decision == "rejected" and draft["kind"] == "approval":
             text = f"The user rejected {about}."
             if reply:
