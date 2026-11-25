@@ -81,7 +81,7 @@ def answers(monkeypatch):
         "searches": [],
     }
 
-    async def judge(prompt, schema, effort):
+    async def judge(prompt, schema, effort, what=""):
         if "types" in schema["properties"]:
             return answers["plan"]
         if "queries" in schema["properties"]:
