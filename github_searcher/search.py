@@ -404,7 +404,8 @@ def get_issues_for_tags(owner: str, repo: str, numbers: list[int], login: str | 
     # Never cached: an issue is tagged again because it changed. Returns the repository node: its description,
     # stars and language, each issue as i<number>, None when it is gone or a pull request, yourMerged: how many
     # pull requests by login the repo merged (None without a login), mentioned: the pull requests and issues of the
-    # repo the issues' descriptions mention (MENTION), {number: {"__typename", "title", "state"}}, an issue's with
+    # repo the issues' descriptions mention (MENTION), {number: {"__typename", "title", "state"}}, a pull request's with
+    # its author, an issue's with
     # closedByPullRequestsReferences (the pull requests that would close it, open ones only), and named: by issue number,
     # the pull requests of the repo that name that number in their text (TagPull, with body), at most NAMED_LIMIT.
     aliases = ""
@@ -453,7 +454,7 @@ def get_issues_for_tags(owner: str, repo: str, numbers: list[int], login: str | 
     aliases = ""
     for number in mentioned[:MENTIONED_LIMIT]:
         aliases += (
-            f" p{number}: issueOrPullRequest(number: {number}) {{ __typename ... on PullRequest {{ title state }} ... on Issue {{ title state "
+            f" p{number}: issueOrPullRequest(number: {number}) {{ __typename ... on PullRequest {{ title state author {{ login }} }} ... on Issue {{ title state "
             "closedByPullRequestsReferences(first: 5) { nodes { number state author { login } } } } }"
         )
     # In the same call, the pull requests that name each issue's number in their text, the way read_issue finds them
