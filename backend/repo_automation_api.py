@@ -31,7 +31,8 @@ What each does:
   reviewer passed it) or an edit (a new title and description of your PR or issue) is sent as you, as Approve with
   Send does (github_account.py), then approved, so its agent hears it the same way. One GitHub refuses (or that has to
   wait, like a PR whose claim isn't decided yet, or whose claimed issue isn't assigned to you yet: github_account.py)
-  stays in the Inbox, and is tried again after SEND_RETRY_SECONDS. The Automation page (backend/automation_api.py) goes
+  stays in the Inbox, and is tried again after SEND_RETRY_SECONDS. One that is on GitHub already but still pending (a
+  send cut off before its approval) is approved, never sent again. The Automation page (backend/automation_api.py) goes
   over every repo's: Create pull requests off holds every new PR (also one made again in place of an old one), Reply
   to reviews and comments off holds everything a follow-up job drafts on a PR already open (comments, edits, new
   versions), Pull requests per day holds new PRs once that many went out since midnight, and Open pull requests (all
@@ -205,6 +206,15 @@ async def act_on_drafts() -> None:
 
     total_open = sum(open_prs.values())
     for draft in inbox.pending():
+        # On GitHub already, still pending: a send cut off between going out and its approval (a backend restart). It is
+        # approved now, as the send would have been, instead of being sent again and failing ("on GitHub already") for
+        # good.
+        if draft["sent"] is not None:
+            try:
+                agents.decide(draft["id"], "approved")
+            except (KeyError, ValueError):
+                pass  # Decided, or deleted, in the meantime.
+            continue
         if draft["repo"] is None:
             continue
         rules = by_name.get(draft["repo"].lower(), DEFAULTS)
