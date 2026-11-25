@@ -382,7 +382,9 @@ class WorkTools:
                 "and CI checks that cover the files you changed (contributing_guide with paths: refused until then). scope: full (the project's official "
                 "checks: what its rules ask to run before a PR, as one command, e.g. `pytest -n 2 && ruff check .`, however long "
                 "they take) or focused (the basic checks, when the rules ask for no more: the test files and folders that cover "
-                "the code you change, e.g. `pytest tests/test_parser.py tests/cli/`). command: what runs them "
+                "the code you change, e.g. `pytest tests/test_parser.py tests/cli/`). A fix_issue job's after run also waits "
+                "until you read its issue again (read_issue, within the hour): someone may have opened a PR for it meanwhile. "
+                "command: what runs them "
                 "(setup belongs in bash before, not here). "
                 "path: the repo folder (e.g. ~/click); base: what you branch from (e.g. origin/main). when: after (on your "
                 "finished change; it has to pass before draft_pr), or before (on the unchanged code, the folder not differing "
@@ -3738,6 +3740,24 @@ class WorkTools:
                 "AGENTS.md, a rule in another folder's, a workflow that checks them). Do what they ask, then run the tests."
             )
             return {"content": [{"type": "text", "text": text}], "is_error": True}
+        # A run that counts often takes hours: a fix_issue job's issue is read again first (within READ_SECONDS, and after
+        # any notice that someone seems to be on it), so a PR someone else opened for it meanwhile, or a fix that landed,
+        # stops the job before the run instead of after it.
+        if when == "after" and job["kind"] == "fix_issue" and job["issue"] is not None:
+            read_at = self.threads_read.get(job["issue"].lower())
+            noticed = [datetime.fromisoformat(entry["at"]).timestamp() for entry in job["timeline"] if entry["kind"] == "notice"]
+            if read_at is None or time.time() - read_at > READ_SECONDS or (noticed and read_at < max(noticed)):
+                text = (
+                    f"First read {job['issue']} again with read_issue: someone may have opened a PR for it, or fixed it, while "
+                    "you worked, and this run takes a while. Then run the tests."
+                )
+                return {"content": [{"type": "text", "text": text}], "is_error": True}
+            if self.threads_taken.get(job["issue"].lower()):
+                text = (
+                    f"{self.threads_taken[job['issue'].lower()]}: someone else is on it now, and its maintainers don't want a "
+                    "second fix. Don't run the tests for it: close_issue with that link."
+                )
+                return {"content": [{"type": "text", "text": text}], "is_error": True}
 
         # The step it is on shows in the user's progress view while the suite runs. A run on the unchanged code (the last
         # resort) leaves the step as it is.

@@ -1337,3 +1337,23 @@ def test_openclaw_205087_before_run_of_a_changed_files_gate_says_it_checked_noth
     text = answer["content"][0]["text"]
     assert "It passed in 4s, under a tenth of the time the run with your change took" in text
     assert "what fails with your change is your change's doing" not in text
+
+
+def test_openclaw_204834_after_run_waits_for_the_issue_read_again(agents, tools, job):
+    # Someone else's PR came while hours of checks ran; only the read before the draft found it.
+    tools.paths_checked["owner/proj"] = {"cli.py"}
+    tools.threads_read[ISSUE] = time.time() - 2 * 3600
+    run = {"job_id": job, "path": "~/proj", "base": "origin/main", "command": "pnpm check:changed", "scope": "full", "when": "after", "background": True}
+
+    result = asyncio.run(tools.run_tests(run))
+
+    assert result["is_error"] is True
+    assert result["content"][0]["text"].startswith(f"First read {ISSUE} again with read_issue")
+
+    tools.threads_read[ISSUE] = time.time()
+    tools.threads_taken[ISSUE] = "owner/proj#205011 by someone (https://github.com/owner/proj/pull/205011) is open and closes it"
+    result = asyncio.run(tools.run_tests(run))
+
+    assert result["is_error"] is True
+    assert "someone else is on it now" in result["content"][0]["text"]
+    assert "close_issue with that link" in result["content"][0]["text"]
