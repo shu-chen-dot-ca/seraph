@@ -154,6 +154,11 @@ class SendError(Exception):
     pass
 
 
+class SendBackError(SendError):
+    """It can't go as it was drafted, whenever it is tried: the PR's branch or its title and description changed since.
+    Its agent has to draft it again on what is there now (backend/repo_automation_api.py sends it back)."""
+
+
 class GithubAccount:
     def __init__(self, inbox):
         self.inbox = inbox
@@ -840,7 +845,7 @@ class GithubAccount:
         if rebase_of:
             expected = rebase_of
         if head["sha"] != expected:
-            raise SendError("The PR's branch changed since the agent drafted this: Redraft, so the agent works on top of its newest commit.")
+            raise SendBackError("The PR's branch changed since the agent drafted this: Redraft, so the agent works on top of its newest commit.")
         fork = head["repo"]["full_name"]
         branch = head["ref"]
 
@@ -916,7 +921,7 @@ class GithubAccount:
             response = client.get(f"/repos/{fork}/git/ref/heads/{branch}")
             response.raise_for_status()
             if response.json()["object"]["sha"] != rebase_of:
-                raise SendError("The PR's branch changed while this was being sent: nothing was pushed. Redraft, so the agent works on its newest commit.")
+                raise SendBackError("The PR's branch changed while this was being sent: nothing was pushed. Redraft, so the agent works on its newest commit.")
             self.step = "force-pushing onto the PR's branch"
             response = client.patch(f"/repos/{fork}/git/refs/heads/{branch}", json={"sha": commit, "force": True})
             response.raise_for_status()
@@ -1030,7 +1035,7 @@ class GithubAccount:
         then_body = draft["previous"]["body"].replace("\r\n", "\n").strip()
         then_body = re.sub(r"^(\s*[-*] )\[[xX]\]", r"\1[ ]", then_body, flags=re.M)
         if now_title != draft["previous"]["title"] or now_body != then_body:
-            raise SendError("Its title or description changed since the agent drafted this: Redraft, so the agent works on the text as it is now.")
+            raise SendBackError("Its title or description changed since the agent drafted this: Redraft, so the agent works on the text as it is now.")
         body = self.pictures(client, account, repo, draft)
         self.step = "changing the title and description"
         response = client.patch(f"/repos/{repo}/issues/{number}", json={"title": draft["title"], "body": body})

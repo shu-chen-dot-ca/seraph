@@ -21,7 +21,7 @@ import pytest
 from github_searcher import github_account
 from github_searcher import inbox as inbox_module
 from github_searcher import jobs as jobs_module
-from github_searcher.github_account import GithubAccount, SendError
+from github_searcher.github_account import GithubAccount, SendBackError, SendError
 from github_searcher.inbox import Inbox
 from github_searcher.jobs import Jobs
 
@@ -701,6 +701,28 @@ def test_edit_refused_when_the_text_changed_since(account, edit, github, client)
     with pytest.raises(SendError, match="changed since the agent drafted this"):
         account.send_edit(client, ACCOUNT, edit)
     assert [method for method, path, body in github.requests if method == "PATCH"] == []
+
+
+def test_amber_1199_edit_whose_text_changed_goes_back_for_a_redraft(account, edit, github, client):
+    # Refused the same way every ten minutes for good: only drafting it again on the text as it is now can send it.
+    github.answers[("GET", f"/repos/{PROJECT}/issues/40")] = (200, {
+        "user": {"login": "sam-example"},
+        "title": "Fix the help (#1199)",
+        "body": "Lists every flag.\n\n- [x] Tests pass",
+        "html_url": "https://github.com/owner/proj/pull/40",
+    })
+
+    with pytest.raises(SendBackError, match="Redraft, so the agent works on the text as it is now"):
+        account.send_edit(client, ACCOUNT, edit)
+
+
+def test_new_version_on_a_branch_that_moved_goes_back_for_a_redraft(account, inbox, github, client):
+    github.answers[("GET", f"/repos/{PROJECT}/pulls/40")] = (200, {**PULL, "head": {**PULL["head"], "sha": "c" * 40}})
+    update = inbox.create("pr", "agent-1", "fix(cli): list --verbose", "Renamed it as asked.", repo=PROJECT, target=PR,
+                          diff=FIRST_DIFF, base="fix-help", base_sha=BASE_SHA, commits=[FIRST], update_of=PR)
+
+    with pytest.raises(SendBackError, match="Redraft, so the agent works on top of its newest commit"):
+        account.send_update(client, ACCOUNT, inbox.get(update["id"]))
 
 
 def test_edit_refused_on_someone_elses_pr(account, edit, github, client):
