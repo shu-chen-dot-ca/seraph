@@ -78,10 +78,11 @@ def github(monkeypatch):
         github["reads"] += 1
         return github["pull"]
 
-    def search_issues(q, sort):
+    def search_issues(q, sort, per_page=50, page=1):
         if github["search_fails"]:
             raise httpx.ConnectError("Network is unreachable")
-        return {"items": github["found"] if q.startswith("is:pr author:") else []}
+        items = github["found"] if q.startswith("is:pr author:") else []
+        return {"items": items, "total_count": len(items)}
 
     monkeypatch.setattr(pr_tracking, "get_pr_status", get_pr_status)
     monkeypatch.setattr(pr_tracking, "get_action_runs", lambda owner, name, sha: github["runs"])
