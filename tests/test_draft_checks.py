@@ -1451,3 +1451,8 @@ def test_kestra_22556_claim_waits_for_assignment_only_where_it_is_a_must(tools):
     assert "Not when they also take PRs for unassigned issues" in flag
     assert "not when they also take PRs for unassigned issues" in claim.description
     assert "Not when the rules only ask to be assigned first and still take PRs for unassigned issues" in SYSTEM_PROMPT
+
+
+def test_spiceai_16306_a_sign_off_is_what_the_projects_rules_say_it_is():
+    # The job's message called a project's attestation script a DCO sign-off on every commit.
+    assert "What a project means by a sign-off is in its rules (a DCO `Signed-off-by` line, or its own script or check" in SYSTEM_PROMPT
