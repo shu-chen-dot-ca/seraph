@@ -643,3 +643,19 @@ def test_image_a_vm_was_made_from_stays(images, vms):
     with pytest.raises(ImagesError, match=r"VMs were made from dev-vm \(vm1\)"):
         images.delete("dev-vm")
     assert images.names() == ["dev-vm"]
+
+
+@pytest.mark.parametrize("tag", [None, "sandbox-run_a1b2c3"])
+def test_pkl_2011_commands_run_with_a_utf8_locale(monkeypatch, tag):
+    # The desktop users' shells had LANG empty, and pkl's tests of file names with emoji failed until it was UTF-8.
+    sent = []
+
+    def run(command, **kwargs):
+        sent.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+
+    VM("sandbox-vm1", desktop=2).exec("./gradlew test", 60, None, tag)
+
+    assert 'export LANG="${LANG:-C.UTF-8}"; ' in sent[0][-1]

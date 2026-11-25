@@ -53,6 +53,9 @@ DESKTOP_SIZE = "1280x800"
 # commands, their test suites) gets this, so a full memory ends a test worker, never the desktop (GNOME's own are at
 # 100 to 200). An agent the user gave priority gets less on its runs (long_runs.prioritize).
 OOM_SCORE_ADJ = 900
+# exec's commands get a UTF-8 locale when the VM's own settings give them none: a desktop user's login shell had LANG
+# empty (the C locale), and a project's tests of non-ASCII file names failed there, while its CI runs them in UTF-8.
+LOCALE = 'export LANG="${LANG:-C.UTF-8}"; '
 # Desktops 2 and up, as root at every start (set_up_desktops), with numbers (the VM's desktops, e.g. "1 3") and size
 # set before it. TigerVNC comes from the system's own packages, the first time. A terminal-only image gets only the
 # users and demo services.
@@ -362,17 +365,18 @@ class VM:
         return None
 
     def exec(self, command: str, timeout: float = 600, input: str | None = None, tag: str | None = None) -> subprocess.CompletedProcess:
-        """Run a shell command as this desktop's user, in their home, with the image's PATH and SANDBOX_DESKTOP set.
+        """Run a shell command as this desktop's user, in their home, with the image's PATH and SANDBOX_DESKTOP set, and
+        a UTF-8 locale when the VM gives none (LOCALE).
 
         input is text for the command's stdin (e.g. a file's content); without it stdin is empty.
         tag runs it in a session of its own, with tag as the last word of its command line, so
         kill_tagged(tag) can end it and everything it started, even while this call still waits.
         Output that isn't valid UTF-8 (binary files, a cut character) comes back with U+FFFD in its place.
         """
-        script = f"set -a; . /etc/environment; set +a; export SANDBOX_DESKTOP={self.desktop}; {command}"
+        script = f"set -a; . /etc/environment; set +a; {LOCALE}export SANDBOX_DESKTOP={self.desktop}; {command}"
         if tag is not None:
             # --wait: the command's own exit code, and its end, as without setsid.
-            script = f"set -a; . /etc/environment; set +a; export SANDBOX_DESKTOP={self.desktop}; exec setsid --wait bash -c {shlex.quote(command)} {shlex.quote(tag)}"
+            script = f"set -a; . /etc/environment; set +a; {LOCALE}export SANDBOX_DESKTOP={self.desktop}; exec setsid --wait bash -c {shlex.quote(command)} {shlex.quote(tag)}"
         # runuser -l: a login shell in the user's home. Desktop 1's user is whoever has uid 1000.
         user = '"$(id -nu 1000)"'
         if self.desktop != 1:
