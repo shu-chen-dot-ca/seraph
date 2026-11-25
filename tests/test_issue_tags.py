@@ -513,6 +513,30 @@ def test_repowise_5369_open_pr_that_closes_it_is_claimed(tags, github, pull, pro
     assert tags.open_prs["owner/repo#7"] == ["owner/repo#5389 by newcomer"]
 
 
+def test_openclaw_204994_authors_own_fix_named_in_the_issue_is_claimed(tags, github, prompts):
+    # The author closed their own PR minutes before opening the issue to replace it, and the issue went to an agent.
+    github["i7"]["body"] = "This issue replaces PR #190514, which carried a fix. PR #190514 has that change if it is useful."
+    github["mentioned"] = {190514: {"__typename": "PullRequest", "title": "Fix the crash", "state": "CLOSED", "author": {"login": "reporter"}}}
+
+    asyncio.run(tags.tag_batch("owner/repo", [7]))
+    tag = tags.all()["owner/repo#7"]
+
+    assert prompts == []
+    assert tag["merge"] == "claimed"
+    assert tag["reason"] == "Pull request #190514 by reporter, who opened the issue, has their own fix for it (closed)."
+
+
+@pytest.mark.parametrize("state, author", [("MERGED", "reporter"), ("CLOSED", "alice")])
+def test_named_pr_merged_or_by_someone_else_is_read_by_claude(tags, github, prompts, state, author):
+    github["i7"]["body"] = "It broke after #190514."
+    github["mentioned"] = {190514: {"__typename": "PullRequest", "title": "Rework the parser", "state": state, "author": {"login": author}}}
+
+    asyncio.run(tags.tag_batch("owner/repo", [7]))
+
+    assert len(prompts) == 1
+    assert tags.all()["owner/repo#7"]["status"] == "free"
+
+
 def test_closing_pr_by_a_deleted_account_is_claimed(tags, github, pull):
     pull["author"] = None
     github["i7"]["closedByPullRequestsReferences"]["nodes"].append(pull)

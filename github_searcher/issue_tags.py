@@ -74,7 +74,9 @@ repo's numbers or the user's first merged PR there shows at the next read. reaso
 status, then "Merge: <label>, <why>." An issue with an assignee on GitHub is claimed without asking Claude; its checks
 and kind stay None. So is one with someone else's open pull request that says it closes it (GitHub's closing reference),
 updated in the last TAKEN_PR_DAYS days: its maintainers don't want a second fix. An older one may be abandoned: Claude
-weighs that. open_prs (in memory, not in the file) is what each issue's last read found of other people's open pull
+weighs that. So is one whose description names a pull request of its own author's that isn't merged, open or closed:
+their own fix for it, which they may bring back ("this replaces PR #n, which carried a fix"). open_prs (in memory, not
+in the file) is what each issue's last read found of other people's open pull
 requests tied to it, updated in that time, the ones that only mention it too ("owner/name#n by login"): an agent with a
 job on the issue hears of each one at once (backend/issues_api.py, Agents.issue_taken), whatever the status says.
 
@@ -472,6 +474,16 @@ class IssueTags:
                     continue
                 if login is None or pull_author.lower() != login.lower():
                     reason = f"Open pull request #{pull['number']} by {pull_author} says it closes it."
+            # Or its description names a pull request of its own author's that isn't merged ("this replaces PR #n, which
+            # carried a fix"): their own fix for it, even closed, which they may bring back, and maintainers take theirs.
+            issue_author = issue["author"]["login"] if issue["author"] else "ghost"
+            for mention in MENTION.findall(issue["body"] or ""):
+                pull = data["mentioned"].get(int(mention))
+                if reason or pull is None or pull["__typename"] != "PullRequest" or pull["state"] == "MERGED":
+                    continue
+                pull_author = (pull.get("author") or {}).get("login", "ghost")
+                if pull_author.lower() == issue_author.lower() and (login is None or pull_author.lower() != login.lower()):
+                    reason = f"Pull request #{mention} by {pull_author}, who opened the issue, has their own fix for it ({pull['state'].lower()})."
             # Every open pull request of someone else's tied to it, not abandoned: the ones that say they close it, and the
             # ones that only mention it, were linked to it by hand or have a commit that mentions it. An agent with a job on
             # it hears of each at once, also while the issue stays free (DeskcommCRM#4511 only said "Refs #4495", and our
