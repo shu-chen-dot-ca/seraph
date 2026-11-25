@@ -96,9 +96,10 @@ def tools(vms):
 
 @pytest.fixture
 def jobs(tmp_path, monkeypatch):
-    """The jobs, kept in a temporary folder, and the evidence files work_tools writes for them too."""
+    """The jobs, kept in a temporary folder, and the evidence files and the test runs' log work_tools writes for them too."""
     monkeypatch.setattr(jobs_module, "DATA_DIR", tmp_path)
     monkeypatch.setattr(work_tools, "EVIDENCE_DIR", tmp_path / "evidence")
+    monkeypatch.setattr(work_tools, "TEST_RUNS_FILE", tmp_path / "test_runs.jsonl")
     return Jobs()
 
 
