@@ -1413,3 +1413,30 @@ def test_ttt_1448_pr_of_another_repo_naming_the_issue_in_full_is_listed(agents, 
     result = json.loads(asyncio.run(tools.read_issue({"thread": "owner/proj#1448"}))["content"][0]["text"])
 
     assert result["prs_naming_its_number"] == [{"pr": "owner/termlib#21", "title": "Parse OSC 8 links", "state": "open", "author": "maintainer", "opened": "2026-11-15"}]
+
+
+def test_grimmory_2937_issue_the_users_own_open_pr_closes_is_not_fixed_twice(agents, tools, job, monkeypatch):
+    # Another agent's PR for the user already had the whole fix and closed the issue, and this job claimed it again.
+    ours = {
+        "number": 3112, "title": "Fix the book list", "url": "https://github.com/owner/proj/pull/3112", "state": "OPEN", "isDraft": False,
+        "createdAt": "2026-11-12T10:00:00Z", "updatedAt": "2026-11-13T10:00:00Z", "mergedAt": None,
+        "repository": {"nameWithOwner": "owner/proj"}, "author": {"login": "sam-example"}, "reviewDecision": None,
+        "commits": {"nodes": []}, "comments": {"nodes": []}, "reviews": {"nodes": []},
+    }
+    issue = {
+        "__typename": "Issue", "title": "Fix the help output", "url": "https://github.com/owner/proj/issues/12",
+        "state": "OPEN", "stateReason": None, "milestone": None, "createdAt": "2026-11-10T10:00:00Z", "updatedAt": "2026-11-13T10:00:00Z",
+        "author": {"login": "reporter", "__typename": "User"}, "authorAssociation": "NONE", "labels": {"nodes": []},
+        "assignees": {"nodes": []}, "comments": {"nodes": []}, "timelineItems": {"nodes": []},
+        "closedByPullRequestsReferences": {"nodes": [ours]}, "mergers": [], "default_branch": None, "body": "The help leaves out --verbose.",
+    }
+    monkeypatch.setattr(work_tools, "get_issue_in_full", lambda owner, name, number: copy.deepcopy(issue))
+    monkeypatch.setattr(work_tools, "search_issues", lambda q: {"items": []})
+    agents.jobs.update(job, step="understand")
+    read = json.loads(asyncio.run(tools.read_issue({"thread": ISSUE}))["content"][0]["text"])
+
+    result = asyncio.run(tools.job_progress({"job_id": job, "step": "set_up", "headline": "Taking the issue"}))
+
+    assert read["the_users_own_pr"].startswith("owner/proj#3112, the user's own open PR, says it closes it already")
+    assert result["is_error"] is True
+    assert result["content"][0]["text"].startswith(f"owner/proj#3112, the user's own open PR, closes {ISSUE} already")

@@ -327,6 +327,9 @@ class WorkTools:
         # When someone other than the user last wrote on each issue or PR it read (owner/name#n, lower case): GitHub's
         # time, None when nobody did. Our round there ends with it: one comment of ours until then (draft_comment, draft_pr).
         self.threads_other_at = {}
+        # The user's own open PR that read_issue found closing each issue (owner/name#n, lower case; "" when none): made
+        # for another job, it fixes the issue there already, so taking the issue and a new PR for it refuse.
+        self.threads_ours = {}
 
     def list(self) -> list:
         names = {"type": "array", "items": {"type": "string"}}
@@ -1217,6 +1220,12 @@ class WorkTools:
             if self.threads_taken.get(job["issue"].lower()):
                 text = f"{self.threads_taken[job['issue'].lower()]}: someone else is on it. Don't start a second fix: close_issue with that link."
                 return {"content": [{"type": "text", "text": text}], "is_error": True}
+            # Nor one of ours: the user's own open PR, made for another job, closes it already (a remake job's own PR is
+            # its thread).
+            ours = self.threads_ours.get(job["issue"].lower())
+            if ours and ours.lower() != (job["thread"] or "").lower():
+                text = f"{ours}, the user's own open PR, closes {job['issue']} already: it is being fixed there. Don't start a second fix: close_issue with that link."
+                return {"content": [{"type": "text", "text": text}], "is_error": True}
             # A repo that doesn't take AI-made contributions: we don't work there at all.
             no_ai = [name.lower() for name, each in self.agents.repo_signals.all().items() if (each.get("ai_policy") or {}).get("tag") == "no_ai"]
             if job["issue"].split("#")[0].lower() in no_ai:
@@ -1952,6 +1961,17 @@ class WorkTools:
         # An issue the user opened (ours too, opened as the user) is never given up, whoever else shows up.
         if login != "" and result["author"].lower() == login.lower():
             taken = ""
+        # The user's own open PR that says it closes it, made for another job: the issue is being fixed there already.
+        ours = ""
+        for pr in result["related_prs"]:
+            if pr["state"] == "open" and pr["closes_it"] and pr["by_user"]:
+                ours = pr["pr"]
+        if ours:
+            result["the_users_own_pr"] = (
+                f"{ours}, the user's own open PR, says it closes it already: it is being fixed there. On a fix_issue job for "
+                "it (but one that makes that PR again), make no second fix: close_issue with that link."
+            )
+        self.threads_ours[thread.lower()] = ours
         self.threads_read[thread.lower()] = time.time()
         self.threads_taken[thread.lower()] = taken
         # When someone other than the user last wrote there (a bot too: a CLA bot's request needs its answer).
@@ -3026,6 +3046,10 @@ class WorkTools:
                     f"{self.threads_taken[job['issue'].lower()]}: someone else is on it now, and its maintainers don't want a "
                     "second fix. Don't draft it: close_issue with that link."
                 )
+                return {"content": [{"type": "text", "text": text}], "is_error": True}
+            ours = self.threads_ours.get(job["issue"].lower())
+            if ours and ours.lower() != (job["thread"] or "").lower():
+                text = f"{ours}, the user's own open PR, closes {job['issue']} already: it is being fixed there. Don't draft a second fix: close_issue with that link."
                 return {"content": [{"type": "text", "text": text}], "is_error": True}
         # The job's pictures go in the body, as ![what](evidence:ev_...): the Inbox shows them there, and sending
         # uploads them to the user's fork (github_account.py).
