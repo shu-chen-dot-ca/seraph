@@ -20,6 +20,7 @@ import asyncio
 import base64
 import json
 import shlex
+from datetime import UTC, datetime
 
 from claude_agent_sdk import tool
 
@@ -216,7 +217,7 @@ class ReviewTools:
             return {"content": [{"type": "text", "text": f"No draft {args['draft_id']}."}], "is_error": True}
         if draft["review"] is None or draft["review"]["agent"] != self.agent_id:
             return {"content": [{"type": "text", "text": f"{draft['id']} wasn't given to you to review."}], "is_error": True}
-        if draft["review"]["state"] != "waiting" or draft["status"] != "pending":
+        if draft["review"]["state"] != "waiting":
             return {"content": [{"type": "text", "text": f"{draft['id']} has its verdict already."}], "is_error": True}
         verdict = args.get("verdict")
         notes = (args.get("notes") or "").strip()
@@ -227,6 +228,21 @@ class ReviewTools:
         found = EMOJI.findall(notes)
         if found:
             return {"content": [{"type": "text", "text": NO_EMOJI + " ".join(sorted(set(found)))}], "is_error": True}
+        # Withdrawn or decided while it was reviewed (its job ended, the user decided it): nothing goes on to the user, the
+        # review job ends, and what was found still reaches the author, who may draft it again.
+        if draft["status"] != "pending":
+            review = dict(draft["review"])
+            review["state"] = "passed" if verdict == "pass" else "changes"
+            review["notes"] = notes
+            review["at"] = datetime.now(UTC).isoformat()
+            self.agents.inbox.set_review(draft["id"], review)
+            if review["job"] is not None and self.agents.jobs.get(review["job"])["status"] not in ["done", "cancelled"]:
+                self.agents.jobs.update(review["job"], status="done", notes=f"{draft['id']} was {draft['status']} before the review ended: {notes}")
+            text = f"{draft['id']} no longer waits for its review (it was {draft['status']}): nothing goes to the user, and your review job is closed."
+            if verdict == "changes":
+                self.agents.notify(draft["agent"], f"The reviewer's findings on your PR draft {draft['id']} ({draft['title']}), which no longer waits (it was {draft['status']}). If you draft it again, do these first:\n{notes}")
+                text += " Your notes went to its author."
+            return {"content": [{"type": "text", "text": text}]}
         self.agents.review_finished(draft["id"], verdict == "pass", notes)
         text = f"{draft['id']} went to the user's Inbox with your notes."
         if verdict == "changes":

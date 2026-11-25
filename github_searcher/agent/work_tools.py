@@ -340,7 +340,7 @@ class WorkTools:
             tool(
                 "job_update",
                 "Update one of your jobs. status: working when you start on it, done when it is finished, cancelled when it can't or "
-                "shouldn't be done (a fix_issue job's claim that still waits for the user is withdrawn then). notes replaces the "
+                "shouldn't be done (every draft of it that still waits is withdrawn then, a PR draft with its reviewer too). notes replaces the "
                 "job's notes: a few lines on where it stands (what you did, what is left, "
                 "where the work is in the VM), so you or the user can pick it up later.",
                 {
@@ -1150,21 +1150,30 @@ class WorkTools:
         job = self.agents.jobs.update(job["id"], **fields)
         text = f"{job['id']} is {job['status']}."
         # A fix_issue job that ends takes back its claim while that still waits for the user, as close_issue does (and
-        # github_account.py never posts the claim of a job that ended): nobody works on the issue for the user anymore.
-        if job["kind"] == "fix_issue" and job["status"] in CLOSED_STATUSES:
+        # github_account.py never posts the claim of a job that ended): nobody works on the issue for the user anymore. A
+        # cancelled job takes back every draft of it that still waits, as close_issue does: a PR draft with its reviewer
+        # would otherwise reach the Inbox for work nobody does anymore (its review job ends with it).
+        if job["status"] in CLOSED_STATUSES:
             for draft_id in job["drafts"]:
                 try:
                     draft = self.agents.inbox.get(draft_id)
                 except KeyError:
                     continue
-                if draft["kind"] != "comment" or draft["status"] != "pending":
+                claim = job["kind"] == "fix_issue" and draft["kind"] == "comment"
+                if draft["status"] != "pending" or not (claim or job["status"] == "cancelled"):
                     continue
                 try:
                     self.agents.inbox.decide(draft_id, "rejected", f"Withdrawn by {self.record['name']}: {job['id']} is {job['status']}")
-                    text += f" Its claim {draft_id} is withdrawn."
                 except ValueError:
                     # Decided in the meantime.
-                    pass
+                    continue
+                if claim:
+                    text += f" Its claim {draft_id} is withdrawn."
+                else:
+                    text += f" Its draft {draft_id} is withdrawn."
+                review_job = (draft["review"] or {}).get("job")
+                if review_job is not None and self.agents.jobs.get(review_job)["status"] not in CLOSED_STATUSES:
+                    self.agents.jobs.update(review_job, status="cancelled", notes=f"{draft_id} was withdrawn: {job['id']} is cancelled.")
         # Holding the VM with nothing left to do there means it should go back now.
         vm_name, place = self.agents.queue.place(self.agent_id)
         left = [other for other in self.agents.jobs.for_agent(self.agent_id) if other["status"] in OPEN_STATUSES and other["vm"] == vm_name]
@@ -1972,6 +1981,10 @@ class WorkTools:
                 except ValueError:
                     # Decided in the meantime.
                     draft = self.agents.inbox.get(draft_id)
+                # A PR draft with its reviewer: the review ends with it.
+                review_job = (draft["review"] or {}).get("job")
+                if review_job is not None and self.agents.jobs.get(review_job)["status"] not in CLOSED_STATUSES:
+                    self.agents.jobs.update(review_job, status="cancelled", notes=f"{draft_id} was withdrawn: {job['id']} is cancelled.")
             # On GitHub already: repowise#5421's repo's Level of automation posted the claim two seconds after it was drafted,
             # before its agent found the fix merged days before, and the agent took close_issue's silence for a withdrawal.
             # It takes it back.

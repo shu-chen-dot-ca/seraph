@@ -1270,3 +1270,37 @@ def test_reticle_2208_big_draft_comes_to_its_reviewer_in_parts_text_first(agents
     assert second.startswith(f"The diff of {draft['id']}, part 2 of 3:\n")
     assert len(second) < 41_000
     assert third.endswith("+line 9999\n")
+
+
+def test_reticle_2340_cancelled_job_takes_back_its_pr_draft_from_its_review(agents, tools, job):
+    # The job was cancelled while its PR draft waited for its reviewer, and the review passed it on to the Inbox.
+    review_job = agents.jobs.create("review", "Review it", "reviewer-1", "user", issue=ISSUE)
+    review = {"state": "waiting", "agent": "reviewer-1", "job": review_job["id"], "notes": "", "at": "2026-11-19T10:00:00+00:00"}
+    draft = agents.inbox.create("pr", "agent-1", "Fix the help output", "Fixes #12.", job=job, repo="owner/proj", target=ISSUE, diff=DIFF, review=review)
+    agents.jobs.update(job, drafts=[draft["id"]], status="waiting_on_user")
+
+    result = asyncio.run(tools.job_update({"job_id": job, "status": "cancelled", "notes": "Seraph stopped working on the repo."}))
+
+    assert f"Its draft {draft['id']} is withdrawn." in result["content"][0]["text"]
+    assert agents.inbox.get(draft["id"])["status"] == "rejected"
+    assert agents.jobs.get(review_job["id"])["status"] == "cancelled"
+
+
+def test_ttt_1448_findings_on_a_withdrawn_draft_still_reach_its_author(agents, follow_up):
+    # review_done said "has its verdict already", and the finding never reached anyone.
+    told = []
+    agents.notify = lambda agent_id, text: told.append((agent_id, text))
+    review_job = agents.jobs.create("review", "Review it", "reviewer-1", "user", issue=PR)
+    review = {"state": "waiting", "agent": "reviewer-1", "job": review_job["id"], "notes": "", "at": "2026-11-17T10:00:00+00:00"}
+    draft = agents.inbox.create("pr", "agent-1", "Open links on click", "", job=follow_up, repo="owner/proj", target=PR, diff=DIFF, update_of=PR, review=review)
+    agents.inbox.decide(draft["id"], "rejected", "Withdrawn by agent-1")
+    reviewer = ReviewTools(agents, {"id": "reviewer-1", "name": "agent-3", "role": "reviewer", "target_vm": None})
+
+    result = asyncio.run(reviewer.review_done({"draft_id": draft["id"], "verdict": "changes", "notes": "Over 8192 links it is 3 times slower."}))
+
+    assert result.get("is_error") is None
+    assert "no longer waits for its review (it was rejected)" in result["content"][0]["text"]
+    assert told[0][0] == "agent-1"
+    assert "Over 8192 links it is 3 times slower." in told[0][1]
+    assert agents.jobs.get(review_job["id"])["status"] == "done"
+    assert agents.inbox.get(draft["id"])["review"]["state"] == "changes"
