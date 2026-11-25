@@ -160,8 +160,14 @@ def test_agent_is_in_one_vms_line_at_a_time(vms, queue):
 
 
 def test_desktop_the_vm_does_not_have_is_refused(queue):
-    with pytest.raises(ValueError, match="vm1 has no desktop 4; its desktops are 1"):
-        queue.join("vm1", "agent_a", desktop=4)
+    with pytest.raises(ValueError, match=f"There is no desktop {MAX_DESKTOPS + 1}: desktops are numbered 1 to {MAX_DESKTOPS}"):
+        queue.join("vm1", "agent_a", desktop=MAX_DESKTOPS + 1)
+
+
+def test_desktop_the_vm_has_not_now_is_waited_for(vms, queue):
+    # Shut down while nobody used it, or taken back: the agent waits for it, and the app adds it again.
+    assert queue.join("vm1", "agent_a", desktop=4) == 1
+    assert vms.get("vm1").wants == {"agent_a": 4}
 
 
 # --- The line's order ----------------------------------------------------------------------------------------------
