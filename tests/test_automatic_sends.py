@@ -1,5 +1,6 @@
 """What the app does with a draft its repo's Level of automation lets go without the user (backend/repo_automation_api.py
-act_on_drafts): one on GitHub already is approved, never sent again.
+act_on_drafts): one on GitHub already is approved, never sent again, and one that can never go as drafted goes back to
+its agent.
 
 backend/shared.py makes the app's real stores when it is imported (and asks Incus about the VMs), so a stand-in module
 takes its place: the real Inbox and Jobs in pytest's temporary folder, an Agents that keeps the decisions, and a GitHub
@@ -15,6 +16,7 @@ import pytest
 
 from github_searcher import inbox as inbox_module
 from github_searcher import jobs as jobs_module
+from github_searcher.github_account import SendBackError
 from github_searcher.inbox import Inbox
 from github_searcher.jobs import Jobs
 
@@ -72,4 +74,15 @@ def test_openclaw_204737_draft_on_github_already_is_approved_not_sent_again(auto
 
     assert automation.decided == [(draft["id"], "approved", "", "user")]
     assert automation.sent == []
+
+
+def test_amber_1199_edit_whose_text_changed_goes_back_to_its_agent(automation):
+    # Tried again every ten minutes for good, while its agent never heard it had to draft it again.
+    draft = automation.inbox.create("edit", "agent-1", "fix(compiler): reject builtin keywords", "New text.", repo="owner/proj", target=PR)
+    automation.send_fails = SendBackError("Its title or description changed since the agent drafted this: Redraft, so the agent works on the text as it is now.")
+
+    asyncio.run(automation.module.act_on_drafts())
+
+    assert automation.decided == [(draft["id"], "rejected", str(automation.send_fails), "automation")]
+    assert draft["id"] not in automation.module.failed_at
 

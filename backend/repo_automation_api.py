@@ -31,8 +31,10 @@ What each does:
   reviewer passed it) or an edit (a new title and description of your PR or issue) is sent as you, as Approve with
   Send does (github_account.py), then approved, so its agent hears it the same way. One GitHub refuses (or that has to
   wait, like a PR whose claim isn't decided yet, or whose claimed issue isn't assigned to you yet: github_account.py)
-  stays in the Inbox, and is tried again after SEND_RETRY_SECONDS. One that is on GitHub already but still pending (a
-  send cut off before its approval) is approved, never sent again. The Automation page (backend/automation_api.py) goes
+  stays in the Inbox, and is tried again after SEND_RETRY_SECONDS. One that can never go as drafted (the PR's branch or
+  its title and description changed since: SendBackError) goes back to its agent instead, rejected with why, to be
+  drafted again. One that is on GitHub already but still pending (a send cut off before its approval) is approved, never
+  sent again. The Automation page (backend/automation_api.py) goes
   over every repo's: Create pull requests off holds every new PR (also one made again in place of an old one), Reply
   to reviews and comments off holds everything a follow-up job drafts on a PR already open (comments, edits, new
   versions), Pull requests per day holds new PRs once that many went out since midnight, and Open pull requests (all
@@ -96,7 +98,7 @@ import httpx
 from backend.issues_api import DASHBOARD_AUTOMATION_FILE, HELD, TAGGED
 from backend.shared import agents, explore, github_account, inbox, issue_facts, issue_tags, issues, jobs, pr_tracking, repo_signals, repos
 from github_searcher.claude_judge import judge
-from github_searcher.github_account import SendError
+from github_searcher.github_account import SendBackError, SendError
 from github_searcher.inbox import AUTOMATION_FILE, ISSUE_AUTOMATION_FILE
 from github_searcher.issue_tags import DATA_DIR, RULES_VERSION
 from github_searcher.search import get_open_issues
@@ -277,6 +279,13 @@ async def act_on_drafts() -> None:
                 total_open += 1
             if opens_pr:
                 sent_today += 1
+        except SendBackError as error:
+            # It can't go as drafted, however often it is tried (the PR's branch or its text changed since): back to its
+            # agent, which drafts it again on what is there now.
+            try:
+                agents.decide(draft["id"], "rejected", str(error), answered_by="automation")
+            except (KeyError, ValueError):
+                pass  # Decided in the meantime.
         except (SendError, KeyError, ValueError):
             failed_at[draft["id"]] = time.time()
 
