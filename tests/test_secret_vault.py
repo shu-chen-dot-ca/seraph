@@ -156,6 +156,7 @@ def test_status_on_this_computer_shows_the_tokens_and_what_is_on_disk():
             {"name": "CLAUDE_CODE_OAUTH_TOKEN", "end": "aude"},
         ],
         "on_disk": ["GITHUB_TOKEN", "GITHUB_TOKEN_2", "CLAUDE_CODE_OAUTH_TOKEN", "GITHUB_SIGN_IN_TOKEN", "GITHUB_APP_CLIENT_SECRET"],
+        "claude": {"in_use": None, "limits": {}, "names": {}},
     }
 
 
