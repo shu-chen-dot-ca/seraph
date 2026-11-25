@@ -3102,7 +3102,9 @@ class WorkTools:
         # -N marks new files as "intent to add", so git diff shows them too. head stops a huge diff
         # inside the VM (one byte over the limit is enough to tell), so it never fills this machine's memory. Read exactly
         # as git prints it (exact): a file's Windows line ends stay, or the diff no longer applies to it when it is sent.
-        command = f"set -o pipefail; cd {folder} && git add -A -N . && git diff {base} | head -c {DIFF_LIMIT + 1}"
+        # From where the branch left base (merge-base), as GitHub shows a PR: a fetch that moved origin/main since the
+        # branch was made would otherwise put everything main gained in the diff, backwards (and over the limit).
+        command = f"set -o pipefail; cd {folder} && git add -A -N . && point=$(git merge-base {base} HEAD) && git diff $point | head -c {DIFF_LIMIT + 1}"
         try:
             result = await asyncio.to_thread(vm.exec, command, 120, exact=True)
         except Exception as error:
@@ -3134,7 +3136,7 @@ class WorkTools:
         # textconv, so the bytes as they are), and that is checked.
         readable = diff
         if re.search(r"^Binary files .+ differ$", diff, re.M):
-            command = f"set -o pipefail; cd {folder} && git diff --binary {base} | head -c {BINARY_DIFF_LIMIT + 1}"
+            command = f"set -o pipefail; cd {folder} && point=$(git merge-base {base} HEAD) && git diff --binary $point | head -c {BINARY_DIFF_LIMIT + 1}"
             try:
                 result = await asyncio.to_thread(vm.exec, command, 120, exact=True)
             except Exception as error:
@@ -3153,7 +3155,7 @@ class WorkTools:
                         text = text.replace(value, "[hidden]")
                 return {"content": [{"type": "text", "text": text}], "is_error": True}
             draft_diff = result.stdout
-            command = f"set -o pipefail; cd {folder} && git diff --text --no-textconv {base} | head -c {BINARY_DIFF_LIMIT + 1}"
+            command = f"set -o pipefail; cd {folder} && point=$(git merge-base {base} HEAD) && git diff --text --no-textconv $point | head -c {BINARY_DIFF_LIMIT + 1}"
             try:
                 result = await asyncio.to_thread(vm.exec, command, 120, exact=True)
             except Exception as error:
@@ -3219,10 +3221,10 @@ class WorkTools:
             )
             return {"content": [{"type": "text", "text": text}], "is_error": True}
 
-        # The commit the diff starts from, as it is now: sending the PR builds it on that commit (github_account.py),
-        # wherever the base moves later.
+        # The commit the diff starts from, where the branch left base: sending the PR builds it on that commit
+        # (github_account.py), wherever the base moves later.
         try:
-            result = await asyncio.to_thread(vm.exec, f"cd {folder} && git rev-parse --verify {base}^{{commit}}", 60)
+            result = await asyncio.to_thread(vm.exec, f"cd {folder} && git merge-base {base} HEAD", 60)
         except Exception as error:
             return {"content": [{"type": "text", "text": f"Could not reach the VM: {error}"}], "is_error": True}
         base_sha = result.stdout.strip()
@@ -3691,7 +3693,8 @@ class WorkTools:
         base = shlex.quote(args["base"].strip())
 
         # The code the suite runs on: its diff from base, read exactly the way draft_pr reads it, so the two can be compared.
-        diff_command = f"set -o pipefail; cd {folder} && git add -A -N . && git diff {base} | head -c {DIFF_LIMIT + 1}"
+        # From where the branch left base, as draft_pr reads it: a fetch that moves base later changes nothing.
+        diff_command = f"set -o pipefail; cd {folder} && git add -A -N . && point=$(git merge-base {base} HEAD) && git diff $point | head -c {DIFF_LIMIT + 1}"
         try:
             result = await asyncio.to_thread(vm.exec, diff_command, 120, None, tag, exact=True)
         except Exception as error:
@@ -3807,7 +3810,10 @@ class WorkTools:
         # code must still be there: it may have changed while the tests ran.
         if when == "after":
             folder = shlex.quote(run["path"].removeprefix("~/"))
-            diff_command = f"set -o pipefail; cd {folder} && git add -A -N . && git diff {shlex.quote(run['base'])} | head -c {DIFF_LIMIT + 1}"
+            diff_command = (
+                f"set -o pipefail; cd {folder} && git add -A -N . && point=$(git merge-base {shlex.quote(run['base'])} HEAD) && "
+                f"git diff $point | head -c {DIFF_LIMIT + 1}"
+            )
             try:
                 # As the user of the desktop the run is on (runs from before desktops were on desktop 1).
                 result = await asyncio.to_thread(vm_record.desktop_vm(run.get("desktop", 1)).exec, diff_command, 120, exact=True)

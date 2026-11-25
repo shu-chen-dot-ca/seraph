@@ -145,6 +145,9 @@ class FakeVM:
 
     def __init__(self):
         self.diff = DIFF
+        # What git diff against base itself gives once a fetch moved base past where the branch left it: main's new
+        # changes, backwards ("" when base didn't move).
+        self.moved = ""
         self.binary = ""
         self.as_text = ""
         self.email = NOREPLY
@@ -177,9 +180,11 @@ class FakeVM:
             stdout = self.as_text
         elif "realpath" in command:
             stdout = "/home/sam/results.txt\n"
+        elif "git diff" in command and self.moved and "merge-base" not in command:
+            stdout = self.moved
         elif "git diff" in command:
             stdout = self.diff
-        elif "rev-parse --verify" in command:
+        elif "rev-parse --verify" in command or "git merge-base" in command:
             stdout = BASE_SHA + "\n"
         elif "grep -ci" in command:
             stdout = f"{self.email}\n{self.coauthors}\n{self.log}"
@@ -1304,3 +1309,15 @@ def test_ttt_1448_findings_on_a_withdrawn_draft_still_reach_its_author(agents, f
     assert "Over 8192 links it is 3 times slower." in told[0][1]
     assert agents.jobs.get(review_job["id"])["status"] == "done"
     assert agents.inbox.get(draft["id"])["review"]["state"] == "changes"
+
+
+def test_openclaw_205087_fetch_that_moved_base_leaves_the_diff_as_it_was(agents, tools, job):
+    # A git fetch before drafting moved origin/main: the diff against it had main's new changes, over the 500 KB limit.
+    agents.vm.moved = "diff --git a/big.ts b/big.ts\n" + "-moved on main\n" * 50_000
+
+    result = asyncio.run(tools.draft_pr(dict(PR_ARGS, job_id=job)))
+
+    assert result.get("is_error") is None
+    draft = agents.inbox.list()[0]
+    assert draft["diff"] == DIFF
+    assert draft["base_sha"] == BASE_SHA
