@@ -33,8 +33,9 @@ What each does:
   wait, like a PR whose claim isn't decided yet, or whose claimed issue isn't assigned to you yet: github_account.py)
   stays in the Inbox, and is tried again after SEND_RETRY_SECONDS. One that can never go as drafted (the PR's branch or
   its title and description changed since: SendBackError) goes back to its agent instead, rejected with why, to be
-  drafted again. One that is on GitHub already but still pending (a send cut off before its approval) is approved, never
-  sent again. The Automation page (backend/automation_api.py) goes
+  drafted again; so does a fix_issue job's new PR whose issue, read once more right before it goes, is closed or has
+  someone else's open PR that closes it now. One that is on GitHub already but still pending (a send cut off before
+  its approval) is approved, never sent again. The Automation page (backend/automation_api.py) goes
   over every repo's: Create pull requests off holds every new PR (also one made again in place of an old one), Reply
   to reviews and comments off holds everything a follow-up job drafts on a PR already open (comments, edits, new
   versions), Pull requests per day holds new PRs once that many went out since midnight, and Open pull requests (all
@@ -91,7 +92,7 @@ import hashlib
 import json
 import time
 import traceback
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -100,8 +101,8 @@ from backend.shared import agents, explore, github_account, inbox, issue_facts, 
 from github_searcher.claude_judge import judge
 from github_searcher.github_account import SendBackError, SendError
 from github_searcher.inbox import AUTOMATION_FILE, ISSUE_AUTOMATION_FILE
-from github_searcher.issue_tags import DATA_DIR, RULES_VERSION
-from github_searcher.search import get_open_issues
+from github_searcher.issue_tags import DATA_DIR, RULES_VERSION, TAKEN_PR_DAYS
+from github_searcher.search import get_issue_facts, get_open_issues
 
 SETTINGS_FILE = AUTOMATION_FILE
 ISSUE_SETTINGS_FILE = ISSUE_AUTOMATION_FILE
@@ -271,6 +272,34 @@ async def act_on_drafts() -> None:
             send = False
         if not send or time.time() - failed_at.get(draft["id"], 0) < SEND_RETRY_SECONDS:
             continue
+        # A fix_issue job's new PR: its issue is read once more right before it goes, as it may have waited a long time
+        # for its review and its turn. Closed meanwhile, or someone else's open PR closes it now (not one abandoned:
+        # TAKEN_PR_DAYS, as the issue tags count it): nobody wants a second fix, so it goes back to its agent, which stops
+        # there (close_issue). Never for an issue our agents opened: we never give one of those up.
+        if new_pr and kind_of_job.get(draft["job"]) == "fix_issue" and issue_id is not None and issue_id.lower() not in opened:
+            issue_repo, _, issue_number = issue_id.rpartition("#")
+            try:
+                facts = await asyncio.to_thread(get_issue_facts, issue_repo.split("/")[0], issue_repo.split("/")[1], int(issue_number))
+            except (httpx.HTTPError, ValueError):
+                failed_at[draft["id"]] = time.time()
+                continue
+            issue = facts["issue"]
+            login = (github_account.status().get("login") or "").lower()
+            recent = (datetime.now(UTC) - timedelta(days=TAKEN_PR_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            taken = ""
+            if issue is not None and issue["state"] != "OPEN":
+                taken = f"{issue_id} is closed on GitHub now"
+            for pull in (issue or {}).get("closedByPullRequestsReferences", {}).get("nodes", []):
+                author = pull["author"]["login"] if pull["author"] else "ghost"
+                if pull["state"] == "OPEN" and author.lower() != login and pull["updatedAt"] >= recent:
+                    taken = f"{pull['url']} by {author}, someone else's open PR, says it closes {issue_id} now"
+            if taken:
+                reason = f"Not sent: {taken}. Nobody wants a second fix: read it with read_issue, and close_issue with that link."
+                try:
+                    agents.decide(draft["id"], "rejected", reason, answered_by="automation")
+                except (KeyError, ValueError):
+                    pass  # Decided in the meantime.
+                continue
         try:
             await asyncio.to_thread(github_account.send, draft["id"])
             agents.decide(draft["id"], "approved")
