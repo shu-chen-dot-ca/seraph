@@ -420,8 +420,9 @@ class WorkTools:
                 "they are on it), once you decided the issue still stands and took the job past understand (job_progress "
                 "set_up; refused before), before the VM: one short comment on the job's issue saying the user is taking it on, "
                 "so nobody else does meanwhile; never a question. wait_for_assignment: true when the issue or the repo's rules "
-                "say a maintainer must assign contributors before they start or open a PR (the PR then waits until GitHub "
-                "shows the user assigned). On a follow_up job a claim goes on the issue the PR closes. Never ask anyone on GitHub for anything "
+                "make it a must that a maintainer assigns contributors before they start or open a PR (the PR then waits until "
+                "GitHub shows the user assigned), not when they also take PRs for unassigned issues. On a follow_up job a claim "
+                "goes on the issue the PR closes. Never ask anyone on GitHub for anything "
                 "(to assign, review, run checks, decide, answer): assume nobody replies. Nothing is posted: the user decides, "
                 "and you get a message with their decision. A reply's job waits on the user meanwhile; a claim's doesn't: go "
                 "straight on with the fix, without waiting for the user or the maintainers. "
@@ -456,7 +457,14 @@ class WorkTools:
                         "project": {"type": "string", "description": "One line: what the project is, e.g. 'matplotlib: a Python library that draws charts'."},
                         "problem": {"type": "string", "description": "What the issue is about: what goes wrong, for whom, when. Specific, 1 to 2 sentences."},
                         "why": {"type": "string", "description": "Why post this comment now, in 1 to 2 sentences. For a claim, that the user takes it on, and the rule that asks for it if any."},
-                        "wait_for_assignment": {"type": "boolean", "description": "A claim only: the rules want a maintainer to assign contributors before a PR."},
+                        "wait_for_assignment": {
+                            "type": "boolean",
+                            "description": (
+                                "A claim only: the rules make it a must that a maintainer assigns contributors before a PR (a PR "
+                                "from someone not assigned is closed or fails a check). Not when they also take PRs for unassigned "
+                                "issues: the PR would wait for an assignment that may never come."
+                            ),
+                        },
                     },
                     "required": ["job_id", "target", "body", "project", "problem", "why"],
                 },

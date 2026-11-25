@@ -1440,3 +1440,14 @@ def test_grimmory_2937_issue_the_users_own_open_pr_closes_is_not_fixed_twice(age
     assert read["the_users_own_pr"].startswith("owner/proj#3112, the user's own open PR, says it closes it already")
     assert result["is_error"] is True
     assert result["content"][0]["text"].startswith(f"owner/proj#3112, the user's own open PR, closes {ISSUE} already")
+
+
+def test_kestra_22556_claim_waits_for_assignment_only_where_it_is_a_must(tools):
+    # The rules asked to be assigned but took PRs for unassigned issues too: the PR waited 13 days, and someone else's
+    # unassigned PR with the same change took the issue.
+    claim = [each for each in tools.list() if each.name == "draft_comment"][0]
+    flag = claim.input_schema["properties"]["wait_for_assignment"]["description"]
+
+    assert "Not when they also take PRs for unassigned issues" in flag
+    assert "not when they also take PRs for unassigned issues" in claim.description
+    assert "Not when the rules only ask to be assigned first and still take PRs for unassigned issues" in SYSTEM_PROMPT
