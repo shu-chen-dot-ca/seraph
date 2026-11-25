@@ -176,7 +176,7 @@ from github_searcher.issue_tags import CHECKS, DATA_DIR, TAKEN_PR_DAYS
 from github_searcher.jobs import EVIDENCE_DIR
 from github_searcher.repo_signals import MAINTAINERS
 from github_searcher.repo_stats import TEST_RUNS_FILE
-from github_searcher.search import get_contents, get_issue_in_full, get_issue_status, get_merged_prs, get_pr_status, get_readme, get_repository, get_tree, search_issues
+from github_searcher.search import MENTION, get_contents, get_issue_in_full, get_issue_status, get_merged_prs, get_pr_status, get_readme, get_repository, get_tree, search_issues
 from sandbox.agent import long_runs
 from sandbox.agent.computer_use import Computer, ComputerError
 from sandbox.agent.tools import HIDE_MIN_LENGTH
@@ -1929,6 +1929,16 @@ class WorkTools:
             # maintainers take theirs (LMCache#6088 was reopened and merged, ours closed as a duplicate).
             if pr["state"] == "closed" and pr["closes_it"] and pr["author"].lower() == result["author"].lower() and pr["updated"] >= recent:
                 taken = f"{pr['pr']} ({pr['url']}) is the fix the issue's author {pr['author']} wrote for it (closed, but they may reopen it)"
+        # The same when the issue's text names a PR of its author's that isn't merged ("this replaces PR #n, which carried a
+        # fix"): GitHub ties neither to the other when the PR came first, so it shows among the PRs that name its number.
+        named = MENTION.findall(result["body"])
+        for pr in result["related_prs"] + result.get("prs_naming_its_number", []):
+            pr_repo, _, pr_number = pr["pr"].rpartition("#")
+            in_text = pr_number in named or f"{repo}/pull/{pr_number}".lower() in result["body"].lower()
+            if pr_repo.lower() != repo.lower() or not in_text or pr["state"] == "merged":
+                continue
+            if pr["author"].lower() == result["author"].lower() and pr["author"].lower() != login.lower():
+                taken = f"{pr['pr']} ({pr['state']}) is the fix the issue's author {pr['author']} wrote for it, named in the issue: they may bring it back"
         # An issue the user opened (ours too, opened as the user) is never given up, whoever else shows up.
         if login != "" and result["author"].lower() == login.lower():
             taken = ""

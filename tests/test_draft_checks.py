@@ -16,6 +16,7 @@ import asyncio
 import base64
 import copy
 import hashlib
+import json
 import subprocess
 import time
 from types import SimpleNamespace
@@ -1357,3 +1358,23 @@ def test_openclaw_204834_after_run_waits_for_the_issue_read_again(agents, tools,
     assert result["is_error"] is True
     assert "someone else is on it now" in result["content"][0]["text"]
     assert "close_issue with that link" in result["content"][0]["text"]
+
+
+def test_openclaw_204999_issue_naming_its_authors_own_closed_fix_is_taken(agents, tools, monkeypatch):
+    # The author closed their PR "in favor of" the issue minutes before filing it, and the issue was handed out as free.
+    issue = {
+        "__typename": "Issue", "title": "Keep the upgrade from failing", "url": "https://github.com/owner/proj/issues/204999",
+        "state": "OPEN", "stateReason": None, "milestone": None, "createdAt": "2026-11-24T10:00:00Z", "updatedAt": "2026-11-24T10:00:00Z",
+        "author": {"login": "yetval", "__typename": "User"}, "authorAssociation": "CONTRIBUTOR", "labels": {"nodes": []},
+        "assignees": {"nodes": []}, "comments": {"nodes": []}, "timelineItems": {"nodes": []},
+        "closedByPullRequestsReferences": {"nodes": []}, "mergers": [], "default_branch": None,
+        "body": "This issue replaces PR #190478, which carried a fix. PR #190478 has that change if it is useful.",
+    }
+    found = {"items": [{"number": 190478, "title": "Keep the upgrade from failing", "state": "closed", "pull_request": {"merged_at": None}, "user": {"login": "yetval"}, "created_at": "2026-11-24T09:57:00Z"}]}
+    monkeypatch.setattr(work_tools, "get_issue_in_full", lambda owner, name, number: copy.deepcopy(issue))
+    monkeypatch.setattr(work_tools, "search_issues", lambda q: copy.deepcopy(found))
+
+    result = json.loads(asyncio.run(tools.read_issue({"thread": "owner/proj#204999"}))["content"][0]["text"])
+
+    assert result["someone_else_is_on_it"].startswith("owner/proj#190478 (closed) is the fix the issue's author yetval wrote for it, named in the issue")
+    assert tools.threads_taken["owner/proj#204999"] != ""
