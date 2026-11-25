@@ -1148,11 +1148,23 @@ class Agents:
         names = [vm_record.name for vm_record in self.vms.list() if vm_record.name != FIX_VM]
         if vm_name is not None and vm_name not in names:
             raise ValueError(f"No VM named {vm_name}. The VMs are: {', '.join(names) or 'none'}.")
+        # With no VM that takes agents at all there is no other one to pick: the agent waits for one (queue_for_vm), and
+        # never cancels its jobs for it.
+        takes = []
+        for vm_record in self.vms.list():
+            if vm_record.name != FIX_VM and vm_record.status == "running" and not vm_record.graceful_shutdown and not vm_record.suspended:
+                takes.append(vm_record.name)
+        other = "pick another VM."
+        if not takes:
+            other = (
+                "no VM takes agents now, so there is none to pick: queue_for_vm, end your turn and wait for one (you get a "
+                "message once one does). Don't cancel jobs for this."
+            )
         for vm_record in self.vms.list():
             if vm_record.name == vm_name and vm_record.graceful_shutdown:
-                raise ValueError(f"{vm_name} shuts down once the agents on it are done and takes nobody new: pick another VM.")
+                raise ValueError(f"{vm_name} shuts down once the agents on it are done and takes nobody new: {other}")
             if vm_record.name == vm_name and vm_record.suspended:
-                raise ValueError(f"{vm_name} is suspended and takes nobody new: pick another VM.")
+                raise ValueError(f"{vm_name} is suspended and takes nobody new: {other}")
 
         agent.record["target_vm"] = vm_name
         moved = []
