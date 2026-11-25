@@ -117,7 +117,7 @@ def tags(tmp_path, monkeypatch, github, answer, signals, prompts):
     monkeypatch.setattr(issue_tags, "DATA_DIR", tmp_path)
     monkeypatch.setattr(issue_tags, "get_issues_for_tags", lambda owner, repo, numbers, login: copy.deepcopy(github))
 
-    async def fake_judge(prompt, schema, effort):
+    async def fake_judge(prompt, schema, effort, what=""):
         prompts.append(prompt)
         return {"issues": [copy.deepcopy(answer)]}
 
@@ -760,7 +760,7 @@ def test_long_name_is_cut(tags, answer):
 
 
 def test_only_the_issues_asked_about_are_kept(tags, monkeypatch, answer):
-    async def fake_judge(prompt, schema, effort):
+    async def fake_judge(prompt, schema, effort, what=""):
         return {"issues": [answer, dict(answer, number=8)]}
 
     monkeypatch.setattr(issue_tags, "judge", fake_judge)
