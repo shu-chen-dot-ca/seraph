@@ -1201,3 +1201,23 @@ def test_lancedb_4922_rebase_and_review_follow_the_same_push_comment_rule():
     # The rebase's instructions asked for a comment the round's rule refused, and its reviewer asked for one again.
     assert "empty when nobody asked (a conflict with main nobody mentioned" in SYSTEM_PROMPT
     assert "no push comment on a new version or rebase that no maintainer or reviewer asked for this round" in SYSTEM_PROMPT
+
+
+# The rules read for the files a change touches (contributing_guide with paths), which run_tests' after run waits for
+
+
+def test_deskcommcrm_5021_paths_read_stay_read_after_a_restart(agents, job, monkeypatch):
+    # After a backend restart contributing_guide failed with a GitHub error, and the after run waited for the same files.
+    monkeypatch.setattr(work_tools, "get_repository", lambda owner, repo: {"default_branch": "main"})
+    monkeypatch.setattr(work_tools, "get_tree", lambda owner, repo, ref: {"tree": [{"type": "blob", "path": "cli.py"}]})
+    record = {"id": "agent-1", "name": "agent-1", "target_vm": "vm1", "guides_read": ["owner/proj"], "pr_examples_read": ["owner/proj"]}
+    asyncio.run(WorkTools(agents, record).contributing_guide({"name": "owner/proj", "paths": ["cli.py"]}))
+
+    restarted = WorkTools(agents, record)
+    restarted.threads_read[ISSUE] = time.time()
+    agents.queue.add_run = lambda vm_name, run: None
+    run = {"job_id": job, "path": "~/proj", "base": "origin/main", "command": "pytest tests/test_help.py", "scope": "focused", "when": "after", "background": True}
+    result = asyncio.run(restarted.run_tests(run))
+
+    assert record["paths_checked"] == {"owner/proj": ["cli.py"]}
+    assert result["content"][0]["text"].startswith("Started the tests in the background as run_")

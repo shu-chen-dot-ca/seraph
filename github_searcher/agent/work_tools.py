@@ -50,7 +50,8 @@ The GitHub tools (github_tools.py) only read GitHub; these change what the user 
   contributing_guide with paths (the files a change touches) shows only the rules and CI checks that cover them,
   wherever they are: the AGENTS.md, CLAUDE.md and CONTRIBUTING files of their folders or that name them, and the
   workflows that name them (runanywhere-sdks#1316: a rule for .claude/skills lived in scripts/AGENTS.md, with a CI
-  gate). run_tests' after run waits until every file of its diff was given so (paths_checked). The job's before and
+  gate). run_tests' after run waits until every file of its diff was given so (paths_checked, kept in its record like the
+  repos it read). The job's before and
   after pictures go in the PR body as ![before](evidence:ev_...): the Inbox shows them in place,
   and sending uploads them to the user's fork (or the user does, sending by hand).
   draft_pr with pr ("owner/name#n") is the next version of the user's own open PR instead: base must be that PR's
@@ -313,8 +314,11 @@ class WorkTools:
         # reads the next one, and part 1 again after the last.
         self.guide_parts = {}
         # The changed files whose rules and CI checks it read with contributing_guide's paths, per repo (owner/name, lower
-        # case): a set of paths. run_tests' after run waits for every file of the diff. Until a backend restart only.
+        # case): a set of paths. run_tests' after run waits for every file of the diff. Kept in the record too, like
+        # guides_read: after a backend restart the same files aren't asked for again (and GitHub may fail to give them then).
         self.paths_checked = {}
+        for name, paths in record.get("paths_checked", {}).items():
+            self.paths_checked[name] = set(paths)
         # When it last read each issue or PR in full with read_issue (owner/name#n, lower case): time.time().
         self.threads_read = {}
         # What read_issue found someone else on it with (owner/name#n, lower case): their open PR that closes it, as a
@@ -717,7 +721,7 @@ class WorkTools:
                 "they are in the repo: the AGENTS.md, CLAUDE.md and CONTRIBUTING files of their folders or that name them "
                 "or their folders, and the workflows (.github/workflows) whose paths or steps name them (a rule for one "
                 "folder is often written in another, with a CI gate that checks it). Do what they ask before the tests that "
-                "count: run_tests' after run refuses until every changed file was given here (again after a backend restart).",
+                "count: run_tests' after run refuses until every changed file was given here (that too stays read after a backend restart).",
                 {
                     "type": "object",
                     "properties": {"name": {"type": "string"}, "part": {"type": "integer"}, "paths": names},
@@ -2530,6 +2534,7 @@ class WorkTools:
             checked = self.paths_checked.get(name.lower(), set())
             checked.update(changed)
             self.paths_checked[name.lower()] = checked
+            self.record["paths_checked"] = {each: sorted(paths) for each, paths in self.paths_checked.items()}
             lines = [
                 f"The rules and CI checks in {name} that cover the {len(changed)} files you gave: the AGENTS.md, CLAUDE.md and "
                 "CONTRIBUTING files of the folders they are in or that name them, and the workflows (.github/workflows) whose "
