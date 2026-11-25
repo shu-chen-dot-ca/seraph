@@ -748,7 +748,8 @@ class WorkTools:
                 "title is then the commit message's subject (one more commit has it when you didn't commit everything), and "
                 "body the comment posted on the PR with the push: what changed, in a line or two, and your answers to what the "
                 "maintainers and reviewers wrote this round (it is the round's one comment: refused when one of ours is there already, with "
-                "nobody else writing since). Leave body empty when no maintainer or reviewer asked for this version (a bot's real bug, a "
+                "nobody else writing since, and until you read the PR with read_issue after the job's newest news). Leave body empty when "
+                "no maintainer or reviewer asked for this version (a bot's real bug, a "
                 "failing check): the push then goes without a comment. The project's rules "
                 "(contributing_guide) and the tests apply as for any PR; the PR template and pr_examples don't. problem is then "
                 "what the reviewer asked for or what failed. One new version of a PR waits at a time: refused while another "
@@ -1306,9 +1307,14 @@ class WorkTools:
                 return {"content": [{"type": "text", "text": text}], "is_error": True}
             title = f"Claim {target}"
 
-        # Everything about the thread is read first, recently: someone may be on it, or it may be settled already.
+        # Everything about the thread is read first, recently: someone may be on it, or it may be settled already. A
+        # follow_up job's thread is read after the job came and after each piece of news on it since, so the round below
+        # counts what came meanwhile.
         read_at = self.threads_read.get(target.lower())
-        if read_at is None or time.time() - read_at > READ_SECONDS:
+        news = []
+        if job["kind"] == "follow_up":
+            news = [datetime.fromisoformat(entry["at"]).timestamp() for entry in job["timeline"] if entry["kind"] in ["created", "news"]]
+        if read_at is None or time.time() - read_at > READ_SECONDS or (news and read_at < max(news)):
             text = f"First read {target} in full with read_issue (every comment, mention, related PR and check), then write the comment."
             return {"content": [{"type": "text", "text": text}], "is_error": True}
         # No claim on an issue someone else's open PR closes: its maintainers don't want a second fix.
@@ -1867,8 +1873,11 @@ class WorkTools:
                 maintainer = role in MAINTAINERS or (role != "BOT" and author in data["mergers"])
                 by_user = login != "" and author.lower() == login.lower()
                 code = [{"path": comment["path"], "text": comment["body"]} for comment in review["comments"]["nodes"]]
+                # When it was submitted: a review is started (createdAt) long before it is sent, often before our last
+                # comment, and the round it opens counts from when the others see it.
+                at = review.get("submittedAt") or review["createdAt"]
                 result["pr"]["reviews"].append({
-                    "at": review["createdAt"], "author": author, "role": role, "maintainer": maintainer, "by_user": by_user,
+                    "at": at, "author": author, "role": role, "maintainer": maintainer, "by_user": by_user,
                     "state": review["state"], "text": review["body"], "on_code": code,
                 })
             # The conversations on lines of code, with their replies: a comment's id is what draft_comment's reply_to
@@ -2803,6 +2812,17 @@ class WorkTools:
         since = None
         ours = []
         if pr is not None and args["body"].strip():
+            # The round is counted from the PR as read_issue last saw it: read after this job came and after each piece
+            # of news on it since (a review, a comment), or what came meanwhile isn't counted, and the answer to it is
+            # taken for a second comment of the round. A backend restart forgets every read, so it is read again then.
+            read_at = self.threads_read.get(pr.lower())
+            news = [datetime.fromisoformat(entry["at"]).timestamp() for entry in job["timeline"] if entry["kind"] in ["created", "news"]]
+            if read_at is None or time.time() - read_at > READ_SECONDS or (news and read_at < max(news)):
+                text = (
+                    f"First read {pr} again in full with read_issue (every comment and review since), then draft: its body is "
+                    "the comment of this round, counted from what is there now."
+                )
+                return {"content": [{"type": "text", "text": text}], "is_error": True}
             since = self.threads_other_at.get(pr.lower())
             ours = self.agents.inbox.list()
         for each in ours:

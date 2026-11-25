@@ -1598,6 +1598,9 @@ class Agents:
                 )
             if job["status"] == "waiting_on_user":
                 text += " Your draft for it still waits in the user's Inbox; if it no longer fits, draft a new one and say why in it."
+            # A read of the thread from before this news doesn't count for the round's one comment (work_tools.py
+            # draft_comment, draft_pr): it is read again first.
+            self.jobs.add_timeline(job["id"], "news", entry["reason"])
             self.notify(agent.id, text)
             return job
 

@@ -43,13 +43,15 @@ Waiting on the user, done and cancelled are not steps: the job's status says the
 The timeline is the job's history, oldest first, since job_progress overwrites step and headline. add_timeline()
 appends one entry, each a plain sentence for the user:
 
-    Entry: {"at", "kind": "created" | "step" | "status" | "tests" | "notice", "text", "step": "test" (kind step only)}
+    Entry: {"at", "kind": "created" | "step" | "status" | "tests" | "notice" | "news", "text", "step": "test" (kind step only)}
 
 created: who has the job ("Assigned to agent-1"), from create(). step: the agent's job_progress, its headline as it
 wrote it. status: the agent's job_update (done or cancelled, with its note) and the user's cancel ("Stopped by you").
 tests: a test run that ended and counts (work_tools.py finish_tests). notice: news the app told the agent about, like
-the issue being assigned to someone else on GitHub (Agents.issue_taken). Drafts, PRs and evidence aren't in it: they
-have their own times.
+the issue being assigned to someone else on GitHub (Agents.issue_taken). news: more on a follow_up job's thread the app
+told its agent about while the job was open (a comment, a review: Agents.follow_up); a read of the thread from before it
+doesn't count for the round's one comment (work_tools.py). Drafts, PRs and evidence aren't in it: they have their own
+times.
 
 The project's tests, run by the agent with run_tests: on the finished change (after: they must pass before a PR can be
 drafted), and on the unchanged code (before) only as the agent's last resort, when a failure with the change isn't

@@ -14,6 +14,7 @@ git answers with hand-made output. Nothing reaches GitHub, Claude, AWS or a VM: 
 
 import asyncio
 import base64
+import copy
 import hashlib
 import subprocess
 import time
@@ -79,6 +80,42 @@ THREAD = {
             {"databaseId": 602, "author": {"login": "sam-example", "__typename": "User"}},
         ]}},
     ]},
+}
+# The user's PR #40 as read_issue's GraphQL reads it in full: our comment at 22:45, and a maintainer's review asking for
+# changes, started at 21:00 and submitted at 23:26.
+REVIEWED_PR = {
+    "__typename": "PullRequest",
+    "title": "Fix the help output",
+    "url": "https://github.com/owner/proj/pull/40",
+    "state": "OPEN",
+    "createdAt": "2026-11-20T10:00:00Z",
+    "updatedAt": "2026-11-24T23:26:41Z",
+    "author": {"login": "sam-example", "__typename": "User"},
+    "authorAssociation": "CONTRIBUTOR",
+    "labels": {"nodes": []},
+    "assignees": {"nodes": []},
+    "body": "Fixes #12.",
+    "comments": {"nodes": [
+        {"createdAt": "2026-11-24T22:45:00Z", "author": {"login": "sam-example", "__typename": "User"}, "authorAssociation": "CONTRIBUTOR", "body": "Renamed it."},
+    ]},
+    "timelineItems": {"nodes": []},
+    "mergers": ["maintainer"],
+    "default_branch": None,
+    "isDraft": False,
+    "merged": False,
+    "baseRefName": "main",
+    "headRefName": "fix-help",
+    "commits": {"nodes": []},
+    "mergeable": "MERGEABLE",
+    "reviewDecision": "CHANGES_REQUESTED",
+    "reviews": {"nodes": [
+        {
+            "body": "Please also cover -h.", "state": "CHANGES_REQUESTED", "createdAt": "2026-11-24T21:00:00Z",
+            "submittedAt": "2026-11-24T23:26:41Z", "authorAssociation": "MEMBER", "author": {"login": "maintainer", "__typename": "User"},
+            "comments": {"nodes": []},
+        },
+    ]},
+    "reviewThreads": {"nodes": []},
 }
 # A change to a binary file, cache.db, whose new content holds a token: git's plain diff only says it differs, its
 # binary patch packs the content (zlib, then base85), and only read as text (--text) does the token show.
@@ -370,6 +407,41 @@ def test_someone_writing_after_our_comment_starts_a_new_round(agents, tools, fol
     result = asyncio.run(tools.draft_pr(dict(PR_ARGS, job_id=follow_up, pr=PR, body="Pushed the rename.", project="")))
 
     assert result["content"][0]["text"].startswith("Give project")
+
+
+def test_lance_11087_review_submitted_after_our_comment_starts_a_new_round(agents, tools, follow_up, monkeypatch):
+    # The maintainer started the review before our comment and submitted it after: the round counts from the submit.
+    ours = agents.inbox.create("comment", "agent-1", "Comment on owner/proj#40", "Renamed it.", job=follow_up, repo="owner/proj", target=PR)
+    agents.inbox.decide(ours["id"], "approved")
+    agents.inbox.drafts[ours["id"]]["created_at"] = "2026-11-24T22:40:00+00:00"
+    monkeypatch.setattr(work_tools, "get_issue_in_full", lambda owner, name, number: copy.deepcopy(REVIEWED_PR))
+    asyncio.run(tools.read_issue({"thread": PR}))
+
+    result = asyncio.run(tools.draft_pr(dict(PR_ARGS, job_id=follow_up, pr=PR, body="Changed it as you asked.", project="")))
+
+    assert tools.threads_other_at[PR] == "2026-11-24T23:26:41Z"
+    assert result["content"][0]["text"].startswith("Give project")
+
+
+def test_psalm_14071_push_comment_waits_for_a_read_after_the_news(agents, tools, follow_up):
+    # Told of the maintainer's review after the last read: the round it opens isn't known until the PR is read again.
+    agents.jobs.add_timeline(follow_up, "news", "@maintainer reviewed it: changes requested")
+    tools.threads_read[PR] = time.time() - 60
+
+    result = asyncio.run(tools.draft_pr(dict(PR_ARGS, job_id=follow_up, pr=PR, body="Changed it as you asked.")))
+
+    assert result["is_error"] is True
+    assert f"First read {PR} again in full with read_issue" in result["content"][0]["text"]
+
+
+def test_grimmory_3112_push_comment_waits_for_a_read_after_a_restart(agents, follow_up):
+    # A backend restart forgets every read: the round would count every comment of ours ever made.
+    tools = WorkTools(agents, {"id": "agent-1", "name": "agent-1", "target_vm": "vm1", "guides_read": ["owner/proj"]})
+
+    result = asyncio.run(tools.draft_pr(dict(PR_ARGS, job_id=follow_up, pr=PR, body="Pushed the rename.")))
+
+    assert result["is_error"] is True
+    assert f"First read {PR} again in full with read_issue" in result["content"][0]["text"]
 
 
 @pytest.mark.parametrize("part", ["project", "problem", "cause", "fix"])
