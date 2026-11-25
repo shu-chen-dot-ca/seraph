@@ -58,8 +58,9 @@ draft of the job still waiting with its reviewer or in the Inbox whatever the jo
 or being archived. How long it has been out: since the newest entry in its history with a time
 (its turn's end, an error, a message), so restarts don't put it off.
 A blocker waiting for the user on the Blockers page (ask_approval) is tried again by its agent every
-BLOCKER_RETRY_SECONDS (keep_going): what held the job up may have gone away by itself (the agreement shows signed). Then
-the agent takes it back (clear_blocker, "cleared") and goes on, and the user never has to look at it.
+BLOCKER_RETRY_SECONDS (keep_going), a CLA every CLA_RETRY_SECONDS: what held the job up may have gone away by itself (the
+agreement shows signed). Then the agent takes it back (clear_blocker, "cleared") and goes on, and the user never has to
+look at it.
 A VM steps down when it runs out of room (watch_room, every ROOM_CHECK_SECONDS, from the VM's free memory and free
 disk; the CPU load holds nobody back). Full (less than ROOM_MEMORY_PERCENT of its memory free, or less than ROOM_DISK_GB
 of its disk free), it takes nobody new (VMQueue.full, with why): agents wait in its line instead
@@ -209,8 +210,11 @@ RUN_CHECK_SECONDS = 10
 # The heartbeat: an agent with open work out of its turn this long, for no reason, is told to carry on; looked this often.
 HEARTBEAT_SECONDS = 10 * 60
 HEARTBEAT_CHECK_SECONDS = 60
-# A blocker waiting for the user is tried again by its agent this often (keep_going).
+# A blocker waiting for the user is tried again by its agent this often (keep_going). A CLA only every
+# CLA_RETRY_SECONDS: only the user signs one, often on their first PR there, which waits for their decision, so it doesn't
+# go away by itself within an hour; once a day still finds one signed elsewhere since.
 BLOCKER_RETRY_SECONDS = 60 * 60
+CLA_RETRY_SECONDS = 24 * 60 * 60
 # How often each running VM's free memory and free disk are read (watch_room). Full: less than ROOM_MEMORY_PERCENT of
 # its memory free, or less than ROOM_DISK_GB of its disk free (a fresh clone and build of a big project, or a long test
 # run's files, need about that). Overloaded: less than OVERLOAD_MEMORY_PERCENT of its memory free; then a desktop is taken
@@ -1999,7 +2003,10 @@ class Agents:
                 if draft["kind"] != "approval":
                     continue
                 last = draft.get("retried_at") or draft["created_at"]
-                if now - datetime.fromisoformat(last) < timedelta(seconds=BLOCKER_RETRY_SECONDS):
+                wait = BLOCKER_RETRY_SECONDS
+                if draft["overview"].get("kind") == "cla":
+                    wait = CLA_RETRY_SECONDS
+                if now - datetime.fromisoformat(last) < timedelta(seconds=wait):
                     continue
                 agent = self.agents.get(draft["agent"])
                 if agent is None or agent.record["archived_at"] is not None or agent.busy or agent.stopped:

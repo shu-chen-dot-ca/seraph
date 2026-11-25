@@ -7,10 +7,12 @@ runs a turn: what an agent is told stays in its pending messages."""
 
 import asyncio
 import threading
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 
+from github_searcher import agents as agents_module
 from github_searcher import inbox as inbox_module
 from github_searcher import jobs as jobs_module
 from github_searcher.agents import Agents
@@ -113,3 +115,46 @@ def test_issue_fixed_leaves_a_finished_job_alone(agents):
     agents.issue_fixed("owner/proj#1760", "was closed")
 
     assert agents.pending["agent-1"] == []
+
+
+# The heartbeat
+
+
+class RoundOver(Exception):
+    pass
+
+
+def heartbeat_round(agents, monkeypatch):
+    """One round of keep_going: its first sleep returns at once, its next one ends it."""
+    sleeps = []
+
+    async def sleep(seconds):
+        sleeps.append(seconds)
+        if len(sleeps) > 1:
+            raise RoundOver()
+
+    async def archive(agent_id):
+        pass
+
+    monkeypatch.setattr(agents_module.asyncio, "sleep", sleep)
+    agents.archive = archive
+    agents.waiting_for_vm = set()
+    with pytest.raises(RoundOver):
+        asyncio.run(agents.keep_going())
+
+
+def test_phoenix_cla_blocker_is_tried_again_once_a_day_not_every_hour(agents, monkeypatch):
+    # A CLA signed on the user's first PR there, which waits for the user's decision: every hourly check found nothing new.
+    job = agents.jobs.create("fix_issue", "Fix the trace view", "agent-1", "user", issue="owner/proj#17537")
+    two_hours_ago = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+    cla = agents.inbox.create("approval", "agent-1", "Sign the project's CLA", "...", job=job["id"], repo="owner/proj", overview={"kind": "cla", "link": ""})
+    other = agents.inbox.create("approval", "agent-1", "Pay for the API", "...", job=job["id"], repo="owner/proj", overview={"kind": "other", "link": ""})
+    agents.inbox.drafts[cla["id"]]["created_at"] = two_hours_ago
+    agents.inbox.drafts[other["id"]]["created_at"] = two_hours_ago
+    agents.jobs.update(job["id"], status="waiting_on_user", drafts=[cla["id"], other["id"]])
+
+    heartbeat_round(agents, monkeypatch)
+
+    told = [message["text"] for message in agents.pending["agent-1"]]
+    assert len(told) == 1
+    assert told[0].startswith(f"Blocker check: {other['id']} (Pay for the API)")

@@ -633,7 +633,7 @@ class WorkTools:
                 "fails): report_problem that, and try again later. Ask as early as you can: at understand, before the claim, "
                 "the VM and the work. job_id is the job it holds up; it waits on the user until they decide, and you get a "
                 "message with the decision: approved (Done means it is done: don't check it or ask again), do what you asked "
-                "for and go on; rejected, give the job up. Every hour you are asked to try it again: when it went away by "
+                "for and go on; rejected, give the job up. Every hour (a CLA every day) you are asked to try it again: when it went away by "
                 "itself, take it back with clear_blocker. title: what needs approving, a few plain words "
                 "(\"Sign kimai's Contributor License Agreement\"). body: for someone who doesn't know the project: what it is "
                 "and why the job needs it; for an agreement, what it makes the user agree to in plain words (whose it is, a "
