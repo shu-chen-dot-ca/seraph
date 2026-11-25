@@ -110,6 +110,17 @@ class ReviewTools:
         for item in draft["evidence"]:
             each = {key: item.get(key) for key in ["id", "kind", "stage", "topic", "context", "caption", "command", "exit_code", "output_tail"]}
             report["evidence"].append(each)
+        # A new version or rebase of the user's open PR: its body is the comment posted with the push, and the author's
+        # rules decide whether there is one (prompt.md, Following up on PRs and issues). The reviewer goes by the same rules,
+        # so it never sends a draft back for what draft_pr refuses.
+        if draft["update_of"] is not None:
+            report["push_comment"] = (
+                f"This is the next version of the user's PR {draft['update_of']}, and body is the comment posted on it with the "
+                "push. It stays empty when no maintainer or reviewer asked for this version this round (a failing check, a "
+                "bot's point, a conflict nobody mentioned) or one comment of ours already speaks for the round: draft_pr "
+                "refuses one then. Never ask for a push comment in those cases, and never for an answer to a review bot or to "
+                "anyone who is neither a maintainer nor a reviewer."
+            )
         # The repo's AI policy as the app has it now (repo_signals.py), and the rule draft_pr holds the author to: kestra's
         # reviewer asked for an AI line because our older kestra drafts had one, from when its tag was disclose; it is
         # welcome now, and a PR there says nothing about AI.

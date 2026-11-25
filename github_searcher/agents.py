@@ -1672,8 +1672,9 @@ class Agents:
                 "rebase origin/<the branch it goes into>` (or rewrite the commits as asked), settle each conflict keeping what "
                 "both sides meant, commit, and run the checks the project's rules ask for before a PR, however long: run_tests "
                 "with when: after and base the commit your branch now starts from (e.g. origin/main). Then draft_pr with pr "
-                f"{thread}, that base and rebase: true; Approve force-pushes it. Its body is the comment posted with the push "
-                "(what it is rebased onto, and how each conflict was settled)."
+                f"{thread}, that base and rebase: true; Approve force-pushes it. Its body is the comment posted with the push, "
+                "only when a maintainer or reviewer asked for the rebase (what it is rebased onto, and how each conflict was "
+                "settled); empty for a conflict nobody mentioned."
             )
         if own:
             text += (

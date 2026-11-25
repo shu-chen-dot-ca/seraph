@@ -25,6 +25,8 @@ import pytest
 from github_searcher import inbox as inbox_module
 from github_searcher import jobs as jobs_module
 from github_searcher.agent import work_tools
+from github_searcher.agent.agent import SYSTEM_PROMPT
+from github_searcher.agent.review_tools import ReviewTools
 from github_searcher.agent.work_tools import AI_NOTE, EMOJI, WorkTools
 from github_searcher.inbox import Inbox
 from github_searcher.jobs import Jobs
@@ -1177,3 +1179,25 @@ def test_copy_into_the_vm_hides_the_users_secrets(agents, tools, tmp_path, monke
 
     assert result["is_error"] is True
     assert result["content"][0]["text"] == "incus file push failed: Error: [hidden] is not a folder"
+
+
+# Reviewing a draft by the author's rules (github_searcher/agent/review_tools.py)
+
+
+def test_pr_agent_5147_reviewer_is_told_an_empty_push_comment_follows_the_rules(agents, follow_up):
+    # A new version only bots asked for went without a comment, and its reviewer sent it back for having none.
+    review = {"state": "waiting", "agent": "reviewer-1", "job": None, "notes": "", "at": "2026-11-25T10:00:00+00:00"}
+    draft = agents.inbox.create("pr", "agent-1", "fix(ci): quote the path", "", job=follow_up, repo="owner/proj", target=PR, diff=DIFF, update_of=PR, review=review)
+    reviewer = ReviewTools(agents, {"id": "reviewer-1", "name": "agent-3", "role": "reviewer", "target_vm": None})
+
+    result = asyncio.run(reviewer.review_read({"draft_id": draft["id"]}))
+
+    text = result["content"][0]["text"]
+    assert f"This is the next version of the user's PR {PR}" in text
+    assert "Never ask for a push comment in those cases, and never for an answer to a review bot" in text
+
+
+def test_lancedb_4922_rebase_and_review_follow_the_same_push_comment_rule():
+    # The rebase's instructions asked for a comment the round's rule refused, and its reviewer asked for one again.
+    assert "empty when nobody asked (a conflict with main nobody mentioned" in SYSTEM_PROMPT
+    assert "no push comment on a new version or rebase that no maintainer or reviewer asked for this round" in SYSTEM_PROMPT
