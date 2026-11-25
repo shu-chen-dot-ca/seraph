@@ -322,7 +322,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       participants { totalCount }
       reactions(content: THUMBS_UP) { totalCount }
       comments(last: 1) { totalCount nodes { createdAt authorAssociation author { login __typename } } }
-      closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number state url author { login } repository { nameWithOwner } } }
+      closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number state url updatedAt author { login } repository { nameWithOwner } } }
       timelineItems(itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT], last: 25) {
         nodes {
           __typename
