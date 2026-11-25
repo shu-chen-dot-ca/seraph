@@ -685,6 +685,8 @@ def test_vm_that_no_longer_answers_can_be_restarted_anyway(vms, queue, monkeypat
     asyncio.run(tools.vm_restart({}))
 
     assert restarted == ["vm1"]
+    # The runs it ended say who restarted it.
+    assert record.restarted_by["by"] == "agent_a's vm_restart"
 
 
 def test_agent_stops_only_its_own_runs(vms, queue, monkeypatch):

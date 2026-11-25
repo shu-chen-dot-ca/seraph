@@ -120,11 +120,16 @@ def check(record: VMRecord, run: dict) -> dict | None:
     ended its processes); a gone one also has "why", that cause as far as the VM shows it. Blocking (an incus call);
     raises when the VM doesn't answer."""
     seconds = round((datetime.now(UTC) - datetime.fromisoformat(run["started_at"])).total_seconds())
+    # Who restarted the VM since the run started, when the app knows (the user, or an agent's vm_restart): a run it ended
+    # says so, so its agent doesn't take it for a VM that restarted on its own.
+    restarted = ""
+    if record.restarted_by is not None and record.restarted_by["at"] > run["started_at"]:
+        restarted = f" ({record.restarted_by['by']} restarted it at {record.restarted_by['at'][:16].replace('T', ' ')} UTC)"
     # Only a VM that is really off ended it. The record's status alone never does: a stop or start in the middle may
     # still be going on, or hang (vm1 sat in "stopping" for a quarter of an hour on 2026-11-11 while it ran on, and every
     # run in it was reported ended: prb_7b8fd5), so Incus says whether the VM runs.
     if record.status != "running" and record.vm.status() != "Running":
-        return {"ended": "gone", "exit_code": None, "output": "", "seconds": seconds, "why": "the VM stopped or restarted"}
+        return {"ended": "gone", "exit_code": None, "output": "", "seconds": seconds, "why": "the VM stopped or restarted" + restarted}
     pattern = shlex.quote(f" sandbox-{run['id']}$")
     exit_file = run["log"].removesuffix(".log") + ".exit"
     times_file = run["log"].removesuffix(".log") + ".times"
@@ -171,7 +176,7 @@ def check(record: VMRecord, run: dict) -> dict | None:
         words = first.split()
         why = "something ended its processes (the memory guard, or a kill), while the VM kept running"
         if len(words) == 4 and words[1].isdigit() and int(words[1]) < seconds:
-            why = "the VM restarted"
+            why = "the VM restarted" + restarted
         elif len(words) == 4 and words[3] == "deleted":
             why = f"its log and result were deleted ({RUNS_DIR} is the app's: never clean it up)"
         elif len(words) == 4 and words[2].isdigit() and int(words[2]) < DISK_FULL_GB * 1024 * 1024:

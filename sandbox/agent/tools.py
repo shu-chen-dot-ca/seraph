@@ -62,6 +62,7 @@ had running there: a bash command, typing, a server it started. Its runs have th
 import asyncio
 import base64
 import json
+from datetime import UTC, datetime
 
 from claude_agent_sdk import tool
 
@@ -693,6 +694,8 @@ class ComputerTools:
             if others:
                 what = f"Another agent's run is going in this VM (`{others[0]['label'][:100]}`)"
             raise ValueError(f"{what}; a restart would end it. Restart only if the VM stops answering (vm_health).")
+        # The runs it ends say who restarted it (long_runs.check).
+        record.restarted_by = {"by": f"{self.agent_id}'s vm_restart", "at": datetime.now(UTC).isoformat()}
         await asyncio.to_thread(record.restart)
         return {"content": [{"type": "text", "text": "The VM restarted and its desktop is up. Everything that was running in it has ended."}]}
 

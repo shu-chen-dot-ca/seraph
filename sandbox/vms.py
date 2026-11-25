@@ -236,6 +236,10 @@ class VMRecord:
         self.save_lock = threading.Lock()
         # Set once the VM is deleted, so a late save doesn't bring the record back.
         self.deleted = False
+        # Who restarted it last and when ({"by", "at"}: the user, or an agent's vm_restart), or None: a run the restart
+        # ended says who did it (long_runs.check), so an agent never takes it for a VM that restarted on its own.
+        # Runtime only.
+        self.restarted_by = None
         # Runtime only, kept fresh by VMs' watcher thread. Reading them never waits on Incus.
         self.usage = {
             "on": False,
@@ -1178,6 +1182,7 @@ class VMs:
         record = self.get(name)
         if record.lock.locked():
             raise VMsError(f"{name} is busy")
+        record.restarted_by = {"by": "the user", "at": datetime.now(UTC).isoformat()}
         threading.Thread(target=record.restart, daemon=True).start()
 
     def rename(self, name: str, new_name: str) -> VMRecord:

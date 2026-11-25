@@ -231,6 +231,19 @@ def test_finished_run_gives_its_exit_code_and_output(vms, run, monkeypatch):
     assert asked == [2]
 
 
+def test_deskcommcrm_4665_run_a_restart_ended_says_who_restarted_the_vm(vms, run, monkeypatch):
+    # The VM restarted four times during one job's hour-long runs, and its agent could only call it a restart on its own.
+    record = vms.get("vm1")
+    # Half an hour after the run started (an hour ago), two minutes before the VM's own uptime began.
+    at = (datetime.now(UTC) - timedelta(minutes=30)).isoformat()
+    record.restarted_by = {"by": "agent_b's vm_restart", "at": at}
+    monkeypatch.setattr(VM, "exec", lambda self, command, timeout=600, input=None, tag=None: subprocess.CompletedProcess([], 0, "gone 1680 9000000 kept\n", ""))
+
+    result = long_runs.check(record, run)
+
+    assert result["why"] == f"the VM restarted (agent_b's vm_restart restarted it at {at[:16].replace('T', ' ')} UTC)"
+
+
 def test_full_disk_is_named_as_why_a_run_ended_vm1_2026_11_11(vms, run, monkeypatch):
     # ENOSPC and SQLITE_FULL on vm1, 2026-11-11: the run couldn't even write its exit code. 500,000 KB free in its home.
     monkeypatch.setattr(VM, "exec", lambda self, command, timeout=600, input=None, tag=None: subprocess.CompletedProcess([], 0, "gone 99999 500000 kept\ndatabase or disk is full\n", ""))
