@@ -1378,3 +1378,9 @@ def test_openclaw_204999_issue_naming_its_authors_own_closed_fix_is_taken(agents
 
     assert result["someone_else_is_on_it"].startswith("owner/proj#190478 (closed) is the fix the issue's author yetval wrote for it, named in the issue")
     assert tools.threads_taken["owner/proj#204999"] != ""
+
+
+def test_openclaw_204011_issue_the_rules_keep_from_outside_prs_is_closed_for_good():
+    # Cancelled, the job let the issue go back to the board, and it was handed out again.
+    assert "a test- or CI-only fix for tests failing on main, which they close" in SYSTEM_PROMPT
+    assert "`close_issue` with that rule instead, so no agent is given it again" in SYSTEM_PROMPT
