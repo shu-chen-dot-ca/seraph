@@ -1432,6 +1432,25 @@ class Agents:
             self.jobs.add_timeline(job["id"], "notice", notice)
             self.notify(job["agent"], text)
 
+    def issue_fixed(self, issue_id: str, why: str) -> None:
+        """The issue an open job is on was closed on GitHub, or its tags say a merged PR or commit does what it asks
+        (backend/issues_api.py): its agent hears at once, once per job, and stops before more long runs. why says what
+        happened, in a few words after the issue ("was closed")."""
+        for job in self.jobs.list():
+            if job["issue"] != issue_id or job["status"] in ["done", "cancelled"] or job["agent"] not in self.agents:
+                continue
+            notices = [entry for entry in job["timeline"] if entry["kind"] == "notice" and entry["text"].startswith("The issue was fixed or closed")]
+            if notices:
+                continue
+            self.jobs.add_timeline(job["id"], "notice", f"The issue was fixed or closed on GitHub ({why}); told the agent")
+            text = (
+                f"{issue_id} {why} on GitHub now. You have {job['id']} ({job['title']}) on it. This comes before everything "
+                "else, also before a run of yours that is going: read_issue it now. When a merged PR or a commit already does "
+                f"what it asks, or a maintainer closed it, stop {job['id']} (run_stop what you run for it, then close_issue "
+                "with the link that shows it): nobody wants a second fix. When your own PR closed it, mark the job done."
+            )
+            self.notify(job["agent"], text)
+
     async def stop_repo(self, repo: str) -> None:
         """The user deleted the repo on the Repositories page (backend/repos_api.py): every open job on it is stopped
         now (stop_jobs)."""

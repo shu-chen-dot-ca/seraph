@@ -85,3 +85,31 @@ def test_opencodex_8598_draft_the_app_sent_back_tells_its_agent_to_draft_it_agai
     text = agents.pending["agent-1"][-1]["text"]
     assert text.startswith(f"The app didn't send your title and description draft {draft['id']} (feat(codex): add a login policy): {why}")
     assert agents.jobs.get(job["id"])["status"] == "queued"
+
+
+# News on a job's issue
+
+
+def test_bulwarkmail_1760_issue_closed_on_github_is_told_at_once_and_once(agents):
+    # A maintainer fixed and closed it, and our agent ran eight more hours of checks before its last read found out.
+    job = agents.jobs.create("fix_issue", "Fix the folder list", "agent-1", "user", issue="owner/proj#1760")
+    agents.jobs.update(job["id"], status="working")
+
+    agents.issue_fixed("owner/proj#1760", "was closed")
+    agents.issue_fixed("owner/proj#1760", "was closed")
+
+    assert len(agents.pending["agent-1"]) == 1
+    text = agents.pending["agent-1"][0]["text"]
+    assert text.startswith(f"owner/proj#1760 was closed on GitHub now. You have {job['id']} (Fix the folder list) on it.")
+    assert "close_issue with the link that shows it" in text
+    notices = [entry for entry in agents.jobs.get(job["id"])["timeline"] if entry["kind"] == "notice"]
+    assert len(notices) == 1
+
+
+def test_issue_fixed_leaves_a_finished_job_alone(agents):
+    job = agents.jobs.create("fix_issue", "Fix the folder list", "agent-1", "user", issue="owner/proj#1760")
+    agents.jobs.update(job["id"], status="done")
+
+    agents.issue_fixed("owner/proj#1760", "was closed")
+
+    assert agents.pending["agent-1"] == []
