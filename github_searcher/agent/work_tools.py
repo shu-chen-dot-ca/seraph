@@ -523,8 +523,9 @@ class WorkTools:
                 "read_issue",
                 "Read an issue or PR (owner/name#number) in full, as it is right now: its text, every comment, where it was "
                 "mentioned (other issues, PRs and commits), the PRs linked to it or that would close it with their state, "
-                "review, checks and newest comments, the PRs that only name its number in their text (GitHub didn't link "
-                "them; read the ones that may be about it), who was assigned and when, its labels, and the checks on the repo's "
+                "review, checks and newest comments, the PRs that only name its number in their text, also PRs of other "
+                "repos that name it in full as owner/name#number (GitHub didn't link them; read the ones that may be about "
+                "it), who was assigned and when, its labels, and the checks on the repo's "
                 "default branch (and a PR's own reviews, checks and conversations on lines of code, each comment with the id "
                 "draft_comment's reply_to takes). maintainer marks the project's own people (OWNER, MEMBER, COLLABORATOR, or "
                 "someone who merges its PRs: private members show as CONTRIBUTOR), and a PR's reviewers lists the people who "
@@ -1842,10 +1843,18 @@ class WorkTools:
                 found = await asyncio.to_thread(search_issues, f"repo:{repo} is:pr {number}")
             except (httpx.HTTPError, ValueError):
                 found = {"items": []}
-            for item in found["items"][:10]:
-                where = f"{repo}#{item['number']}"
+            # And the PRs of other repos that name it in full (owner/name#n): a sibling project's PR it builds on may be
+            # the first half of the fix, by a maintainer, and GitHub never links that one to the issue.
+            try:
+                elsewhere = await asyncio.to_thread(search_issues, f'"{repo}#{number}" is:pr -repo:{repo}')
+            except (httpx.HTTPError, ValueError):
+                elsewhere = {"items": []}
+            for item in found["items"][:10] + elsewhere["items"][:10]:
+                item_repo = item.get("repository_url", repo).removeprefix("https://api.github.com/repos/")
+                where = f"{item_repo}#{item['number']}"
                 if where.lower() in [each.lower() for each in seen]:
                     continue
+                seen.append(where)
                 state = item["state"]
                 if (item.get("pull_request") or {}).get("merged_at"):
                     state = "merged"

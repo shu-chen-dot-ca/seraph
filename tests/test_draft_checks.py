@@ -1372,7 +1372,7 @@ def test_openclaw_204999_issue_naming_its_authors_own_closed_fix_is_taken(agents
     }
     found = {"items": [{"number": 190478, "title": "Keep the upgrade from failing", "state": "closed", "pull_request": {"merged_at": None}, "user": {"login": "yetval"}, "created_at": "2026-11-24T09:57:00Z"}]}
     monkeypatch.setattr(work_tools, "get_issue_in_full", lambda owner, name, number: copy.deepcopy(issue))
-    monkeypatch.setattr(work_tools, "search_issues", lambda q: copy.deepcopy(found))
+    monkeypatch.setattr(work_tools, "search_issues", lambda q: copy.deepcopy(found) if q.startswith("repo:") else {"items": []})
 
     result = json.loads(asyncio.run(tools.read_issue({"thread": "owner/proj#204999"}))["content"][0]["text"])
 
@@ -1384,3 +1384,32 @@ def test_openclaw_204011_issue_the_rules_keep_from_outside_prs_is_closed_for_goo
     # Cancelled, the job let the issue go back to the board, and it was handed out again.
     assert "a test- or CI-only fix for tests failing on main, which they close" in SYSTEM_PROMPT
     assert "`close_issue` with that rule instead, so no agent is given it again" in SYSTEM_PROMPT
+
+
+def test_ttt_1448_pr_of_another_repo_naming_the_issue_in_full_is_listed(agents, tools, monkeypatch):
+    # The maintainer's library-side PR in a sibling repo said "hover and click handling will follow in" the issue, and
+    # GitHub never linked it: our claim and PR came after it.
+    issue = {
+        "__typename": "Issue", "title": "Open links on click", "url": "https://github.com/owner/proj/issues/1448",
+        "state": "OPEN", "stateReason": None, "milestone": None, "createdAt": "2026-11-14T10:00:00Z", "updatedAt": "2026-11-15T10:00:00Z",
+        "author": {"login": "maintainer", "__typename": "User"}, "authorAssociation": "OWNER", "labels": {"nodes": []},
+        "assignees": {"nodes": []}, "comments": {"nodes": []}, "timelineItems": {"nodes": []},
+        "closedByPullRequestsReferences": {"nodes": []}, "mergers": [], "default_branch": None,
+        "body": "The terminal library already parses the links.",
+    }
+    sibling = {
+        "repository_url": "https://api.github.com/repos/owner/termlib", "number": 21, "title": "Parse OSC 8 links",
+        "state": "open", "user": {"login": "maintainer"}, "created_at": "2026-11-15T09:00:00Z",
+    }
+    asked = []
+
+    def search_issues(q):
+        asked.append(q)
+        return {"items": [copy.deepcopy(sibling)]} if q == '"owner/proj#1448" is:pr -repo:owner/proj' else {"items": []}
+
+    monkeypatch.setattr(work_tools, "get_issue_in_full", lambda owner, name, number: copy.deepcopy(issue))
+    monkeypatch.setattr(work_tools, "search_issues", search_issues)
+
+    result = json.loads(asyncio.run(tools.read_issue({"thread": "owner/proj#1448"}))["content"][0]["text"])
+
+    assert result["prs_naming_its_number"] == [{"pr": "owner/termlib#21", "title": "Parse OSC 8 links", "state": "open", "author": "maintainer", "opened": "2026-11-15"}]
