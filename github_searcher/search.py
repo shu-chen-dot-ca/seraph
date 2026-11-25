@@ -167,7 +167,7 @@ query($owner: String!, $name: String!, $number: Int!, $comments: String, $timeli
           nodes { __typename ...Cross ...Referenced ...Connected ...Disconnected ...Assigned ...Unassigned ...Labeled ...Unlabeled ...Closed ...Reopened ...Duplicate }
         }
         reviews(first: 100) {
-          nodes { body state createdAt authorAssociation author { login __typename } comments(first: 50) { nodes { body path createdAt author { login } } } }
+          nodes { body state createdAt submittedAt authorAssociation author { login __typename } comments(first: 50) { nodes { body path createdAt author { login } } } }
         }
         reviewThreads(first: 100) {
           nodes { id isResolved isOutdated path line comments(first: 30) { nodes { databaseId body createdAt authorAssociation author { login __typename } } } }
