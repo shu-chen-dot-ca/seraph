@@ -162,7 +162,7 @@ class FakeVM:
     def desktop_vm(self, desktop):
         return self
 
-    def exec(self, command, timeout, *rest):
+    def exec(self, command, timeout, *rest, exact=False):
         for part, stderr in self.errors.items():
             if part in command:
                 return subprocess.CompletedProcess(command, 1, "", stderr)
@@ -187,6 +187,9 @@ class FakeVM:
             stdout = self.history
         elif "base64 -w0" in command:
             stdout = base64.b64encode(self.picture).decode()
+        # As the real one reads it: as text, every "\r\n" comes back as "\n", unless read exactly.
+        if not exact:
+            stdout = stdout.replace("\r\n", "\n")
         return subprocess.CompletedProcess(command, 0, stdout, "")
 
 
@@ -1221,3 +1224,16 @@ def test_deskcommcrm_5021_paths_read_stay_read_after_a_restart(agents, job, monk
 
     assert record["paths_checked"] == {"owner/proj": ["cli.py"]}
     assert result["content"][0]["text"].startswith("Started the tests in the background as run_")
+
+
+def test_serverpod_6000_diff_of_a_file_with_windows_line_ends_keeps_them(agents, tools, job):
+    # Read without its "\r", the diff of a CRLF file no longer applied to that file when the PR was sent.
+    crlf = "diff --git a/runtime.dart b/runtime.dart\n--- a/runtime.dart\n+++ b/runtime.dart\n@@ -1 +1 @@\n-var port = 80;\r\n+var port = 8080;\r\n"
+    agents.vm.diff = crlf
+    after = dict(agents.jobs.get(job)["tests"]["after"], diff_hash=hashlib.sha256(crlf.encode()).hexdigest())
+    agents.jobs.update(job, tests={"before": None, "after": after})
+
+    result = asyncio.run(tools.draft_pr(dict(PR_ARGS, job_id=job)))
+
+    assert result.get("is_error") is None
+    assert agents.inbox.list()[0]["diff"] == crlf

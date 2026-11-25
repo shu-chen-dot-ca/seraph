@@ -3087,10 +3087,11 @@ class WorkTools:
             left_out = ""
 
         # -N marks new files as "intent to add", so git diff shows them too. head stops a huge diff
-        # inside the VM (one byte over the limit is enough to tell), so it never fills this machine's memory.
+        # inside the VM (one byte over the limit is enough to tell), so it never fills this machine's memory. Read exactly
+        # as git prints it (exact): a file's Windows line ends stay, or the diff no longer applies to it when it is sent.
         command = f"set -o pipefail; cd {folder} && git add -A -N . && git diff {base} | head -c {DIFF_LIMIT + 1}"
         try:
-            result = await asyncio.to_thread(vm.exec, command, 120)
+            result = await asyncio.to_thread(vm.exec, command, 120, exact=True)
         except Exception as error:
             return {"content": [{"type": "text", "text": f"Could not reach the VM: {error}"}], "is_error": True}
         diff = result.stdout
@@ -3122,7 +3123,7 @@ class WorkTools:
         if re.search(r"^Binary files .+ differ$", diff, re.M):
             command = f"set -o pipefail; cd {folder} && git diff --binary {base} | head -c {BINARY_DIFF_LIMIT + 1}"
             try:
-                result = await asyncio.to_thread(vm.exec, command, 120)
+                result = await asyncio.to_thread(vm.exec, command, 120, exact=True)
             except Exception as error:
                 return {"content": [{"type": "text", "text": f"Could not reach the VM: {error}"}], "is_error": True}
             if len(result.stdout.encode()) > BINARY_DIFF_LIMIT:
@@ -3141,7 +3142,7 @@ class WorkTools:
             draft_diff = result.stdout
             command = f"set -o pipefail; cd {folder} && git diff --text --no-textconv {base} | head -c {BINARY_DIFF_LIMIT + 1}"
             try:
-                result = await asyncio.to_thread(vm.exec, command, 120)
+                result = await asyncio.to_thread(vm.exec, command, 120, exact=True)
             except Exception as error:
                 return {"content": [{"type": "text", "text": f"Could not reach the VM: {error}"}], "is_error": True}
             if len(result.stdout.encode()) > BINARY_DIFF_LIMIT:
@@ -3311,7 +3312,7 @@ class WorkTools:
             f"git log --reverse -p --format=%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%B%x1f {base}..HEAD | head -c {DIFF_LIMIT + 1}"
         )
         try:
-            result = await asyncio.to_thread(vm.exec, command, 120)
+            result = await asyncio.to_thread(vm.exec, command, 120, exact=True)
         except Exception as error:
             return {"content": [{"type": "text", "text": f"Could not reach the VM: {error}"}], "is_error": True}
         commits = []
@@ -3664,7 +3665,7 @@ class WorkTools:
         # The code the suite runs on: its diff from base, read exactly the way draft_pr reads it, so the two can be compared.
         diff_command = f"set -o pipefail; cd {folder} && git add -A -N . && git diff {base} | head -c {DIFF_LIMIT + 1}"
         try:
-            result = await asyncio.to_thread(vm.exec, diff_command, 120, None, tag)
+            result = await asyncio.to_thread(vm.exec, diff_command, 120, None, tag, exact=True)
         except Exception as error:
             return {"content": [{"type": "text", "text": f"Could not reach the VM: {error}"}], "is_error": True}
         diff = result.stdout
@@ -3781,7 +3782,7 @@ class WorkTools:
             diff_command = f"set -o pipefail; cd {folder} && git add -A -N . && git diff {shlex.quote(run['base'])} | head -c {DIFF_LIMIT + 1}"
             try:
                 # As the user of the desktop the run is on (runs from before desktops were on desktop 1).
-                result = await asyncio.to_thread(vm_record.desktop_vm(run.get("desktop", 1)).exec, diff_command, 120)
+                result = await asyncio.to_thread(vm_record.desktop_vm(run.get("desktop", 1)).exec, diff_command, 120, exact=True)
             except Exception as error:
                 text = f"Could not reach the VM to check the code the tests ran on ({error}), so the run doesn't count. Run it again."
                 return {"content": [{"type": "text", "text": text}], "is_error": True}
