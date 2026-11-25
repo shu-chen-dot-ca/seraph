@@ -208,6 +208,7 @@ def agents(tmp_path, monkeypatch):
     monkeypatch.setattr(inbox_module, "DATA_DIR", tmp_path)
     monkeypatch.setattr(inbox_module, "ACTIONS_FILE", tmp_path / "actions.json")
     monkeypatch.setattr(work_tools, "EVIDENCE_DIR", tmp_path / "evidence")
+    monkeypatch.setattr(work_tools, "TEST_RUNS_FILE", tmp_path / "test_runs.jsonl")
     monkeypatch.setattr(work_tools, "AUTOMATION_FILE", tmp_path / "repo_automation.json")
     for name in ["get_pr_status", "get_issue_in_full", "get_contents", "judge"]:
         monkeypatch.setattr(work_tools, name, lambda *args, **kwargs: pytest.fail("Nothing may reach GitHub or Claude here."))
@@ -1321,3 +1322,18 @@ def test_openclaw_205087_fetch_that_moved_base_leaves_the_diff_as_it_was(agents,
     draft = agents.inbox.list()[0]
     assert draft["diff"] == DIFF
     assert draft["base_sha"] == BASE_SHA
+
+
+def test_openclaw_205087_before_run_of_a_changed_files_gate_says_it_checked_nothing(agents, tools, job):
+    # check:changed printed "no changed paths; nothing to run" on the unchanged code and passed, and run_tests said the
+    # failures with the change were the change's doing.
+    after = {"command": "pnpm check:changed", "scope": "full", "passed": False, "seconds": 1500, "diff_hash": "x"}
+    agents.jobs.update(job, tests={"before": None, "after": after})
+    run = {"job": job, "when": "before", "scope": "full", "command": "pnpm check:changed", "base": "origin/main", "path": "~/proj", "diff_hash": "", "stopped_by_user": False}
+    ended = {"ended": "exit", "exit_code": 0, "output": "no changed paths; nothing to run\n", "seconds": 4}
+
+    answer = asyncio.run(tools.finish_tests(agents.vm, run, ended))
+
+    text = answer["content"][0]["text"]
+    assert "It passed in 4s, under a tenth of the time the run with your change took" in text
+    assert "what fails with your change is your change's doing" not in text

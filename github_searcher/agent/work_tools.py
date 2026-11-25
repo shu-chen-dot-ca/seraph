@@ -3914,6 +3914,16 @@ class WorkTools:
                 "It passes on the unchanged code: what fails with your change is your change's doing. Fix it, then run_tests "
                 "with when: after again."
             )
+            # A gate that checks only what differs from base (a changed-files check) runs nothing on the unchanged code and
+            # passes at once: then this run says nothing about what failed with the change.
+            last = job["tests"]["after"]
+            if last is not None and last.get("seconds") and seconds * 10 < last["seconds"]:
+                advice = (
+                    f"It passed in {minutes}, under a tenth of the time the run with your change took: the command may only "
+                    "check what differs from its base (a changed-files gate), and then it ran nothing on the unchanged code "
+                    "and shows nothing. Run what it ran with your change (each check it runs, by its own command) on the "
+                    "unchanged code instead, and compare. What fails there too isn't your change's doing."
+                )
         elif when == "before":
             advice = (
                 "It fails on the unchanged code too. Compare which tests fail here with the after run: the ones failing here as "
