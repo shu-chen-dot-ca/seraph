@@ -185,7 +185,7 @@ def github(tmp_path, monkeypatch):
         status = 200 if url in github["pages"] else 404
         return httpx.Response(status, content=text.encode(), headers={"content-type": content_type}, request=httpx.Request("GET", url))
 
-    async def judge(prompt, schema, effort):
+    async def judge(prompt, schema, effort, what=""):
         kind = list(schema["properties"])[0]
         github["prompts"].append((kind, prompt))
         if isinstance(github["claude"][kind], Exception):
