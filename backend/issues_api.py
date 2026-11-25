@@ -107,7 +107,9 @@ never give an agent an issue of a no_ai repo.
 When an issue goes from free to assigned either way, Agents.issue_taken tells the agent with a job on it who has it
 (the assignees from its facts, or the tags' reason), and the agent decides itself whether to keep working or stop.
 Each read also tells it of every open pull request of someone else's tied to the issue (issue_tags.open_prs: it says
-it closes it, or only mentions it), once each, whatever the status: with nobody assigned, that is the news.
+it closes it, or only mentions it), once each, whatever the status: with nobody assigned, that is the news. One closed
+on GitHub (its facts, read every ACTIVE_REFRESH_SECONDS while a job is on it) or tagged fixed since is news too
+(Agents.issue_fixed): the agent stops before more long runs on a fix nobody wants anymore.
 """
 
 import asyncio
@@ -256,12 +258,18 @@ async def keep_facts() -> None:
                         todo.append(job["issue"])
         for issue_id in todo:
             try:
-                await asyncio.to_thread(issue_facts.refresh, issue_id)
+                facts = await asyncio.to_thread(issue_facts.refresh, issue_id)
             except Exception as error:
                 failed.append(issue_id)
                 # GitHub has no such issue anymore (deleted, or moved away): nobody takes it again.
                 if str(error).startswith(("Could not resolve to an Issue", "GitHub has no issue")):
                     drop_gone_issue(issue_id)
+                continue
+            # Closed on GitHub since the last read (a maintainer fixed it, or a merged PR closed it): the agent with a job
+            # on it hears at once, before more hours of runs on a fix nobody wants anymore.
+            before = known.get(issue_id)
+            if before is not None and before["state"] == "OPEN" and facts["state"] != "OPEN":
+                agents.issue_fixed(issue_id, "was closed")
         await asyncio.sleep(FACTS_CHECK_SECONDS)
 
 
@@ -427,6 +435,9 @@ async def keep_tags() -> None:
                 # #4495", and our agent ran five more hours of checks before it found it at its draft.
                 if prs and issue_id in active:
                     agents.issue_taken(issue_id, after[issue_id]["reason"], [], prs)
+                # Fixed now, still open (a merged PR or a commit does what it asks): the agent with a job on it hears at once.
+                if issue_id in active and after[issue_id]["status"] == "fixed" and (issue_id not in known or known[issue_id]["status"] != "fixed"):
+                    agents.issue_fixed(issue_id, "looks fixed already (a merged PR or a commit does what it asks)")
             # What didn't get tagged (GitHub or Claude failed, Claude left it out, it is gone) waits for TAGS_RETRY_SECONDS.
             for issue_id in todo:
                 if issue_id not in tagged:
