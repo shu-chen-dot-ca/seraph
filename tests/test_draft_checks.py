@@ -159,6 +159,8 @@ class FakeVM:
         self.errors = {}
         self.global_env = {}
         self.env = {}
+        # The long runs going on it (sandbox/agent/long_runs.py).
+        self.runs = []
 
     def holding(self, agent_id):
         return 1
@@ -1456,3 +1458,18 @@ def test_kestra_22556_claim_waits_for_assignment_only_where_it_is_a_must(tools):
 def test_spiceai_16306_a_sign_off_is_what_the_projects_rules_say_it_is():
     # The job's message called a project's attestation script a DCO sign-off on every commit.
     assert "What a project means by a sign-off is in its rules (a DCO `Signed-off-by` line, or its own script or check" in SYSTEM_PROMPT
+
+
+def test_lance_10997_second_test_run_of_a_project_waits_for_the_first(agents, tools, job):
+    # Four agents built the same Rust crate at once on one VM, 8 to 9 GB each: the compiler was killed over and over.
+    other = agents.jobs.create("fix_issue", "Fix the view schema", "agent-2", "user", issue="owner/proj#13")
+    agents.vm.runs = [{"id": "run_b2c3d4", "agent": "agent-2", "kind": "tests", "job": other["id"], "label": "cargo test -p proj", "desktop": 2}]
+    agents.waiting_for_run = {}
+    tools.paths_checked["owner/proj"] = {"cli.py"}
+    run = {"job_id": job, "path": "~/proj", "base": "origin/main", "command": "cargo test -p proj", "scope": "full", "when": "after", "background": True}
+
+    result = asyncio.run(tools.run_tests(run))
+
+    assert result["is_error"] is True
+    assert result["content"][0]["text"].startswith("Another agent's test run of owner/proj goes on desktop 2 of vm1")
+    assert agents.waiting_for_run == {"agent-1": "run_b2c3d4"}

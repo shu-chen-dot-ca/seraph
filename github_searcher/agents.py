@@ -75,6 +75,9 @@ up again costs downloads and builds.
 When no VM takes agents at all (none running, or each suspended or shutting down), an agent that needs one waits for
 one (waiting_for_vm: from queue_for_vm, or taken out of a suspended or shutting-down VM's line) instead of trying them,
 and the Dashboard shows it waiting. keep_going wakes it once a VM takes agents again.
+One test run of a project goes on a VM at a time: an agent whose run would start while another agent's run of the same
+project goes there waits for it (waiting_for_run, from run_tests), keeping its desktop, and keep_going wakes it once
+that run ended. Two builds of one big project at once ran a VM out of memory, again and again.
 A VM the user shuts down gracefully (graceful_shutdown, sandbox/vms.py) takes nobody new: the agents holding its desktops
 finish (none is taken back), whoever still waits for it is sent to pick another VM, and once nobody holds a desktop and
 no run goes, watch_room shuts it down. A VM the user suspended (suspended, sandbox/vms.py) is the same, but stays on.
@@ -356,6 +359,10 @@ class Agents:
         # The agents waiting for a VM because none takes agents (module docstring), woken by keep_going once one does. Not
         # saved: after a restart the heartbeat wakes them, and queue_for_vm puts them back.
         self.waiting_for_vm: set[str] = set()
+        # The agents waiting for another agent's test run of the same project on their VM to end (work_tools.py run_tests),
+        # by agent id: that run's id. They keep their desktop and sleep; keep_going wakes them once it ended. Not saved: after
+        # a restart the heartbeat wakes them, and run_tests puts them back.
+        self.waiting_for_run: dict[str, str] = {}
         self.loop = None
         self.loop_thread = None
         self.saver = None
@@ -696,12 +703,13 @@ class Agents:
             if agent.stopped or self.wake[agent.id].is_set():
                 continue
 
-            # Its run goes in the VM: it keeps its desktop and sleeps; watch_runs wakes it when the run ends.
+            # Its run goes in the VM: it keeps its desktop and sleeps; watch_runs wakes it when the run ends. So does one
+            # waiting for another agent's run of the same project (keep_going wakes it).
             runs = []
             for vm_record in self.vms.list():
                 if place == 0 and vm_record.name == vm_name:
                     runs = [run for run in vm_record.runs if run["agent"] == agent.id]
-            if runs:
+            if runs or agent.id in self.waiting_for_run:
                 continue
             # Reminded enough: it keeps the desktop anyway (the heartbeat wakes it later).
             if place == 0 and nudge["count"] >= MAX_NUDGES:
@@ -2038,6 +2046,19 @@ class Agents:
                 text = f"A VM takes agents again ({', '.join(takes)}): carry on with your open jobs, queue_for_vm when you need it."
                 self.pending[agent_id].append({"from": "System", "text": text, "shown": False})
                 self.wake[agent_id].set()
+            # Waiting for another agent's test run of the same project (work_tools.py run_tests): woken once it ended.
+            going = []
+            for vm_record in self.vms.list():
+                going += [run["id"] for run in vm_record.runs]
+            for agent_id, run_id in list(self.waiting_for_run.items()):
+                if run_id in going:
+                    continue
+                del self.waiting_for_run[agent_id]
+                if agent_id not in self.agents or self.agents[agent_id].record["archived_at"] is not None:
+                    continue
+                text = "The other agent's test run you waited for has ended: run your tests now (run_tests)."
+                self.pending[agent_id].append({"from": "System", "text": text, "shown": False})
+                self.wake[agent_id].set()
             running = []
             for vm_record in self.vms.list():
                 running += [run["agent"] for run in vm_record.runs]
@@ -2062,9 +2083,10 @@ class Agents:
                 # A run of its goes: watch_runs wakes it when it ends.
                 if not open_jobs or agent.id in running:
                     continue
-                # Its place in a VM's line: the grant wakes it. Waiting for a VM while none takes agents: woken above.
+                # Its place in a VM's line: the grant wakes it. Waiting for a VM while none takes agents, or for another
+                # agent's run of the same project: woken above.
                 vm_name, place = self.queue.place(agent.id)
-                if (place is not None and place > 0) or agent.id in self.waiting_for_vm:
+                if (place is not None and place > 0) or agent.id in self.waiting_for_vm or agent.id in self.waiting_for_run:
                     continue
                 # Out of its turn long enough.
                 times = [entry["time"] for entry in agent.history[-500:] if entry.get("time")]

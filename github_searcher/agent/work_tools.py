@@ -3811,6 +3811,27 @@ class WorkTools:
                 )
                 return {"content": [{"type": "text", "text": text}], "is_error": True}
 
+        # Another agent's test run of the same project goes on this VM: two at once build one project twice, and that ran
+        # the VM out of memory (its compiler killed again and again) or made both so slow that their builds gave up. This
+        # one waits for it: the agent keeps its desktop and ends its turn, and a message wakes it once that run ended
+        # (Agents.keep_going).
+        for other in vm_record.runs:
+            if other["agent"] == self.agent_id or other.get("kind") != "tests" or other.get("job") is None or job["repo"] is None:
+                continue
+            try:
+                other_job = self.agents.jobs.get(other["job"])
+            except KeyError:
+                continue
+            if (other_job["repo"] or "").lower() != job["repo"].lower():
+                continue
+            self.agents.waiting_for_run[self.agent_id] = other["id"]
+            text = (
+                f"Another agent's test run of {job['repo']} goes on desktop {other.get('desktop', 1)} of {vm_name} "
+                f"(`{other['label'][:120]}`): two builds of one project at once run the VM out of memory. Wait for it: end "
+                "your turn now (you keep your desktop), and you get a message once it ended. Then run yours."
+            )
+            return {"content": [{"type": "text", "text": text}], "is_error": True}
+
         # The step it is on shows in the user's progress view while the suite runs. A run on the unchanged code (the last
         # resort) leaves the step as it is.
         fields = {}

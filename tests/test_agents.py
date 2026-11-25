@@ -45,6 +45,8 @@ def agents(tmp_path, monkeypatch):
     manager.wake = {"agent-1": asyncio.Event()}
     manager.loop_thread = threading.get_ident()
     manager.version = 0
+    manager.waiting_for_vm = set()
+    manager.waiting_for_run = {}
     manager.save = lambda agent: None
     return manager
 
@@ -138,7 +140,6 @@ def heartbeat_round(agents, monkeypatch):
 
     monkeypatch.setattr(agents_module.asyncio, "sleep", sleep)
     agents.archive = archive
-    agents.waiting_for_vm = set()
     with pytest.raises(RoundOver):
         asyncio.run(agents.keep_going())
 
@@ -158,3 +159,12 @@ def test_phoenix_cla_blocker_is_tried_again_once_a_day_not_every_hour(agents, mo
     told = [message["text"] for message in agents.pending["agent-1"]]
     assert len(told) == 1
     assert told[0].startswith(f"Blocker check: {other['id']} (Pay for the API)")
+
+
+def test_lance_10997_agent_waiting_for_another_run_of_its_project_is_woken_once_it_ended(agents, monkeypatch):
+    agents.waiting_for_run = {"agent-1": "run_b2c3d4"}
+
+    heartbeat_round(agents, monkeypatch)
+
+    assert agents.waiting_for_run == {}
+    assert agents.pending["agent-1"][0]["text"] == "The other agent's test run you waited for has ended: run your tests now (run_tests)."
