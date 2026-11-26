@@ -413,6 +413,10 @@ async def keep_tags() -> None:
                 # Read by older status rules (the user's own claims counted): once more.
                 todo.append(issue_id)
 
+        # Column by column, as Add issues scans (backend/repo_automation_api.py): Prioritized, Target, Contributed, then
+        # Catalog (agents.repo_columns), each in the order above.
+        order = ["prioritized", "target", "contributed", "catalog", "removed"]
+        todo.sort(key=lambda issue_id: order.index(agents.repo_columns.get(issue_id.split("#")[0].lower(), "catalog")))
         if todo:
             tagged = await issue_tags.tag(todo)
             TAGGED.set()

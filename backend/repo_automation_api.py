@@ -62,8 +62,8 @@ other numbers its issues' merge (issue_tags.py): only its AI policy does.
 keep_adding() runs in the background, every ADD_CHECK_SECONDS. For each repo in Repos (not archived, not one that
 doesn't take AI-made contributions: AI policy no_ai, repo_signals.py, not one closed to outside contributors: its
 newcomer verdict, whose issues are all No outside PRs, unless it is in Target, and not one at its Open PRs at once: HELD in
-backend/issues_api.py, whose issues can't be taken now, to save GitHub's quota) with Add issues on
-(SCAN_AT_ONCE repos at the same time), it reads its
+backend/issues_api.py, whose issues can't be taken now, to save GitHub's quota) with Add issues on, column by column
+(Prioritized, Target, Contributed, then Catalog; none of Removed; SCAN_AT_ONCE repos at the same time), it reads its
 newest open issues from GitHub, every
 ADD_REFRESH_SECONDS (at once after Add issues is turned on, or the backend starts): only those opened in the last
 SCAN_DAYS days, and at most its column's Issues to scan (the ⚙ of its column on the Repositories page,
@@ -401,6 +401,18 @@ async def add_issues() -> None:
     # Nor one at its Open PRs at once: its issues can't be taken now.
     skipped += HELD["repos"]
     names = [item["full_name"] for item in repos.items() if item["full_name"].lower() not in skipped]
+    # Column by column, as the Repositories page has them (agents.repo_columns, backend/issues_api.py): Prioritized,
+    # Target, Contributed, then Catalog. None of Removed: no new work there. One the columns don't have yet (just put in
+    # Repos) goes with Target when in it, else with Catalog.
+    by_column = []
+    for column in ["prioritized", "target", "contributed", "catalog"]:
+        for name in names:
+            known = agents.repo_columns.get(name.lower())
+            if known is None:
+                known = "target" if name.lower() in target else "catalog"
+            if known == column:
+                by_column.append(name)
+    names = by_column
     # Sets, as the lists run to tens of thousands of issues and every open issue of every repo is looked up in them.
     listed = set(item["id"] for item in issues.items())
     dismissed = set(issues.dismissed())
