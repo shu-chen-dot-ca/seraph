@@ -27,7 +27,9 @@ Contributed how many contributors it has (blue, a people icon: the number on its
 or for a card made from PRs asked of POST /api/repos/counts; none while not known), then of your pull
 requests there how many it merged (purple), closed without a merge (red) and are still open (green), then the issues in
 progress there (yellow, a draft PR icon: fix_issue jobs still open with no pull request on GitHub yet, as the Pull
-requests page's In progress has them, from the live "jobs" topic); a count of 0 isn't shown. The mouse on the open
+requests page's In progress has them, from the live "jobs" topic), and last the issues worth doing waiting for an agent
+there (orange, an issue icon: the repos topic's ready, backend/app.py; 0 too once Add issues scanned the repo, none
+before); a count of 0 isn't shown otherwise. The mouse on the open
 count opens a menu with Close all (every open PR of yours there closed on GitHub, POST /api/repos/close_prs), on the
 in-progress one Stop all (those jobs stopped and their issues dropped, POST /api/repos/stop_in_progress), as the ⋯
 opens. None of these has a tooltip.
@@ -70,6 +72,7 @@ numbers update themselves.
 
 import {
   ChevronDown,
+  CircleDot,
   GitMerge,
   GitPullRequest,
   GitPullRequestClosed,
@@ -940,6 +943,13 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               ))}
+                            {/* Issues worth doing waiting for an agent: 0 too once scanned, nothing before. */}
+                            {repos.ready[card.repo.full_name.toLowerCase()] !== undefined && (
+                              <span className="flex items-center gap-0.5 text-orange-500">
+                                <CircleDot className="size-3" />
+                                {repos.ready[card.repo.full_name.toLowerCase()]}
+                              </span>
+                            )}
                           </div>
                         </div>
                         {/* Catalog's trash: its ⋯'s Delete (or Add to Removed), at once. title="": no tooltip (the card's name). */}
