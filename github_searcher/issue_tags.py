@@ -59,12 +59,12 @@ requests the repo merged. The first that holds:
                       has a merged pull request in the repo (DeskcommCRM#4410: "if you already contribute, leave this
                       one to a newcomer")
     waiting           it isn't ready to pick up (status waiting)
-    no outside prs    the repo doesn't merge outsiders' pull requests: its AI policy says no AI, most newcomers' first
-                      PRs are closed or left waiting, of MIN_SAMPLE or more outside PRs that ended in 90 days none
-                      was merged, or the newcomer verdict (repo_signals.py) is closed: its contributing guide says so,
-                      or its people write the code (mastra: pull requests disabled for outside contributors). Or this
-                      issue's maintainers closed a pull request for it that looked AI-made (hydro#3281): ours would be too.
-                      For a repo in Target (repo_list.py) only its AI policy counts: the user picked it to take on.
+    no outside prs    the repo doesn't merge outsiders' pull requests: its AI policy says no AI, or the newcomer
+                      verdict (repo_signals.py) is closed: its contributing guide, PR template or maintainers say so in
+                      writing (mastra: pull requests disabled for outside contributors); the numbers alone never count
+                      (since 11-24). Or this issue's maintainers closed a pull request for it that looked AI-made
+                      (hydro#3281): ours would be too. For a repo in Target (repo_list.py) only its AI policy counts:
+                      the user picked it to take on.
     large feature     a new subsystem, integration, driver or the like the maintainers would have to keep up
     big change        over BIG_LINES lines while the user has no merged pull request in the repo yet
     can't validate    our agent can't prove the fix works in its VM (long builds and tests are fine)
@@ -143,7 +143,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from github_searcher.claude_judge import judge
-from github_searcher.repo_signals import MIN_SAMPLE
 from github_searcher.search import MENTION, get_issues_for_tags
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -445,16 +444,14 @@ class IssueTags:
             target = [name.lower() for name in self.repos.target()]
         signals = self.repo_signals.get(full_name)
         if signals is not None:
+            # A repo already in the list counts as open unless it says otherwise in writing (the newcomer verdict,
+            # repo_signals.py): its numbers decided whether it got in (Explore), not what is taken there now.
             if signals["ai_policy"]["tag"] == "no_ai":
                 closed = "the project doesn't accept AI-made contributions"
             elif full_name.lower() in target:
                 closed = ""
-            elif signals["newcomers"]["tag"] in ("turned_away", "left_waiting"):
-                closed = "most newcomers' first pull requests are closed or left waiting"
-            elif signals["outside_merged_90d"] == 0 and signals["outside_closed_90d"] >= MIN_SAMPLE:
-                closed = "none of the outside pull requests that ended in the last 90 days was merged"
             elif (signals.get("newcomer_verdict") or {}).get("verdict") == "closed":
-                closed = "the project isn't open to outside contributors' pull requests"
+                closed = "the project's own rules say it doesn't take outside contributors' pull requests"
         found = {}
         texts = []
         updated = {}
