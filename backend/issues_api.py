@@ -331,8 +331,12 @@ async def keep_tags() -> None:
         listed = [item["id"] for item in issues.items()]
         added_at = {item["id"]: item["added_at"] for item in issues.items()}
         catalog = issues.board()["catalog"]
+        # Each issue's latest job. Not a reviewer's: done once it checked the draft, it made the issue look finished, so
+        # its tags weren't read again while the fix job waited, and nobody saw someone else's PR come (openclaw #204305).
         latest = {}
         for job in jobs.list():
+            if job["kind"] == "review":
+                continue
             if job["issue"] is not None and (job["issue"] not in latest or job["created_at"] > latest[job["issue"]]["created_at"]):
                 latest[job["issue"]] = job
         # Each issue and its last change on GitHub (None when not known yet).
@@ -535,9 +539,12 @@ def take_from_catalog() -> None:
             working.append(job["agent"])
     room = rules["max_agents"] - len(working)
 
-    # Each issue's latest job: Catalog's own cards have none, or a cancelled one.
+    # Each issue's latest job: Catalog's own cards have none, or a cancelled one. Not a reviewer's: it checks a draft of
+    # the fix job, which is still the issue's.
     latest = {}
     for job in all_jobs:
+        if job["kind"] == "review":
+            continue
         if job["issue"] is not None and (job["issue"] not in latest or job["created_at"] > latest[job["issue"]]["created_at"]):
             latest[job["issue"]] = job
     board = issues.board()
