@@ -4,13 +4,16 @@ Seraph runs (backend/github_api.py's keep_profile_readme()).
 
 update(your_repositories) searches GitHub, as you, for every pull request of yours merged into a public repository
 that isn't yours (is:pr is:merged is:public author:<you> -user:<you>), and writes how many there are, in how many
-repositories and the merge rate, merged ÷ (merged + closed without a merge), open ones left out ("Seraph has merged 12
-PRs across 8 repositories with a merge rate of 80%", Seraph a link to SELF_REPO), then a table: one row per
+repositories and the merge rate, merged ÷ (merged + closed without a merge), open ones left out, and how many are open
+and closed without a merge ("Seraph has merged 12 PRs across 8 repositories with a merge rate of 80% (2 open, 3
+closed)", Seraph a link to SELF_REPO, and each of the three counts a link to its GitHub search, so they match it), then
+a table: one row per
 repository with its stars, the most starred first, with a link to each pull request and, in a column of their own, its
 lines added (green) and removed (red). Pull requests of fewer than MIN_LINES lines (added and removed together) are left
-out, not counted or shown, closed ones too. The table stops after MAX_SHOWN pull requests, in its own order; below it, a line says how
-many more there are, with a link to them on GitHub. Only the part between START and END changes; everything else in
-README.md
+out of the table, but the totals count them (all of them, closed ones too), so the number matches GitHub's search. The
+table stops after MAX_SHOWN pull requests, in its own order; below it, a line says how many more there are (the small
+ones too), with a link to them on GitHub's search. Only the
+part between START and END changes; everything else in README.md
 stays as you wrote it. When nothing changed, nothing is committed. A README.md without both markers is left alone.
 Both are committed on the repository's default branch, as you: pull before you push Seraph's own.
 
@@ -30,12 +33,13 @@ FIRST_TEXT = "Hi, I'm Shu.\n\n"
 MAX_PAGES = 10
 # The table shows this many pull requests at most.
 MAX_SHOWN = 50
-# Smaller pull requests (lines added and removed together) are left out.
+# Smaller pull requests (lines added and removed together) are left out of the table, not of the totals.
 MIN_LINES = 10
 
 SEARCH_QUERY = """
 query($query: String!, $after: String) {
   search(query: $query, type: ISSUE, first: 100, after: $after) {
+    issueCount
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
@@ -61,8 +65,12 @@ def table(your_repositories, login: str) -> str:
             break
         after = search["pageInfo"]["endCursor"]
     nodes.sort(key=lambda node: node["mergedAt"], reverse=True)
-    # Only the ones of MIN_LINES lines or more.
-    nodes = [node for node in nodes if node["additions"] + node["deletions"] >= MIN_LINES]
+    # The table only has the ones of MIN_LINES lines or more; the totals have all of them.
+    big = [node for node in nodes if node["additions"] + node["deletions"] >= MIN_LINES]
+    every_repo = []
+    for node in nodes:
+        if node["repository"]["nameWithOwner"] not in every_repo:
+            every_repo.append(node["repository"]["nameWithOwner"])
 
     # The ones closed without a merge, for the merge rate. Open ones aren't decided yet: they don't count.
     closed_query = f"is:pr is:closed is:unmerged is:public author:{login} -user:{login}"
@@ -74,11 +82,10 @@ def table(your_repositories, login: str) -> str:
         if not search["pageInfo"]["hasNextPage"]:
             break
         after = search["pageInfo"]["endCursor"]
-    closed = [node for node in closed if node["additions"] + node["deletions"] >= MIN_LINES]
 
     # By repository, each one's pull requests newest first.
     repos = {}
-    for node in nodes:
+    for node in big:
         name = node["repository"]["nameWithOwner"]
         if name not in repos:
             repos[name] = {"url": node["repository"]["url"], "stars": node["repository"]["stargazerCount"], "links": [], "lines": []}
@@ -88,7 +95,7 @@ def table(your_repositories, login: str) -> str:
         removed = "$`\\color{red}\\textsf{-" + f"{node['deletions']:,}" + "}`$"
         repos[name]["lines"].append(added + " " + removed)
 
-    if not repos:
+    if not nodes:
         return "No merged pull requests yet."
     # Above the table, the totals of all of them, not only the ones shown. The empty line keeps the table from running
     # into it.
@@ -98,11 +105,18 @@ def table(your_repositories, login: str) -> str:
     prs = f"{len(nodes):,} PRs"
     if len(nodes) == 1:
         prs = "1 PR"
-    repositories = f"{len(repos):,} repositories"
-    if len(repos) == 1:
+    # Each count links to its GitHub search, so it can be checked there: the merged, open and closed ones.
+    open_query = f"is:pr is:open is:public author:{login} -user:{login}"
+    open_count = your_repositories.graphql(SEARCH_QUERY, {"query": open_query, "after": None})["search"]["issueCount"]
+    merged_url = "https://github.com/search?q=" + quote_plus(query) + "&type=pullrequests"
+    open_url = "https://github.com/search?q=" + quote_plus(open_query) + "&type=pullrequests"
+    closed_url = "https://github.com/search?q=" + quote_plus(closed_query) + "&type=pullrequests"
+    repositories = f"{len(every_repo):,} repositories"
+    if len(every_repo) == 1:
         repositories = "1 repository"
     rate = round(len(nodes) * 100 / (len(nodes) + len(closed)))
-    lines = [f"{seraph} has merged {prs} across {repositories} with a merge rate of {rate}%", ""]
+    totals = f"{seraph} has merged [{prs}]({merged_url}) across {repositories} with a merge rate of {rate}% ([{open_count:,} open]({open_url}), [{len(closed):,} closed]({closed_url}))"
+    lines = [totals, ""]
     lines.append("| Repository 🚀 | Stars 🌟 | Merged PR | Lines changed |")
     lines.append("| --- | --- | --- | --- |")
     # The most starred first, until MAX_SHOWN pull requests are in the table.
@@ -122,9 +136,8 @@ def table(your_repositories, login: str) -> str:
         more_prs = f"{more:,} more PRs"
         if more == 1:
             more_prs = "1 more PR"
-        url = "https://github.com/search?q=" + quote_plus(query) + "&type=pullrequests"
         lines.append("")
-        lines.append(f"And [{more_prs}]({url}).")
+        lines.append(f"And [{more_prs}]({merged_url}).")
     return "\n".join(lines)
 
 
