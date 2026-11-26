@@ -106,13 +106,14 @@ basis is those lines and that summary, hashed: Claude is only asked again when t
 before POLICY_VERSION (backend/repos_api.py keep_signals reads every one but no_ai again once). A failed ask is
 "unclear" with an empty basis, so the next fetch asks again.
 
-newcomer_verdict: Claude decides whether the repo is open to newcomers ("welcome") or not ("closed"), from its stars
-per all-time contributor (under about 100 usually open, over about 1000 usually closed), the start of its contributing
-guide (CONTRIBUTING_CHARS) and of its PR template (PR_TEMPLATE_CHARS), how outside PRs and newcomers' first PRs went,
-and the atmosphere's summary (maintainers may write that they stopped taking outside PRs): a rule against outside PRs
-wins over the numbers, since it may be new. reason is one sentence on what decided it. Asked every time the numbers are
-read, after the atmosphere. A failed ask keeps the one before (or None). version is NEWCOMER_VERSION when it was asked:
-when it goes up, the backend asks again once for every welcome one (backend/repos_api.py).
+newcomer_verdict: Claude decides whether the repo is open to newcomers ("welcome") or not ("closed"). Since 11-24
+(NEWCOMER_VERSION 3) closed only when it says so in writing: the start of its contributing guide (CONTRIBUTING_CHARS) or
+of its PR template (PR_TEMPLATE_CHARS), or its maintainers in the atmosphere's summary, say outside PRs aren't taken
+(like some company projects). The numbers (stars per contributor, how outside PRs and newcomers' first PRs went) are
+shown but never make it closed on their own: the user's rule, "if it is not directly stated in its policy then we accept
+it". reason is one sentence on what decided it. Asked every time the numbers are read, after the atmosphere. A failed
+ask keeps the one before (or None). version is NEWCOMER_VERSION when it was asked: when it goes up, the backend asks
+again once for every closed one (backend/repos_api.py).
 
 fetch() gets the numbers from GitHub; complete() adds Claude's three judgments (policy, atmosphere and newcomer
 verdict). fetch() does
@@ -234,7 +235,7 @@ QUOTE_LINES = 25
 LINE_CHARS = 300
 # Goes up when what the newcomer verdict reads changes: a welcome verdict from before is asked again, once (2: the PR
 # template and the reviews; DeepSeek-Reasonix's template closes outsiders' PRs).
-NEWCOMER_VERSION = 2
+NEWCOMER_VERSION = 3
 # The start of the PR template the newcomer verdict reads.
 PR_TEMPLATE_CHARS = 2000
 # A rate from fewer finished PRs (or checked issues) than this says little.
@@ -992,18 +993,13 @@ class RepoSignals:
         prompt = (
             f"Is the GitHub project {name} open to newcomers: would a good first pull request from an outside contributor, "
             "someone the maintainers don't know, get looked at and merged?\n"
-            "- welcome: yes, outside contributions are wanted and get merged.\n"
-            "- closed: not in practice: a company or a small core team writes the code, outside PRs are rarely merged or "
-            "not accepted, or the contributing guide says so.\n"
-            "Weigh these together:\n"
-            "- Stars per all-time contributor: under about 100 usually means an open community; over about 1000 usually "
-            "means a closed project with many users and few contributors. In between, the rest decides.\n"
-            "- What the contributing guide and the PR template say about outside contributions (not accepted, issues only, "
-            "maintainers only, discuss first, ...). When they or the maintainers say outside PRs are no longer taken or are "
-            "closed automatically (limited to maintainers and invited contributors), it is closed however many were merged "
-            "before: the rule may be new.\n"
-            "- How outside PRs and newcomers' first PRs went recently, and what reviews of them are like.\n"
-            "reason: one plain sentence, at most 160 characters, on what decided it.\n\n"
+            "- closed: only when it says so in writing: its contributing guide, its PR template or its maintainers (in the "
+            "reviews below) say outside PRs aren't accepted, are turned off, or are closed automatically (limited to "
+            "maintainers, staff, vouched or invited contributors), as some company projects do. It is closed however many "
+            "were merged before: the rule may be new.\n"
+            "- welcome: everything else. The numbers below (stars per contributor, how few outside PRs were merged, slow "
+            "replies) never make it closed on their own: a project that doesn't say it is closed is open to us.\n"
+            "reason: one plain sentence, at most 160 characters, on what decided it (for closed, what the rule says).\n\n"
             f"Stars: {stars}\n"
             f"{contributors_line}\n"
             f"Outside PRs (by people who aren't maintainers) finished in the last 90 days: {signals['outside_merged_90d']} merged, "

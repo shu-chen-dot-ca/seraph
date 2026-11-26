@@ -350,10 +350,10 @@ async def keep_signals() -> None:
             if policy.get("tag") != "no_ai" and policy.get("version") != POLICY_VERSION:
                 todo.append(name)
                 continue
-            # A welcome newcomer verdict from before it read the PR template and the reviews (NEWCOMER_VERSION): read
-            # again once. A closed one stays closed.
+            # A closed newcomer verdict from before closed meant a written rule only (NEWCOMER_VERSION): read again
+            # once. A welcome one stays welcome: the new rule only makes fewer closed.
             verdict = known[name].get("newcomer_verdict") or {}
-            if verdict.get("verdict") == "welcome" and verdict.get("version") != NEWCOMER_VERSION:
+            if verdict.get("verdict") == "closed" and verdict.get("version") != NEWCOMER_VERSION:
                 todo.append(name)
         for start in range(0, len(todo), SIGNALS_AT_ONCE):
             batch = todo[start:start + SIGNALS_AT_ONCE]
@@ -364,7 +364,7 @@ async def keep_signals() -> None:
                     continue
                 # Claude didn't give the newcomer verdict (the one before stays): later, not on every round.
                 verdict = (repo_signals.get(name) or {}).get("newcomer_verdict") or {}
-                if verdict.get("verdict") == "welcome" and verdict.get("version") != NEWCOMER_VERSION:
+                if verdict.get("verdict") == "closed" and verdict.get("version") != NEWCOMER_VERSION:
                     failed.append(name)
         # Signals from before the totals (commits, open, merged and closed PRs, open issues) were counted get them with one
         # small read each, not a whole new read (that asks Claude again).
