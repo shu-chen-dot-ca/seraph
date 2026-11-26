@@ -7,6 +7,7 @@ is checked in a git repo made in pytest's temporary folder, and everything is ke
 
 import json
 import subprocess
+import threading
 
 import httpx
 import pytest
@@ -70,6 +71,28 @@ def test_a_run_the_restart_cut_off_is_failed_at_start_and_the_vm_stopped(tmp_pat
     assert fixes.data["runs"][0]["error"] == "Cut off: the app restarted during the run."
     assert fixes.data["runs"][0]["ended_at"] is not None
     assert vms.stopped == [FIX_VM]
+
+
+def test_a_run_cut_off_while_claude_code_worked_goes_on_and_the_vm_stays_on(tmp_path, monkeypatch):
+    monkeypatch.setattr(problem_fixes, "DATA_DIR", tmp_path)
+    run = {"started_at": "2026-11-15T01:00:00+00:00", "ended_at": None, "state": "running", "error": "", "base": "abc123", "claude_at": "2026-11-15T01:05:00+00:00"}
+    (tmp_path / "problem_fixes.json").write_text(json.dumps({"runs": [run]}))
+    went_on = []
+    called = threading.Event()
+
+    def go_on(self, run):
+        went_on.append(run["claude_at"])
+        called.set()
+
+    monkeypatch.setattr(ProblemFixes, "go_on", go_on)
+    vms = FakeVMs()
+
+    fixes = ProblemFixes(FakeProblems([]), None, FakeUpdates(), vms, FakeImages())
+
+    assert called.wait(5)
+    assert went_on == ["2026-11-15T01:05:00+00:00"]
+    assert fixes.data["runs"][0]["state"] == "running"
+    assert vms.stopped == []
 
 
 def test_a_failed_run_keeps_why_and_the_output(fixes):

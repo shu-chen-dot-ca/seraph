@@ -12,7 +12,9 @@ A run:
    disk and one desktop) or started. It gets that clone (a git bundle, with no remote: it can't push), the same .env, a
    copy of the data folder without the VMs and any secret (DATA_LEFT_OUT), and your Claude Code memory
    of this repo from your own sessions, where its Claude Code finds it (SET_UP). Then Claude Code (claude -p, its model
-   in claude_models.py, at max effort, allowed everything in the VM) gets all the feedback at once (PROMPT). Its login
+   in claude_models.py, at max effort, allowed everything in the VM) gets all the feedback at once (PROMPT). It runs
+   there on its own (RUN), so the app restarting meanwhile (./run.sh reloads on every save) doesn't stop it: the run
+   goes on with it when the app starts again (go_on). Its login
    is CLAUDE_CODE_OAUTH_TOKEN_VM, a token of its own (secret_vault.py), handed to that one process on its stdin and
    never written in the VM, so a leak there is undone by revoking it alone. It can run the tests, the build and the app
    itself (SERAPH_CHECK=1 ./run.sh on the data copy: no agents, nothing acts). A terminal on the VM's desktop shows what
@@ -42,10 +44,12 @@ Kept in DATA_DIR/problem_fixes.json:
           "no_change": [{"id", "why"}] (closed too), "not_fixed": [{"id", "why"}], "given_up": [{"id", "why"}] (closed),
           "commits": ["<sha> <title>"], "release": the tag released | None,
           "error": why it failed, or why the fixes were dropped | "", "output": the end of the failing step's output | "",
-          "cost_usd": Claude Code's cost | None}
+          "cost_usd": Claude Code's cost | None,
+          "base": main's commit the fixes go on | missing, "claude_at": when Claude Code started in the VM | missing}
 
 The file and runs from when it ran every day also have "on", "hour", "minute", "changed_at" and "pid"; nothing reads
-them. A run the app's restart cut off is failed at the next start, and Seraph's VM stopped.
+them. A run the app's restart (or closing it) cut off while Claude Code worked goes on at the next start (go_on).
+Cut off before that, it is failed, and Seraph's VM stopped.
 
     python -m github_searcher.problem_fixes     # one run now, in this terminal
 """
@@ -87,6 +91,8 @@ MAX_TRIES = 2
 # The most a step may take (an install, the tests, the build), Claude Code's whole run, and making or starting the VM.
 STEP_SECONDS = 30 * 60
 CLAUDE_SECONDS = 4 * 60 * 60
+# How often the run looks whether Claude Code in the VM has ended.
+WAIT_SECONDS = 30
 VM_SECONDS = 15 * 60
 # How much of a failing step's output is kept.
 OUTPUT_CHARS = 4000
@@ -217,15 +223,19 @@ npm --prefix frontend ci --no-audit --no-fund
 if command -v claude > /dev/null; then claude update || true; else curl -fsSL https://claude.ai/install.sh | bash; fi
 """
 # Run in Seraph's VM as its desktop's user, after model=, side_model= and schema=, with the token on the first line of
-# its stdin and the prompt after it. Claude Code's log goes to ~/fix/claude.jsonl, its errors to ~/fix/claude.err.
+# its stdin and the prompt after it. It returns at once: Claude Code goes on in a session of its own, with seraph-fix-all
+# the last word of its command line (vm.kill_tagged), whatever happens to the app. The token is only in its environment.
+# Claude Code's log goes to ~/fix/claude.jsonl, its errors to ~/fix/claude.err, and its exit code to ~/fix/exit.
 RUN = """
 export PATH="$HOME/.local/bin:$PATH"
 read -r CLAUDE_CODE_OAUTH_TOKEN
 export CLAUDE_CODE_OAUTH_TOKEN
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="$side_model"
+export model schema
+cat > ~/fix/prompt.txt
 cd ~/seraph
-claude -p --model "$model" --effort max --permission-mode bypassPermissions --output-format stream-json --verbose \
-    --json-schema "$schema" --no-session-persistence > ~/fix/claude.jsonl 2> ~/fix/claude.err
+setsid bash -c 'claude -p --model "$model" --effort max --permission-mode bypassPermissions --output-format stream-json --verbose \
+    --json-schema "$schema" --no-session-persistence < ~/fix/prompt.txt > ~/fix/claude.jsonl 2> ~/fix/claude.err; echo $? > ~/fix/exit' seraph-fix-all < /dev/null > /dev/null 2>&1 &
 """
 # ~/fix/show.py in Seraph's VM: what Claude Code says and each tool it uses, as it goes, from its log on stdin. A terminal
 # on the VM's desktop runs it.
@@ -266,11 +276,15 @@ class ProblemFixes:
         self.data = {"runs": []}
         if self.path.is_file():
             self.data = json.loads(self.path.read_text())
-        # A run the restart cut off: failed, and Seraph's VM stopped, where its Claude Code may still go on.
         last = None
         if self.data["runs"]:
             last = self.data["runs"][0]
-        if last is not None and last["state"] == "running":
+        # A run the restart cut off while Claude Code worked: Claude Code goes on in Seraph's VM by itself, so the run
+        # goes on with it.
+        if last is not None and last["state"] == "running" and last.get("claude_at"):
+            threading.Thread(target=self.go_on, args=(last,), daemon=True).start()
+        # Cut off before that: failed, and Seraph's VM stopped.
+        elif last is not None and last["state"] == "running":
             last["state"] = "failed"
             last["error"] = "Cut off: the app restarted during the run."
             last["ended_at"] = datetime.now(UTC).isoformat()
@@ -352,6 +366,33 @@ class ProblemFixes:
             run["ended_at"] = datetime.now(UTC).isoformat()
             self.save()
 
+    def go_on(self, run: dict) -> None:
+        """A run the restart cut off while Claude Code worked (__init__), in a thread: Claude Code went on in Seraph's VM
+        by itself, so the run goes on from there (finish) and ends as run() ends it."""
+        given = run["problems"]
+        open_problems = [item for item in self.problems.list() if item["id"] in given]
+        try:
+            self.finish(run, open_problems)
+            run["state"] = "done"
+        except FixError as error:
+            run["state"] = "failed"
+            run["error"] = str(error)
+            run["output"] = error.output
+        except Exception as error:
+            run["state"] = "failed"
+            run["error"] = f"{type(error).__name__}: {error}"
+        # Seraph's VM stops however the run ended.
+        try:
+            record = self.vms.get(FIX_VM)
+            if record.status == "running":
+                record.stop()
+        except Exception as error:
+            if run["error"] == "" and not isinstance(error, VMsError):
+                run["error"] = f"Seraph's VM didn't stop: {error}"
+        with self.lock:
+            run["ended_at"] = datetime.now(UTC).isoformat()
+            self.save()
+
     def start_vm(self):
         """Seraph's own VM (FIX_VM), running: made the first time, made again when making it failed, started when it is
         stopped. FixError says why not."""
@@ -412,12 +453,6 @@ class ProblemFixes:
         git_env["GIT_CONFIG_VALUE_0"] = f"AUTHORIZATION: basic {basic}"
         # Everything else runs with none of your secrets.
         plain_env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "SHELL": os.environ.get("SHELL", "/bin/bash"), "LANG": os.environ.get("LANG", "C.UTF-8")}
-        # Your secrets, to make sure none of them goes out in a fix: your sign-in, and every secret the app keeps (the
-        # tokens, and in AWS the sign-in app's too).
-        secret_values = [account["token"]]
-        for value in secret_vault.VALUES.values():
-            if value.strip() != "":
-                secret_values.append(value)
 
         # 1. The clone, the same as main on GitHub, with CI's .env and its packages.
         if not (FIX_DIR / ".git").is_dir():
@@ -441,11 +476,11 @@ class ProblemFixes:
             if done.returncode != 0:
                 raise FixError(f"{' '.join(command)} failed in the clone.", done.stdout + done.stderr)
         base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=FIX_DIR, capture_output=True, text=True).stdout.strip()
+        with self.lock:
+            run["base"] = base
+            self.save()
 
         # 2. Claude Code fixes them, in Seraph's VM.
-        fixes_ok = False
-        answer = {"fixed": [], "not_fixed": []}
-        left = ""
         if open_problems:
             # What goes to the VM: the clone as a bundle, the data copy, and your memory of this repo (Claude Code's, from
             # your sessions in a github_searcher folder: the newest).
@@ -488,14 +523,67 @@ class ProblemFixes:
             for item in open_problems:
                 lines.append(f"- {item['id']} ({item['at'][:10]}, about {item['about'] or 'nothing in particular'}): {item['text']}")
             variables = f"model={shlex.quote(MODELS['fix_problems'])}; side_model={shlex.quote(SIDE_MODEL)}; schema={shlex.quote(json.dumps(ANSWER))}; "
+            done = vm.exec(variables + RUN, timeout=STEP_SECONDS, input=token + "\n" + "\n".join(lines))
+            if done.returncode != 0:
+                raise FixError(f"Couldn't start Claude Code in the VM {FIX_VM}.", done.stdout + done.stderr)
+            with self.lock:
+                run["claude_at"] = datetime.now(UTC).isoformat()
+                self.save()
+        self.finish(run, open_problems)
+
+    def finish(self, run: dict, open_problems: list[dict]) -> None:
+        """The rest of a run from when Claude Code started in Seraph's VM (fix): waits for it to end, takes its answer and
+        its commits, and does steps 3 to 5. Also how a run the restart cut off goes on (go_on). FixError says which step
+        failed and why."""
+        account = self.github_account.load()
+        if account is None:
+            raise FixError("Sign in with GitHub first: Settings, Account.")
+        # git acts as you on github.com (the token goes in an environment variable, never in a command line or a file).
+        basic = base64.b64encode(f"x-access-token:{account['token']}".encode()).decode()
+        git_env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_COUNT": "1"}
+        git_env["GIT_CONFIG_KEY_0"] = "http.https://github.com/.extraheader"
+        git_env["GIT_CONFIG_VALUE_0"] = f"AUTHORIZATION: basic {basic}"
+        # Everything else runs with none of your secrets.
+        plain_env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "SHELL": os.environ.get("SHELL", "/bin/bash"), "LANG": os.environ.get("LANG", "C.UTF-8")}
+        # Your secrets, to make sure none of them goes out in a fix: your sign-in, and every secret the app keeps (the
+        # tokens, and in AWS the sign-in app's too).
+        secret_values = [account["token"]]
+        for value in secret_vault.VALUES.values():
+            if value.strip() != "":
+                secret_values.append(value)
+        # The clone back at main as the run found it: a restart may have cut a step after Claude Code off.
+        base = run["base"]
+        subprocess.run(["git", "rebase", "--abort"], cwd=FIX_DIR, capture_output=True)
+        for command in [["git", "checkout", "-f", "-B", "main", base], ["git", "clean", "-fd"]]:
+            done = subprocess.run(command, cwd=FIX_DIR, capture_output=True, text=True, timeout=STEP_SECONDS)
+            if done.returncode != 0:
+                raise FixError(f"{' '.join(command)} failed in the clone.", done.stdout + done.stderr)
+
+        # 2, from when Claude Code started: it ends, takes CLAUDE_SECONDS at most, or the VM stops.
+        fixes_ok = False
+        answer = {"fixed": [], "not_fixed": []}
+        left = ""
+        if open_problems:
+            record = self.vms.get(FIX_VM)
+            vm = record.vm
+            started = datetime.fromisoformat(run["claude_at"])
+            check = f"if pgrep -f -- {shlex.quote(' seraph-fix-all$')} > /dev/null; then echo running; fi"
+            ended = False
+            while not ended and record.status == "running" and (datetime.now(UTC) - started).total_seconds() < CLAUDE_SECONDS:
+                time.sleep(WAIT_SECONDS)
+                try:
+                    done = vm.exec_root(check, timeout=60)
+                    ended = done.returncode == 0 and done.stdout.strip() == ""
+                except subprocess.TimeoutExpired:
+                    pass
             stopped = ""
-            try:
-                done = vm.exec(variables + RUN, timeout=CLAUDE_SECONDS, input=token + "\n" + "\n".join(lines), tag="seraph-fix-all")
-                exit_code = done.returncode
-            except subprocess.TimeoutExpired:
+            if not ended and record.status == "running":
                 vm.kill_tagged("seraph-fix-all")
-                exit_code = None
                 stopped = f"Stopped after {CLAUDE_SECONDS // 3600} hours. "
+            exit_code = None
+            written = vm.exec("cat ~/fix/exit", timeout=60).stdout.strip()
+            if written.isdigit():
+                exit_code = int(written)
             result = {}
             for line in vm.exec("tail -n 20 ~/fix/claude.jsonl", timeout=60).stdout.splitlines():
                 # A line cut off when Claude Code was stopped isn't one.
