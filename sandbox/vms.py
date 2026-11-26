@@ -95,6 +95,7 @@ import os
 import re
 import secrets
 import shlex
+import shutil
 import subprocess
 import threading
 import time
@@ -128,6 +129,11 @@ DISK_GB_MIN = 48
 DISK_GB_MAX = 512
 MAX_DESKTOPS_DEFAULT = 5
 MIN_FREE_RAM_GB = 8
+# A VM's disk takes this computer's disk as it fills, up to its size, and doesn't give it back by itself: a new one's
+# whole disk must fit with MIN_FREE_DISK_PERCENT of this computer's disk still free (11-26: vm1's 512GB filled it, and
+# the app's data files came out empty). INCUS_DIR is where the VMs' disks are.
+MIN_FREE_DISK_PERCENT = 15
+INCUS_DIR = "/var/lib/incus"
 NAME_PATTERN = r"[a-z][a-z0-9-]{0,30}"
 # Seraph's own VM, where Fix all on the Feedback page fixes the app (github_searcher/problem_fixes.py makes it the first
 # time). Agents never get it (agents.py set_target_vm), and it can't be renamed or deleted (backend/vms_api.py).
@@ -1073,6 +1079,12 @@ class VMs:
                     f"Not enough free memory: {max(free_gb, 0):.1f}GB free, the VM needs {memory_gb}GB "
                     f"and {MIN_FREE_RAM_GB}GB must stay free"
                 )
+            disk = shutil.disk_usage(INCUS_DIR)
+            if (disk.free - disk_gb * 1024 ** 3) * 100 / disk.total < MIN_FREE_DISK_PERCENT:
+                raise VMsError(
+                    f"Not enough free disk: {disk.free / 1024 ** 3:.0f}GB free on this computer, the VM's disk is "
+                    f"{disk_gb}GB and {MIN_FREE_DISK_PERCENT}% must stay free"
+                )
             # A renamed VM keeps its Incus name, so this one may be taken.
             incus_name = VM_PREFIX + name
             number = 2
@@ -1122,6 +1134,12 @@ class VMs:
                 raise VMsError(
                     f"Not enough free memory: {max(free_gb, 0):.1f}GB free, the fork needs {source.memory_gb}GB "
                     f"and {MIN_FREE_RAM_GB}GB must stay free"
+                )
+            disk = shutil.disk_usage(INCUS_DIR)
+            if (disk.free - source.disk_gb * 1024 ** 3) * 100 / disk.total < MIN_FREE_DISK_PERCENT:
+                raise VMsError(
+                    f"Not enough free disk: {disk.free / 1024 ** 3:.0f}GB free on this computer, the fork's disk is "
+                    f"{source.disk_gb}GB and {MIN_FREE_DISK_PERCENT}% must stay free"
                 )
             # Held until the copy is made, so nobody starts the source meanwhile (fork_from releases it).
             if not source.lock.acquire(blocking=False):
