@@ -571,9 +571,10 @@ async def automate() -> None:
     archive = []
     for item in repos.items():
         name = item["full_name"]
-        label = labels[name]
-        if name in archived or name.lower() in target:
+        # One added above, in this round, has no label until the next.
+        if name in archived or name.lower() in target or name not in labels:
             continue
+        label = labels[name]
         if label["label"] == "Not merging" or (label["label"] == "No issues" and label["idle"] >= rules["leave_days"]):
             archive.append(name)
             automation["archived"][name] = at
