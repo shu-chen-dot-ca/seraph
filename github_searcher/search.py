@@ -988,6 +988,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       additions deletions changedFiles
       author { login }
       mergedBy { login }
+      timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent { actor { login } } } }
       headRefName headRefOid headRepository { nameWithOwner } headRef { name }
       labels(first: 20) { nodes { name } }
       comments(last: 10) { totalCount nodes { createdAt authorAssociation body author { login __typename } } }

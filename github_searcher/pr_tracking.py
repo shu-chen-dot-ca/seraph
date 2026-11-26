@@ -13,6 +13,8 @@ It keeps, in DATA_DIR/pr_tracking.json, by "owner/name#number", each PR in "prs"
     {"id", "repo", "number", "title", "url", "author",
      "state": "open" | "merged" | "closed", "draft": bool (GitHub's draft PR),
      "opened_at", "updated_at", "closed_at": str | None, "merged_by": str | None,
+     "closed_by": who closed it (login) | None (open, merged, or read before 11-24): the author closing their own PR
+     (a duplicate, Close all) is no rejection (RepositoryCards.tsx, backend/issues_api.py),
      "labels": [name, ...],
      "checks": "waiting" | "running" | "passed" | "failed" | "none",
      "waiting_runs": int, "failed_checks": [name, ...], "head_at": when its newest commit was made | None,
@@ -732,6 +734,11 @@ class PRTracking:
             if pull["mergeable"] == "CONFLICTING":
                 mergeable = "conflicts"
             labels = [label["name"] for label in pull["labels"]["nodes"]]
+            # Who closed it without a merge (GitHub's last closed event).
+            closed_by = None
+            closes = pull["timelineItems"]["nodes"]
+            if pull["state"] == "CLOSED" and closes and closes[-1]["actor"] is not None:
+                closed_by = closes[-1]["actor"]["login"]
 
             # What its agent hears a change of (needs_reply).
             signals = {
@@ -772,6 +779,7 @@ class PRTracking:
                 "updated_at": pull["updatedAt"],
                 "closed_at": pull["closedAt"],
                 "merged_by": pull["mergedBy"]["login"] if pull["mergedBy"] else None,
+                "closed_by": closed_by,
                 "labels": labels,
                 "checks": checks,
                 "waiting_runs": waiting_runs,
