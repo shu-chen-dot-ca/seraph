@@ -24,7 +24,8 @@ either; only the Inbox's Approve and Send to GitHub (backend/inbox_api.py) and t
 (backend/github_api.py) use the token. It is kept apart from the search tokens (token_balancer.py), which only
 read.
 
-send(draft_id) sends a PR, comment or edit draft once, as it was shown in the Inbox. A PR:
+send(draft_id) sends a PR, comment or edit draft once, as it was shown in the Inbox. A new PR for an issue first has
+that issue read again from GitHub, and waits while it is closed or someone else's open PR says it fixes it. A PR:
 1. Your fork of the project, made the first time (GitHub keeps it). Your own repo is its own fork.
 2. The pictures the body shows (evidence:ev_...) go on the pr-pictures branch of your profile repository
    (github.com/you/you, which profile_readme.py keeps), one folder per draft, and the body links to them
@@ -127,6 +128,7 @@ from dotenv import load_dotenv
 
 from github_searcher import secret_vault
 from github_searcher.jobs import EVIDENCE_DIR
+from github_searcher.search import get_issue_facts
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # override: the backend reloads itself on code changes, and .env changes should apply then too.
@@ -390,6 +392,32 @@ class GithubAccount:
                             "drafted with, which its reviewer sent back and the agent drafts again. It can go once that is on "
                             "GitHub. Reject it if it no longer fits."
                         )
+            # Right before a new PR for an issue goes out, the issue as GitHub has it now, to keep the merge rate: none
+            # while it is closed, or while someone else's open PR says it fixes it (openclaw #204305 came while ours
+            # waited, and ours was closed as a second fix). It waits ("Not sent yet", tried again later); the agent hears
+            # of it from the Issues board's tags (backend/issues_api.py keep_tags: issue_fixed, issue_taken).
+            if draft["kind"] == "pr" and draft["update_of"] is None and job is not None and job["kind"] == "fix_issue" and job["issue"] is not None:
+                issue_repo, _, issue_number = job["issue"].rpartition("#")
+                try:
+                    issue = get_issue_facts(issue_repo.split("/")[0], issue_repo.split("/")[1], int(issue_number))["issue"]
+                except (httpx.HTTPError, ValueError) as error:
+                    raise SendError(f"Could not check {job['issue']} on GitHub before sending: {error}") from None
+                if issue is None:
+                    raise SendError(f"Not sent: GitHub has no issue {job['issue']} any more.")
+                if issue["state"] == "CLOSED":
+                    raise SendError(f"Not sent yet: {job['issue']} is closed on GitHub, so the PR would only be closed too.")
+                others = []
+                for pull in issue["closedByPullRequestsReferences"]["nodes"]:
+                    login = "ghost"
+                    if pull["author"] is not None:
+                        login = pull["author"]["login"]
+                    if pull["state"] == "OPEN" and login.lower() != account["login"].lower():
+                        others.append(f"{pull['url']} by {login}")
+                if others:
+                    raise SendError(
+                        f"Not sent yet: someone else's open PR says it fixes {job['issue']} ({', '.join(others)}), so ours would "
+                        "be a second fix. It can go if that one is closed without a merge."
+                    )
             self.step = "starting"
             self.sending_draft = draft_id
             # What this send already knows from GitHub (tree()): each tree's file list by its sha, and each file's
