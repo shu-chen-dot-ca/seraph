@@ -21,7 +21,8 @@ bottom that scrolls on its own (on a narrow window the columns keep their width 
 Every repo with a pull request of yours has a card, also one that isn't in the Repos list (a PR you opened by hand, a
 repo taken out of the list): made from its pull requests, so it goes to its column like any other (only closed ones:
 Removed). Its stars (and contributors) are asked of POST /api/repos/counts once; until they come it shows – and comes
-last in its column. Its ⋯ has only the moves (none in Catalog: no ⋯ there).
+last in its column. Its ⋯ has the moves and Add to Removed (POST /api/repos/delete puts it there too), but no Add to
+Target in Catalog.
 A card: the owner's picture as its logo, with a thin ring saying whether the repo takes PRs like ours (the repos topic's
 policy, backend/app.py; its tooltip says why): red when its AI policy says no AI or its written rules say no outside PRs,
 green otherwise (AI welcome, allowed if disclosed, unclear or not mentioned), none while not read yet. Then owner/name, and under it in color: its stars (yellow), outside Prioritized and
@@ -41,8 +42,8 @@ Contributed in Prioritized and back; in Catalog Add to Target, in Target Remove 
 and Add to Target (or Add to Contributed); and outside Removed Delete, or Add to Removed for a repo
 with pull requests of yours (merged, closed or open), at once, with no "are you sure?" (POST /api/repos/delete): every
 agent working on the repo stops, and one with pull requests of yours goes to Removed, any other leaves the page and the
-list. A card with none of these has no ⋯. In Catalog a card also has a red trash button left of its ⋯ (with a border) that
-does that Delete (or Add to Removed) at once.
+list. In Catalog a card also has a red trash button left of its ⋯ (with a border) that does that Delete (or Add to
+Removed) at once.
 A card also moves by dragging it with the mouse between Prioritized and Contributed; the column it can go to lights up
 while it's dragged.
 A move, Add to or Remove from Target (POST /api/repos/move) or out of Removed shows at once, before the live feed has it
@@ -825,9 +826,6 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                 </h2>
                 <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
                   {column.cards.map((card) => {
-                    // Its ⋯ has a move, Remove from Target, or Delete or Add to Removed (and in Catalog Add to Target), or in Removed
-                    // the way back.
-                    const menu = column.moveTo !== "" || column.title === "Target" || column.removed || card.listed;
                     // Its contributors, outside Prioritized and Contributed: null when not known.
                     let people: number | null = null;
                     if (column.title !== "Prioritized" && column.title !== "Contributed") {
@@ -965,7 +963,7 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                           </div>
                         </div>
                         {/* Catalog's trash: its ⋯'s Delete (or Add to Removed), at once. title="": no tooltip (the card's name). */}
-                        {column.title === "Catalog" && card.listed && (
+                        {column.title === "Catalog" && (
                           <button
                             type="button"
                             title=""
@@ -976,68 +974,66 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                             <Trash2 className="size-3.5" />
                           </button>
                         )}
-                        {menu && (
-                          <DropdownMenu
-                            modal={false}
-                            open={menuOpen === card.repo.full_name}
-                            onOpenChange={(open) => setMenuOpen(open ? card.repo.full_name : null)}
-                          >
-                            <DropdownMenuTrigger asChild>
-                              {/* title="": no tooltip (the card's name) over the ⋯, its menu shows instead. */}
-                              <button
-                                type="button"
-                                title=""
-                                className="flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover-line data-[state=open]:bg-accent"
-                                aria-label={`Settings for ${card.repo.full_name}`}
-                                onPointerEnter={() => {
-                                  window.clearTimeout(closeTimer.current);
-                                  setMenuOpen(card.repo.full_name);
-                                }}
-                                onPointerLeave={() => {
-                                  closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
-                                }}
-                                onPointerDown={(event) => {
-                                  // The mouse opened it already: a click doesn't close it again.
-                                  event.preventDefault();
-                                }}
-                              >
-                                <MoreHorizontal className="size-4" />
-                              </button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                              align="end"
-                              sideOffset={0}
-                              onPointerEnter={() => window.clearTimeout(closeTimer.current)}
+                        <DropdownMenu
+                          modal={false}
+                          open={menuOpen === card.repo.full_name}
+                          onOpenChange={(open) => setMenuOpen(open ? card.repo.full_name : null)}
+                        >
+                          <DropdownMenuTrigger asChild>
+                            {/* title="": no tooltip (the card's name) over the ⋯, its menu shows instead. */}
+                            <button
+                              type="button"
+                              title=""
+                              className="flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover-line data-[state=open]:bg-accent"
+                              aria-label={`Settings for ${card.repo.full_name}`}
+                              onPointerEnter={() => {
+                                window.clearTimeout(closeTimer.current);
+                                setMenuOpen(card.repo.full_name);
+                              }}
                               onPointerLeave={() => {
                                 closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
                               }}
+                              onPointerDown={(event) => {
+                                // The mouse opened it already: a click doesn't close it again.
+                                event.preventDefault();
+                              }}
                             >
-                              {column.moveTo !== "" && (
-                                <DropdownMenuItem onSelect={() => move(card.repo.full_name, column.moveTo)}>Move to {column.moveTo}</DropdownMenuItem>
-                              )}
-                              {card.listed && column.title === "Catalog" && (
-                                <DropdownMenuItem onSelect={() => move(card.repo.full_name, "Target")}>Add to Target</DropdownMenuItem>
-                              )}
-                              {column.title === "Target" && (
-                                <DropdownMenuItem onSelect={() => move(card.repo.full_name, "Catalog")}>Remove from Target</DropdownMenuItem>
-                              )}
-                              {column.removed && card.merged === 0 && (
-                                <DropdownMenuItem onSelect={() => restore(card.repo.full_name, "Catalog")}>Add to Catalog</DropdownMenuItem>
-                              )}
-                              {column.removed && card.merged === 0 && (
-                                <DropdownMenuItem onSelect={() => restore(card.repo.full_name, "Target")}>Add to Target</DropdownMenuItem>
-                              )}
-                              {column.removed && card.merged > 0 && (
-                                <DropdownMenuItem onSelect={() => restore(card.repo.full_name, "Contributed")}>Add to Contributed</DropdownMenuItem>
-                              )}
-                              {card.listed && !column.removed && (
-                                <DropdownMenuItem variant="destructive" onSelect={() => deleteRepo(card.repo.full_name)}>
-                                  {card.merged + card.closed + card.open > 0 ? "Add to Removed" : "Delete"}
-                                </DropdownMenuItem>
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
+                              <MoreHorizontal className="size-4" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
+                            sideOffset={0}
+                            onPointerEnter={() => window.clearTimeout(closeTimer.current)}
+                            onPointerLeave={() => {
+                              closeTimer.current = window.setTimeout(() => setMenuOpen(null), 100);
+                            }}
+                          >
+                            {column.moveTo !== "" && (
+                              <DropdownMenuItem onSelect={() => move(card.repo.full_name, column.moveTo)}>Move to {column.moveTo}</DropdownMenuItem>
+                            )}
+                            {card.listed && column.title === "Catalog" && (
+                              <DropdownMenuItem onSelect={() => move(card.repo.full_name, "Target")}>Add to Target</DropdownMenuItem>
+                            )}
+                            {column.title === "Target" && (
+                              <DropdownMenuItem onSelect={() => move(card.repo.full_name, "Catalog")}>Remove from Target</DropdownMenuItem>
+                            )}
+                            {column.removed && card.merged === 0 && (
+                              <DropdownMenuItem onSelect={() => restore(card.repo.full_name, "Catalog")}>Add to Catalog</DropdownMenuItem>
+                            )}
+                            {column.removed && card.merged === 0 && (
+                              <DropdownMenuItem onSelect={() => restore(card.repo.full_name, "Target")}>Add to Target</DropdownMenuItem>
+                            )}
+                            {column.removed && card.merged > 0 && (
+                              <DropdownMenuItem onSelect={() => restore(card.repo.full_name, "Contributed")}>Add to Contributed</DropdownMenuItem>
+                            )}
+                            {!column.removed && (
+                              <DropdownMenuItem variant="destructive" onSelect={() => deleteRepo(card.repo.full_name)}>
+                                {card.merged + card.closed + card.open > 0 ? "Add to Removed" : "Delete"}
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     );
                   })}
