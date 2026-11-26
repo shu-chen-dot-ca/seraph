@@ -17,7 +17,8 @@ Resources is VMResources: copy files and folders between this computer and the V
 Settings is VMSettings. Fork (only while stopped) makes a new VM that starts as a copy of this one (ForkVMDialog).
 
 Desktops are connected only while they are on screen: closing the dialog, opening Resources or Settings, or filling
-the Overview with one desktop disconnects the others. The dialog opens on the Overview every time. Desktops exist only
+the Overview with one desktop disconnects the others. The dialog opens on the Overview every time: the grid, or, from
+#/vms/<name>?desktop=n (the Dashboard's Agents table), desktop n filling it. Desktops exist only
 while the VM runs; their addresses come from GET /api/vms/{name}/viewer?desktop=n, asked again (every 3 s) until the
 VM has them. A VM from a terminal-only image has no desktop: the Overview shows its terminal (ttyd, in an iframe).
 
@@ -56,7 +57,7 @@ const STATUS_TEXT: Record<string, string> = {
   missing: "Missing",
 };
 
-export default function VMPage(props: { name: string }) {
+export default function VMPage(props: { name: string; desktop: number | null }) {
   const vms = useLive("vms");
   const loaded = useLoaded("vms");
   const imagesData = useLive("images");
@@ -67,7 +68,7 @@ export default function VMPage(props: { name: string }) {
   // The VM has no desktop (a terminal-only image): desktopUrls[1] is its terminal.
   const [terminalOnly, setTerminalOnly] = useState(false);
   // The desktop clicked in the grid, filling the Overview, or null for the grid.
-  const [open, setOpen] = useState<number | null>(null);
+  const [open, setOpen] = useState<number | null>(props.desktop);
   const [viewerError, setViewerError] = useState("");
   // Bumped when the VM answers again after a while: a new key connects the desktops again.
   const [reload, setReload] = useState(0);

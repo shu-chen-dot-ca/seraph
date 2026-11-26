@@ -48,7 +48,8 @@ Under the top:
   VM's line, or for a VM while none takes agents: none running, or each suspended or shutting down), VM time (how
   long its agent held a VM desktop for the job: tests, builds and all it did there, counted since 11-20; jobs.py
   vm_seconds; Fix all's since it started), Tokens (all its agent used, in millions), Model (the Claude model it runs
-  on), and VM and desktop. What it is doing right now shows on hover. Agents with nothing to do don't show; queued jobs
+  on), and VM: the VM (opens its page) and Desktop n (opens the VM's page with that desktop filling it,
+  #/vms/<name>?desktop=n). What it is doing right now shows on hover. Agents with nothing to do don't show; queued jobs
   whose agent isn't on them yet are only counted in the header.
 Charts keep fixed heights; a line breaks where there is no number. Lines are drawn back to front by their layer, each
 with a thin edge in the card's color, so where two cross the one in front clearly covers the one behind. Big numbers are short: 1.2K, 3.4M,
@@ -130,15 +131,16 @@ const CHECKS: Record<string, [string, string]> = {
 
 // A row of the Agents table. target: its issue or pull request (url on GitHub), or what else it works on. wait: why it
 // waits ("" while it works). tokens: all its agent used (null: not an agent of ours). model: the Claude model it runs on.
-type AgentRow = { key: string; type: string; target: string; url: string | null; job: Job | null; wait: string; vmSeconds: number; tokens: number | null; model: string; vm: string; activity: string };
+type AgentRow = { key: string; type: string; target: string; url: string | null; job: Job | null; wait: string; vmSeconds: number; tokens: number | null; model: string; vm: string; desktop: number | null; activity: string };
 
 // A chart's line. pieces: its drawing (SVG paths), broken where a value is missing. right: on the chart's right axis.
 // stroke: dashed for a limit, dotted for a rate on the right axis, bar for bars instead of a line (Cost), behind every
 // line. layer: lines are drawn by it, the highest in front.
 type Line = { title: string; color: string; values: (number | null)[]; pieces: string[]; right: boolean; stroke: "solid" | "dashed" | "dotted" | "bar"; layer: number };
 
-// vm: the VM whose page is open in the dialog (#/vms/<name>), or null. vmsTab: the Virtual machines tab open.
-export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "images"; onOpenSettings: (section: string | null) => void; appButtons: ReactNode }) {
+// vm: the VM whose page is open in the dialog (#/vms/<name>), or null. vmDesktop: the desktop it opens on (?desktop=n).
+// vmsTab: the Virtual machines tab open.
+export default function Dashboard(props: { vm: string | null; vmDesktop: number | null; vmsTab: "vms" | "images"; onOpenSettings: (section: string | null) => void; appButtons: ReactNode }) {
   const prs = useLive("prs");
   const jobs = useLive("jobs");
   const vms = useLive("vms");
@@ -545,7 +547,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
     // The closed PRs agent: one row for all the merged and closed PRs it reads.
     if (agent.role === "closed_prs") {
       const open = jobs.filter((each) => each.agent === agent.id && (each.status === "working" || each.status === "queued")).length;
-      agentRows.push({ key: agent.id, type: "GitHub", target: `Closed PRs · ${open} PRs`, url: null, job: null, wait: wait, vmSeconds: 0, tokens: agent.tokens_used, model: agent.model, vm: "–", activity: agent.activity });
+      agentRows.push({ key: agent.id, type: "GitHub", target: `Closed PRs · ${open} PRs`, url: null, job: null, wait: wait, vmSeconds: 0, tokens: agent.tokens_used, model: agent.model, vm: "–", desktop: null, activity: agent.activity });
       continue;
     }
     let type = agent.role === "reviewer" ? "Review" : "Other";
@@ -559,14 +561,12 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
         url = `https://github.com/${repo}/issues/${number}`;
       }
     }
-    let vm = agent.vm ?? job?.vm ?? "–";
-    if (agent.vm !== null && agent.desktop !== null) {
-      vm += ` · ${agent.desktop}`;
-    }
-    agentRows.push({ key: agent.id, type: type, target: target, url: url, job: job ?? null, wait: wait, vmSeconds: job?.vm_seconds ?? 0, tokens: agent.tokens_used, model: agent.model, vm: vm, activity: agent.activity });
+    const vm = agent.vm ?? job?.vm ?? "–";
+    const desktop = agent.vm !== null ? agent.desktop : null;
+    agentRows.push({ key: agent.id, type: type, target: target, url: url, job: job ?? null, wait: wait, vmSeconds: job?.vm_seconds ?? 0, tokens: agent.tokens_used, model: agent.model, vm: vm, desktop: desktop, activity: agent.activity });
   }
   for (const name of activity.images) {
-    agentRows.push({ key: `image:${name}`, type: "Image", target: name, url: null, job: null, wait: "", vmSeconds: 0, tokens: null, model: activity.models.image, vm: "–", activity: `Changing ${name}'s image.yaml` });
+    agentRows.push({ key: `image:${name}`, type: "Image", target: name, url: null, job: null, wait: "", vmSeconds: 0, tokens: null, model: activity.models.image, vm: "–", desktop: null, activity: `Changing ${name}'s image.yaml` });
   }
   // The checks running now, a row each.
   for (const [what, count] of Object.entries(activity.checks)) {
@@ -577,7 +577,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
       if (what === "issue_titles" || what === "issue_starts") {
         model = activity.models[what] ?? model;
       }
-      agentRows.push({ key: `check:${what}:${i}`, type: type, target: role, url: null, job: null, wait: "", vmSeconds: 0, tokens: null, model: model, vm: "–", activity: "" });
+      agentRows.push({ key: `check:${what}:${i}`, type: type, target: role, url: null, job: null, wait: "", vmSeconds: 0, tokens: null, model: model, vm: "–", desktop: null, activity: "" });
     }
   }
   if (activity.fix_all !== null) {
@@ -593,6 +593,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
       tokens: null,
       model: activity.models.fix_all,
       vm: fixAll.vm,
+      desktop: null,
       activity: `Fixing ${fixAll.items} feedback items in ${fixAll.vm}`,
     });
   }
@@ -1225,7 +1226,20 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
                           {row.tokens === null ? "–" : `${(row.tokens / 1_000_000).toFixed(1)}M`}
                         </td>
                         <td className={cn(td, "text-xs text-muted-foreground")}>{row.model === "" ? "–" : (MODEL_NAMES[row.model] ?? row.model)}</td>
-                        <td className={cn(td, "font-mono text-xs text-muted-foreground tabular-nums")}>{row.vm}</td>
+                        <td className={cn(td, "text-xs text-muted-foreground tabular-nums")}>
+                          {row.vm === "–" && row.vm}
+                          {row.vm !== "–" && (
+                            <a href={`#/vms/${encodeURIComponent(row.vm)}`} className="hover:text-foreground hover:underline">
+                              {row.vm}
+                            </a>
+                          )}
+                          {row.vm !== "–" && row.desktop !== null && " · "}
+                          {row.vm !== "–" && row.desktop !== null && (
+                            <a href={`#/vms/${encodeURIComponent(row.vm)}?desktop=${row.desktop}`} className="hover:text-foreground hover:underline">
+                              Desktop {row.desktop}
+                            </a>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -1265,7 +1279,7 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
       >
         <DialogContent className="flex h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[95vw]" aria-describedby={undefined}>
           <DialogTitle className="sr-only">{props.vm}</DialogTitle>
-          {props.vm !== null && <VMPage name={props.vm} />}
+          {props.vm !== null && <VMPage name={props.vm} desktop={props.vmDesktop} />}
         </DialogContent>
       </Dialog>
     </div>

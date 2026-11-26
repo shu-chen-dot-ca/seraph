@@ -15,6 +15,7 @@ The page lives in the URL hash, so refresh and back/forward work and switching p
   #/ (Dashboard.tsx)
   #/vms?tab=images (the Dashboard on the Images tab of its Virtual machines)
   #/vms/<vm name> (the Dashboard with that VM's page, VMPage.tsx, open in a dialog)
+  #/vms/<vm name>?desktop=<n> (the same, with desktop n filling the VM page's Overview)
   #/agents/<agent id> (AgentChat.tsx, opened from the VM pages)
 Anything else (also no hash at all) opens the Dashboard. Links are plain <a href="#/..."> everywhere; App only reads the
 hash.
@@ -134,6 +135,11 @@ export default function App() {
   if (page === "vms" && id === null && vmsTabText === "images") {
     vmsTab = vmsTabText;
   }
+  // #/vms/vm1?desktop=2: the VM's page opens on desktop 2.
+  let vmDesktop: number | null = null;
+  if (page === "vms" && id !== null && query.get("desktop") !== null) {
+    vmDesktop = Number(query.get("desktop"));
+  }
 
   // Put the theme on <html>. System follows the OS, also when the OS switches while the app is open.
   useEffect(() => {
@@ -225,7 +231,7 @@ export default function App() {
       <div className="flex h-full flex-col">
         <main className="relative min-h-0 flex-1 overflow-hidden">
           {(page === "dashboard" || page === "vms") && (
-            <Dashboard vm={page === "vms" ? id : null} vmsTab={vmsTab} onOpenSettings={openSettings} appButtons={appButtons} />
+            <Dashboard vm={page === "vms" ? id : null} vmDesktop={vmDesktop} vmsTab={vmsTab} onOpenSettings={openSettings} appButtons={appButtons} />
           )}
           {page === "agents" && id !== null && <AgentChat key={id} agentId={id} />}
         </main>
