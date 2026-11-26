@@ -119,8 +119,10 @@ PR's reviewers (anyone else, a bot too, only when the merge needs it), in one co
 (agent/work_tools.py).
 A merged or closed thread's news never goes to its agent (archived then, above). It goes to the closed PRs agent as a
 follow_up job: the end alone is only noted on a job marked done; when someone wrote there, it reads it and does nothing,
-replies (draft_comment), opens an issue for more work, which a new agent takes (open_issue), or reopens a PR we closed
-ourselves (reopen_pr, which lets it reopen any agent's). It never works in a VM.
+replies (draft_comment), opens an issue for more work, which a new agent takes (open_issue), reopens a PR we closed
+ourselves (reopen_pr, which lets it reopen any agent's), or puts the repo in Removed when a maintainer closed ours over
+us rather than the change, a CLA, AI rules or an unfriendly reply, or wasn't nice to us on one they merged
+(remove_repo). It never works in a VM.
 
 Every PR draft is reviewed before it reaches the Inbox: give_review() hands each to its repo's own reviewer (record
 "role": "reviewer", "reviews": the repo, made the first time), which checks it the way the repo's maintainers will,
@@ -1589,6 +1591,12 @@ class Agents:
                 "- They report a bug in our change, or ask for more work: open_issue for it, and a new agent takes it and "
                 "fixes it. When the repo doesn't let you open issues, put it in the note.\n"
                 "- A PR we closed ourselves (close_pr), and the reason is gone now: reopen_pr, with a comment saying why.\n"
+                "- A maintainer closed a PR of ours over us rather than the change: a CLA the user doesn't sign, their AI "
+                "rules, they don't want more from us, or a reply that isn't friendly (rude, dismissive, a dig at the AI), "
+                "even when it ends with a thanks: remove_repo, and the repo goes to Removed. Not for a close about the change "
+                "itself (another PR fixed it, a duplicate, out of date).\n"
+                "- A maintainer merged a PR of ours but wasn't nice to us on it (rude, dismissive, a dig at the AI): "
+                "remove_repo too. Not for a strict or short review about the code.\n"
                 "You never work in a VM: anything that needs one goes to a new agent through open_issue."
             )
             self.notify(keeper.id, text)

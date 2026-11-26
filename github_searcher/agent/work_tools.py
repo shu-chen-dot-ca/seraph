@@ -98,6 +98,11 @@ The GitHub tools (github_tools.py) only read GitHub; these change what the user 
   (its newest pushes on a PR of its own: the branch goes back to a commit it had before one of them, only while nobody
   pushed since). A stalled PR of its own is made again as a fresh one: draft_pr with replaces (and every remake job,
   Agents.remake_pr, does it by itself); once the new one is on GitHub the old one is closed (github_account.py).
+- remove_repo, only for the closed PRs agent (agents.py follow_up): a maintainer closed a PR of ours over us rather than
+  the change (a CLA the user doesn't sign, their AI rules, no more from us, an unfriendly reply), or wasn't nice to us on
+  one they merged (the user: "remove already merged if they are not nice"), so the repo goes to the
+  Repositories page's Removed (repo_list.py set_removed) and every other agent's open job there stops, as Add to
+  Removed on the page does (backend/repos_api.py delete_repo).
 - report_problem puts anything that went wrong or could go better on the Feedback page (problems.py): the app's rules,
   tools and checks, GitHub errors, a VM that ran out of memory, a maintainer who was unhappy with us, an issue that was
   already taken. Fix problems (problem_fixes.py) works through them every day. Nobody answers it.
@@ -596,6 +601,18 @@ class WorkTools:
                 {"type": "object", "properties": {"pr": {"type": "string"}, "comment": {"type": "string"}}, "required": ["pr", "comment"]},
             )(self.reopen_pr),
             tool(
+                "remove_repo",
+                "Only for the agent that looks after closed PRs. Put a repo in Removed on the Repositories page when a "
+                "maintainer closed a PR of ours there (pr: owner/name#number, the one your follow-up is on) over us rather "
+                "than the change: a CLA the user doesn't sign, their AI rules, they don't want more from us, or a reply that "
+                "isn't friendly (rude, dismissive, a dig at the AI). Or when they merged it but weren't nice to us on it (the "
+                "same: rude, dismissive, a dig at the AI), even with a merge. Never for a close about the change itself "
+                "(another PR fixed it, a duplicate, out of date), nor for a strict or short review that is about the code. "
+                "No new work goes there, and every other agent's open job there stops. "
+                "reason: what the maintainer said, in a sentence or two.",
+                {"type": "object", "properties": {"pr": {"type": "string"}, "reason": {"type": "string"}}, "required": ["pr", "reason"]},
+            )(self.remove_repo),
+            tool(
                 "drop_commits",
                 "Take back your newest commits on a PR of yours (pr: owner/name#number): its branch goes back to back_to, a "
                 "commit it had before one of your pushes (the commit your earlier push ended on, or the PR's newest commit "
@@ -1011,6 +1028,8 @@ class WorkTools:
             return f"Taking back {args.get('pr')}"
         if name == "reopen_pr":
             return f"Reopening {args.get('pr')}"
+        if name == "remove_repo":
+            return f"Moving the repo of {args.get('pr')} to Removed: {(args.get('reason') or '')[:120]}"
         if name == "drop_commits":
             return f"Taking back the commits of {args.get('pr')} after {(args.get('back_to') or '')[:10]}"
         if name == "report_problem":
@@ -2097,6 +2116,42 @@ class WorkTools:
         except SendError as error:
             return {"content": [{"type": "text", "text": f"{pr}: {result} But the comment saying why didn't go: {error}"}], "is_error": True}
         return {"content": [{"type": "text", "text": f"{pr}: {result} Then posted why ({posted['url']})."}]}
+
+    async def remove_repo(self, args: dict) -> dict:
+        pr = args["pr"].strip()
+        if self.record["role"] != "closed_prs":
+            return {"content": [{"type": "text", "text": "Only the agent that looks after closed PRs moves a repo to Removed."}], "is_error": True}
+        reason = (args.get("reason") or "").strip()
+        if reason == "":
+            return {"content": [{"type": "text", "text": "reason is required: what the maintainer said, in a sentence or two."}], "is_error": True}
+        # Only the PR a follow-up of yours is on.
+        mine = []
+        for job in self.agents.jobs.for_agent(self.agent_id):
+            if job["status"] not in ["done", "cancelled"] and (job["thread"] or "").lower() == pr.lower():
+                mine.append(job["id"])
+        if not mine:
+            return {"content": [{"type": "text", "text": f"{pr} isn't the PR of an open follow-up of yours."}], "is_error": True}
+        # And one of ours, closed without a merge.
+        try:
+            tracking = json.loads((DATA_DIR / "pr_tracking.json").read_text())
+        except (OSError, ValueError):
+            return {"content": [{"type": "text", "text": "The PRs couldn't be read just now: try again in a minute."}], "is_error": True}
+        entry = None
+        for each in tracking.get("prs", {}).values():
+            if each["id"].lower() == pr.lower():
+                entry = each
+        if entry is None or entry["relation"] != "author" or entry["state"] not in ["closed", "merged"]:
+            return {"content": [{"type": "text", "text": f"{pr} isn't a PR of ours that is closed or merged."}], "is_error": True}
+        repo = entry["repo"]
+        # As Add to Removed on the page (backend/repos_api.py delete_repo): every open job there stops, but your own, so
+        # this turn isn't cut off.
+        others = []
+        for job in self.agents.jobs.list():
+            if (job["repo"] or "").lower() == repo.lower() and job["agent"] != self.agent_id:
+                others.append(job["id"])
+        await self.agents.stop_jobs(others, f"{repo} went to Removed")
+        self.agents.repos.set_removed([repo], True)
+        return {"content": [{"type": "text", "text": f"{repo} is in Removed now: no new work goes there. Mark {', '.join(mine)} done."}]}
 
     async def drop_commits(self, args: dict) -> dict:
         pr = args["pr"].strip()

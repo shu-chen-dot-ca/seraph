@@ -29,7 +29,8 @@ after that time (rejected: the top of Catalog). Agents take new issues from Targ
 (backend/issues_api.py take_from_catalog). Not undo steps either.
 removed is the repos with pull requests of the user's (merged, closed or open) deleted with Delete in the ⋯ of their
 card on that page: they stay, in its Removed section, stopped: no new work there, what is going finishes (set_removed,
-backend/repos_api.py). backend/issues_api.py, backend/repo_automation_api.py and agents.py act on it. Not an undo step
+backend/repos_api.py). The closed PRs agent puts one there too when a maintainer closed a PR of ours over us rather
+than the change (agent/work_tools.py remove_repo). backend/issues_api.py, backend/repo_automation_api.py and agents.py act on it. Not an undo step
 either.
 restored is the repos taken out of that Removed section with Add to Catalog, Add to Target or Add to Contributed in the
 ⋯ of their card (restore), each with when (the same format as target's): another chance. The page still puts a repo
