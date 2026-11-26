@@ -24,12 +24,11 @@ its share, counting the repos of that type already active in Repos (have), so th
 Automation (backend/automation_api.py) adds a new type before each run it starts (add_type: Claude names one more kind
 of software, unlike the ones there, and plans its searches), up to MAX_TYPES, so it looks wider each time; when the
 Include changed since the searches were planned, it plans them all again first (planned_for).
-Every search gets SEARCH_SUFFIX (not archived, pushed in the last 30 days) and runs most recently updated
-first, a page of 100 at a time: not most stars first, and no famous repos looked at first, so Explore doesn't start
-from fame. A search's stars keep to what the Include asks for, and never go to MIN_STARS or under (a lower bound
-under it is raised, a search with none gets one, and one whose upper bound is under it searches over it): MIN_STARS is
-the system's own floor, under whatever the Include says. It is for letting a repo in; one already in Repos is held to
-Automation's own (backend/automation_api.py).
+Every search gets SEARCH_SUFFIX (not archived, pushed in the last 30 days) and runs the most stars first, a page of
+100 at a time, so the best-known repos are looked at first: quality over quantity. A search's stars keep to what the
+Include asks for, and never go to MIN_STARS or under (a lower bound under it is raised, a search with none gets one,
+and one whose upper bound is under it searches over it): MIN_STARS is the system's own floor, under whatever the Include
+says. It is for letting a repo in; one already in Repos is held to Automation's own (backend/automation_api.py).
 
 What it skips before any heavy work: repos it already looked at in this run, repos in Repos or Tracked (archived ones
 too), repos already in the found list, and repos an earlier run checked and found not to fit (checked: kept in

@@ -62,12 +62,12 @@ def count_contributors(owner: str, repo: str) -> int | None:
 
 
 def search_repositories(q: str, page: int = 1) -> dict:
-    # Most recently updated first, not most stars, so Explore doesn't start from the famous repos. 100 a page.
+    # The most stars first, so Explore looks at the best-known repos first (quality over quantity). 100 a page.
     # GitHub gives at most 1,000 results (10 pages) for one query.
     response = BALANCER.request(
         "GET",
         "https://api.github.com/search/repositories",
-        params={"q": q, "sort": "updated", "order": "desc", "per_page": 100, "page": page},
+        params={"q": q, "sort": "stars", "order": "desc", "per_page": 100, "page": page},
     )
     response.raise_for_status()
     return response.json()
