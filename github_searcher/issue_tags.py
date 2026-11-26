@@ -63,8 +63,8 @@ requests the repo merged. The first that holds:
                       verdict (repo_signals.py) is closed: its contributing guide, PR template or maintainers say so in
                       writing (mastra: pull requests disabled for outside contributors); the numbers alone never count
                       (since 11-24). Or this issue's maintainers closed a pull request for it that looked AI-made
-                      (hydro#3281): ours would be too. For a repo in Target (repo_list.py) only its AI policy counts:
-                      the user picked it to take on.
+                      (hydro#3281): ours would be too. For a repo in Target (repo_list.py), or one that merged a PR of
+                      the user's, only its AI policy counts.
     large feature     a new subsystem, integration, driver or the like the maintainers would have to keep up
     big change        over BIG_LINES lines while the user has no merged pull request in the repo yet
     can't validate    our agent can't prove the fix works in its VM (long builds and tests are fine)
@@ -445,10 +445,11 @@ class IssueTags:
         signals = self.repo_signals.get(full_name)
         if signals is not None:
             # A repo already in the list counts as open unless it says otherwise in writing (the newcomer verdict,
-            # repo_signals.py): its numbers decided whether it got in (Explore), not what is taken there now.
+            # repo_signals.py): its numbers decided whether it got in (Explore), not what is taken there now. And one
+            # that merged a PR of ours is open to us, whatever it says about newcomers.
             if signals["ai_policy"]["tag"] == "no_ai":
                 closed = "the project doesn't accept AI-made contributions"
-            elif full_name.lower() in target:
+            elif full_name.lower() in target or merged > 0:
                 closed = ""
             elif (signals.get("newcomer_verdict") or {}).get("verdict") == "closed":
                 closed = "the project's own rules say it doesn't take outside contributors' pull requests"

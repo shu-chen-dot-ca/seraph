@@ -61,8 +61,9 @@ other numbers its issues' merge (issue_tags.py): only its AI policy does.
 
 keep_adding() runs in the background, every ADD_CHECK_SECONDS. For each repo in Repos (not archived, not one that
 doesn't take AI-made contributions: AI policy no_ai, repo_signals.py, not one closed to outside contributors: its
-newcomer verdict, whose issues are all No outside PRs, unless it is in Target, and not one at its Open PRs at once: HELD in
-backend/issues_api.py, whose issues can't be taken now, to save GitHub's quota) with Add issues on, column by column
+newcomer verdict (written rules only), whose issues are all No outside PRs, unless it is in Target or merged a PR of
+yours, and not one at its Open PRs at once: HELD in backend/issues_api.py, whose issues can't be taken now, to save
+GitHub's quota) with Add issues on, column by column
 (Prioritized, Target, Contributed, then Catalog; none of Removed; SCAN_AT_ONCE repos at the same time), it reads its
 newest open issues from GitHub, every
 ADD_REFRESH_SECONDS (at once after Add issues is turned on, or the backend starts): only those opened in the last
@@ -400,8 +401,14 @@ async def add_issues() -> None:
     # Nor a removed one (repo_list.py): no new work there.
     skipped += [name.lower() for name in repos.removed()]
     skipped += [name.lower() for name, each in repo_signals.all().items() if (each.get("ai_policy") or {}).get("tag") == "no_ai"]
+    # How many of your PRs each repo merged (lower case): once one is, it is open to us whatever it says about
+    # newcomers.
+    merged = {}
+    for pr in pr_tracking.summary()["items"]:
+        if pr["relation"] == "author" and pr["state"] == "merged":
+            merged[pr["repo"].lower()] = merged.get(pr["repo"].lower(), 0) + 1
     for name, each in repo_signals.all().items():
-        if (each.get("newcomer_verdict") or {}).get("verdict") == "closed" and name.lower() not in target:
+        if (each.get("newcomer_verdict") or {}).get("verdict") == "closed" and name.lower() not in target and merged.get(name.lower(), 0) == 0:
             skipped.append(name.lower())
     # Nor one at its Open PRs at once: its issues can't be taken now.
     skipped += HELD["repos"]
