@@ -643,6 +643,8 @@ export type Topics = {
     restored: Record<string, string>;
     contributors: Record<string, number | null>;
     ready: Record<string, number>; // issues worth doing waiting on the Issues board's Catalog, by name in lower case (none: never scanned)
+    // whether each repo takes PRs like ours, by name in lower case (none: not read yet), and why: the ring around its logo
+    policy: Record<string, { state: "yes" | "no"; why: string }>;
   };
   jobs: Job[];
   inbox: Draft[]; // only the approval requests still waiting: the Dashboard's Blockers card and dialog
@@ -661,7 +663,7 @@ export type Topics = {
 // `loaded` says which topics have arrived, for the few places that must tell "empty" from "not yet".
 const store = {
   topics: {
-    repos: { items: [], can_undo: false, can_redo: false, archived: [], removed: [], prioritized: [], target: {}, restored: {}, contributors: {}, ready: {} },
+    repos: { items: [], can_undo: false, can_redo: false, archived: [], removed: [], prioritized: [], target: {}, restored: {}, contributors: {}, ready: {}, policy: {} },
     jobs: [],
     inbox: [],
     prs: { items: [], issues: [], checked_at: null, error: null, refreshing: false },

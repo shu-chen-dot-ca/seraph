@@ -22,7 +22,9 @@ Every repo with a pull request of yours has a card, also one that isn't in the R
 repo taken out of the list): made from its pull requests, so it goes to its column like any other (only closed ones:
 Removed). Its stars (and contributors) are asked of POST /api/repos/counts once; until they come it shows – and comes
 last in its column. Its ⋯ has only the moves (none in Catalog: no ⋯ there).
-A card: the owner's picture as its logo, owner/name, and under it in color: its stars (yellow), outside Prioritized and
+A card: the owner's picture as its logo, with a thin ring saying whether the repo takes PRs like ours (the repos topic's
+policy, backend/app.py; its tooltip says why): red when its AI policy says no AI or its written rules say no outside PRs,
+green otherwise (AI welcome, allowed if disclosed, unclear or not mentioned), none while not read yet. Then owner/name, and under it in color: its stars (yellow), outside Prioritized and
 Contributed how many contributors it has (blue, a people icon: the number on its GitHub page, from the live repos topic,
 or for a card made from PRs asked of POST /api/repos/counts; none while not known), then of your pull
 requests there how many it merged (purple), closed without a merge (red) and are still open (green), then the issues in
@@ -831,6 +833,15 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                     if (column.title !== "Prioritized" && column.title !== "Contributed") {
                       people = repos.contributors[card.repo.full_name.toLowerCase()] ?? repoCounts[card.repo.full_name.toLowerCase()]?.contributors ?? null;
                     }
+                    // The ring around its logo: green when it takes PRs like ours, red when its rules say no, none while not
+                    // read yet.
+                    const policy = (repos.policy ?? {})[card.repo.full_name.toLowerCase()];
+                    let ring = "";
+                    if (policy?.state === "yes") {
+                      ring = "ring-1 ring-green-500";
+                    } else if (policy?.state === "no") {
+                      ring = "ring-1 ring-red-500";
+                    }
                     return (
                       <div
                         key={card.repo.full_name}
@@ -848,7 +859,8 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                           src={`https://github.com/${card.repo.full_name.split("/")[0]}.png?size=64`}
                           alt=""
                           draggable={false}
-                          className="size-8 shrink-0 rounded"
+                          title={policy?.why ?? card.repo.full_name}
+                          className={`size-8 shrink-0 rounded ${ring}`}
                         />
                         <div className="min-w-0 flex-1">
                           {/* The link is the text only. draggable false: dragging the name drags the card, not the link. title="": no
