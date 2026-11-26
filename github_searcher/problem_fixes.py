@@ -15,8 +15,9 @@ A run:
    in claude_models.py, at max effort, allowed everything in the VM) gets all the feedback at once (PROMPT). It runs
    there on its own (RUN), so the app restarting meanwhile (./run.sh reloads on every save) doesn't stop it: the run
    goes on with it when the app starts again (go_on). Its login
-   is CLAUDE_CODE_OAUTH_TOKEN_VM, a token of its own (secret_vault.py), handed to that one process on its stdin and
-   never written in the VM, so a leak there is undone by revoking it alone. It can run the tests, the build and the app
+   is CLAUDE_CODE_OAUTH_TOKEN_VM, a token of its own (secret_vault.py), so a leak there is undone by revoking it alone;
+   without one, the agents' Claude token in use (CLAUDE_CODE_OAUTH_TOKEN). Either is handed to that one process on its
+   stdin and never written in the VM. It can run the tests, the build and the app
    itself (SERAPH_CHECK=1 ./run.sh on the data copy: no agents, nothing acts). A terminal on the VM's desktop shows what
    it does (SHOW), to watch on the VM page. It answers which items it fixed, which need no change (closed at once, with
    why: a one-off, not a real problem) and why the others weren't fixed (ANSWER). Its commits come back here as a git
@@ -441,11 +442,11 @@ class ProblemFixes:
         if SELF_REPO == "":
             raise FixError("The app's own repo on GitHub isn't known: set SERAPH_REPO in .env.")
         token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN_VM", "").strip()
+        # Without a token of its own, the agents' one in use (Use in Settings → Secrets).
+        if token == "":
+            token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
         if open_problems and token == "":
-            raise FixError(
-                "Claude Code in Seraph's VM has no login: add Claude Code token (Fix all), a token from claude setup-token, "
-                "in Settings → Secrets."
-            )
+            raise FixError("Claude Code in Seraph's VM has no login: add a Claude token in Settings → Secrets.")
         # git acts as you on github.com (the token goes in an environment variable, never in a command line or a file).
         basic = base64.b64encode(f"x-access-token:{account['token']}".encode()).decode()
         git_env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_COUNT": "1"}

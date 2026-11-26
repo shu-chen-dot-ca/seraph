@@ -7,7 +7,7 @@ The secrets, and where each is on this computer:
 - CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN_2, ...: the agents' Claude logins (one per Claude account), in
   DATA_DIR/secrets.json. One of them is in use (below).
 - CLAUDE_CODE_OAUTH_TOKEN_VM: the Claude login of Fix all's Claude Code in Seraph's own VM (problem_fixes.py), in
-  DATA_DIR/secrets.json.
+  DATA_DIR/secrets.json. Without it, Fix all uses the agents' one in use.
 - GITHUB_SIGN_IN_TOKEN: your GitHub sign-in (github_account.py), the "token" of DATA_DIR/github_account.json.
 - GITHUB_APP_CLIENT_SECRET: the sign-in app's client secret, the "client_secret" of DATA_DIR/github_app.json.
 DATA_DIR/secrets.json is {name: value}, and only this computer's user may read it. is_token() tells the first three,
