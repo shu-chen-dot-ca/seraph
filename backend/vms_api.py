@@ -210,14 +210,17 @@ def start_vm(name: str) -> dict:
 
 @router.post("/vms/{name}/stop")
 def stop_vm(name: str) -> dict:
+    """The user's Shut down: it stays off until they start it (sandbox/vms.py shut_down)."""
     try:
-        vms.get(name)
+        record = vms.get(name)
     except VMsError as error:
         raise HTTPException(status_code=404, detail=str(error))
     try:
         vms.stop_in_background(name)
     except VMsError as error:
         raise HTTPException(status_code=409, detail=str(error))
+    record.shut_down = True
+    record.save()
     return {}
 
 

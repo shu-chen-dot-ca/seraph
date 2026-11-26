@@ -1516,17 +1516,19 @@ class Agents:
 
     def stop_job(self, job_id: str, why: str) -> None:
         """The app no longer wants this job done (backend/issues_api.py: its issue was deleted on GitHub, its repo left
-        Repos, or its repo doesn't take AI-made contributions). Its agent is told to stop and cancel it itself, once:
-        the notice on its timeline says so."""
+        Repos, or its repo doesn't take AI-made contributions). It is cancelled here, and its agent is told, once, to tidy
+        up after it: an agent left to cancel it itself may not (lgse/strata's job waited a week after its repo was
+        deleted, its PR draft with it). Its drafts still waiting are withdrawn by backend/repo_automation_api.py."""
         job = self.jobs.get(job_id)
-        told = [entry for entry in job["timeline"] if entry["kind"] == "notice" and entry["text"].endswith("told the agent to stop")]
-        if told or job["agent"] not in self.agents or job["status"] in ["done", "cancelled"]:
+        if job["status"] in ["done", "cancelled"]:
             return
-        self.jobs.add_timeline(job_id, "notice", f"{why.rstrip('.')}; told the agent to stop")
+        self.jobs.add_timeline(job_id, "status", f"Stopped by the app: {why.rstrip('.')}")
+        self.jobs.update(job_id, status="cancelled")
+        if job["agent"] not in self.agents:
+            return
         text = (
-            f"{why} Stop {job_id} ({job['title']}) now: cancel it with job_update (status cancelled) and a note saying "
-            "why, tidy up what you left for it in the VM, and release the VM if nothing else needs it. Draft nothing more "
-            "for it."
+            f"{why} The app cancelled {job_id} ({job['title']}). Tidy up what you left for it in the VM, and release the VM "
+            "if nothing else needs it. Draft nothing more for it."
         )
         self.notify(job["agent"], text)
 

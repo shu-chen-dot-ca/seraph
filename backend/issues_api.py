@@ -526,8 +526,8 @@ async def keep_catalog_agents() -> None:
 
 def stop_unwanted_jobs() -> None:
     """Open jobs on the board's issues that the app no longer wants done: their repo was deleted from Repos, or it
-    doesn't take AI-made contributions (AI policy no_ai). Each one's agent is told to stop and cancel it (Agents.stop_job),
-    once. An archived repo stays in Repos: its jobs go on. Never a job on an issue our agents opened: we never give one up."""
+    doesn't take AI-made contributions (AI policy no_ai). Each one is cancelled and its agent told to tidy up
+    (Agents.stop_job). An archived repo stays in Repos: its jobs go on. Never a job on an issue our agents opened: we never give one up."""
     ids = [item["id"] for item in issues.items()]
     opened = []
     for action in inbox.actions():

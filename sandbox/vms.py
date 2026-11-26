@@ -6,7 +6,7 @@ A VM is a resource, not tied to a repo or an agent. Each one is an Incus VM name
     DATA_DIR/vms/<name>.json   {"name", "incus_name", "image", "image_fingerprint", "cpus", "memory_gb",
                                 "disk_gb", "internet", "env", "on", "status",
                                 "created_at", "forked_from", "max_desktops", "desktops", "queue", "wants", "runs", "stepped_down_at",
-                                "traffic", "notes", "graceful_shutdown", "suspended"}
+                                "traffic", "notes", "graceful_shutdown", "suspended", "shut_down"}
 
 "desktops" has one entry per desktop, each {"number", "holder"}: its number (1 to MAX_DESKTOPS, sandbox/vm.py) and
 who uses it. In the record it is {number: {"holder"}}, lowest number first. A desktop keeps its number: removing one never renumbers the others, and a new one
@@ -73,6 +73,10 @@ it, so a restarted VM is a normal one again.
 
 "suspended" is the user's Suspend (the VM's band on the Dashboard): like a graceful shutdown, no agent new to it gets a
 desktop and the ones holding one go on, but it never shuts down. It stays until Resume, through stops and starts.
+
+"shut_down" is the user's Shut down: the VM stays off until they start it. Agents holding its desktops can't start it
+again (vm_start, sandbox/agent/tools.py): they did within seconds (11-26), so it could never be stopped to change its
+CPUs, memory or disk. Any start ends it.
 
 A rename (VMs.rename) only changes the record: the Incus VM keeps the name it was made with, so a running VM
 can be renamed too. A new VM whose Incus name is still taken that way gets a number after it (sandbox-vm1-2).
@@ -236,6 +240,8 @@ class VMRecord:
         self.graceful_shutdown = record.get("graceful_shutdown", False)
         # Suspend on (module docstring). Records from before it have none.
         self.suspended = record.get("suspended", False)
+        # The user's Shut down (module docstring). Records from before it have none.
+        self.shut_down = record.get("shut_down", False)
         # The agent holding the VM and the user may change the notes at the same time.
         self.notes_lock = threading.Lock()
         # Called after every save; VMs bumps its version there.
@@ -305,6 +311,7 @@ class VMRecord:
             "notes": list(self.notes),
             "graceful_shutdown": self.graceful_shutdown,
             "suspended": self.suspended,
+            "shut_down": self.shut_down,
         }
 
     def save(self) -> None:
@@ -414,6 +421,7 @@ class VMRecord:
             raise VMsError(f"{self.name} is busy")
         # A start (or restart) makes it a normal VM again.
         self.graceful_shutdown = False
+        self.shut_down = False
         try:
             if self.vm.status() == "Running":
                 self.status = "running"

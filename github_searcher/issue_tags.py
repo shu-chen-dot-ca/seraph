@@ -212,10 +212,12 @@ CHECKS = [
     ),
     (
         "validatable",
-        "Can our agent prove the fix works in its VM: build the project, see the problem (a failing test, an error or "
-        "wrong output, a wrong screen) or the missing behavior, then show it fixed with a test or a plain look? Long builds "
-        "and long test suites are fine. No when it needs a paid service, an account or an API key, or several machines, "
-        "or when nothing it can run or look at would show that it works. No too when the problem only shows under a "
+        "Can our agent fix the whole issue (every behavior it reports) in this repo and prove it in its VM: build the "
+        "project, see the problem (an error or wrong output, a wrong screen) or the missing behavior the way its users meet "
+        "it, then show it fixed the same way, by running the program, its server or its public functions, not only with "
+        "a test? Long builds and long test suites are fine. No when it needs a paid service, an account or an API key, or "
+        "several machines, when part of it can only be fixed in another repo, or when nothing it can run or look at would "
+        "show that it works. No too when the problem only shows under a "
         "machine-wide setting the agent may not change in a VM other agents share (a default-deny host firewall, kernel or "
         "network settings, system services).",
     ),

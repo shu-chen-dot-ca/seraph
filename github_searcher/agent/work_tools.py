@@ -179,7 +179,7 @@ from github_searcher.inbox import AUTOMATION_FILE
 from github_searcher.issue_tags import CHECKS, DATA_DIR, TAKEN_PR_DAYS
 from github_searcher.jobs import EVIDENCE_DIR
 from github_searcher.repo_signals import MAINTAINERS
-from github_searcher.search import get_contents, get_issue_in_full, get_issue_status, get_merged_prs, get_pr_status, get_readme, get_repository, get_tree, search_issues
+from github_searcher.search import get_contents, get_issue_in_full, get_issue_status, get_merged_prs, get_pr_status, get_readme, get_repository, get_review_feedback, get_tree, search_issues
 from sandbox.agent import long_runs
 from sandbox.agent.computer_use import Computer, ComputerError
 from sandbox.agent.tools import HIDE_MIN_LENGTH
@@ -282,27 +282,15 @@ GUIDE_LINK_WORDS = [
     "ai policy", "ai-policy", "ai_policy", "agent policy", "agent-policy", "agent_policy", "llm usage", "llm-usage", "llm_usage",
 ]
 GUIDE_PAGES = 5
-# Projects whose PRs a review bot rates by a public rubric, and the rating ours must reach: below it their maintainers
-# don't look (11-26: openclaw sorts its queue by ClawSweeper's rating). contributing_guide gives the rubric first, with
-# the bar, to the agent fixing the issue, the reviewer and the one following up the PR.
-RATING_RUBRICS = {
-    "openclaw/openclaw": {
-        "bot": "ClawSweeper",
-        "url": "https://raw.githubusercontent.com/openclaw/clawsweeper/main/prompts/review-item-pr.md",
-        "bar": (
-            "ClawSweeper reviews every PR here with the rubric below and rates it out of 6 for overall readiness, proof "
-            "confidence and patch quality, with a label: S challenger crab (6), A diamond lobster (5), B platinum hermit "
-            "(4), C gold shrimp (3), D silver shellfish (2), F unranked krab (1). Maintainers look at B and above, so a PR "
-            "of ours must reach B overall or better. From the rubric: a partial fix of its issue (Fix scope: Partial) is "
-            "capped at C whatever else; harness, replay or unit-only proof rarely beats C, and missing proof is F; proof "
-            "through the shipped entry point (the real openclaw CLI or a Gateway turn) with real media (screenshots of that "
-            "run) rates highest; changes to config loading, defaults, stored data, migrations, Doctor or a protocol need an "
-            "upgrade run from the latest stable release with settings and data intact; low-value tests lower patch quality; "
-            "A needs shipped-entry-point proof, no findings and no low-value tests. After its review, its Before merge, "
-            "Rank-up moves and Proof guidance are the to-do list, then `@clawsweeper re-review` once all of it is on the PR."
-        ),
-    },
-}
+# A project's review bots, learned from its latest finished PRs (contributing_guide): a bot that writes a review of at
+# least REVIEW_BOT_CHARS on REVIEW_BOT_SHARE of them or more. Its newest review of a merged PR is shown up to
+# REVIEW_BOT_SHOW_CHARS, of a closed one up to half that, and the labels on the PRs it reviewed, REVIEW_BOT_LABELS of each.
+REVIEW_BOT_CHARS = 2000
+REVIEW_BOT_SHARE = 0.4
+REVIEW_BOT_SHOW_CHARS = 12_000
+REVIEW_BOT_LABELS = 15
+# What contributing_guide shows, by version: an agent whose record has another reads every repo's rules again.
+GUIDE_VERSION = 2
 GUIDE_CHARS = 30_000
 GUIDE_TOTAL_CHARS = 120_000
 GUIDE_PART_CHARS = 40_000
@@ -332,8 +320,11 @@ class WorkTools:
         # restart doesn't make it read them again.
         self.pr_examples_read = set(record.get("pr_examples_read", []))
         # The repos (owner/name, lower case) whose rules for contributors it read with contributing_guide (every part).
-        # Kept in the record too, like pr_examples_read.
+        # Kept in the record too, like pr_examples_read, with the GUIDE_VERSION it read: when what the tool shows grows
+        # (its review bots, 11-26), every repo's rules are read once more.
         self.guides_read = set(record.get("guides_read", []))
+        if record.get("guides_version") != GUIDE_VERSION:
+            self.guides_read = set()
         # The last part of each repo's rules for contributors it read (owner/name, lower case): a call without a part
         # reads the next one, and part 1 again after the last.
         self.guide_parts = {}
@@ -2744,20 +2735,61 @@ class WorkTools:
                 text = re.sub(r"[ \t\r\f\v]+", " ", text)
                 text = re.sub(r"\n\s*\n+", "\n\n", text).strip()
             documents.append((f"{url} (web page)", text))
-        # A project whose PRs a review bot rates: its rubric and the bar first (RATING_RUBRICS).
-        rubric = RATING_RUBRICS.get(name.lower())
-        if rubric is not None:
-            title = f"How {rubric['bot']} rates every PR here, and the rating ours must reach ({rubric['url']})"
-            try:
-                response = await asyncio.to_thread(httpx.get, rubric["url"], follow_redirects=True, timeout=20)
-                response.raise_for_status()
-                documents.insert(0, (title, rubric["bar"] + "\n\nThe rubric:\n\n" + response.text))
-            except httpx.HTTPError as error:
-                documents.insert(0, (title, rubric["bar"] + f"\n\nThe rubric couldn't be read now ({error}): read it in the VM, curl -s {rubric['url']}."))
-
+        # How the project's review bots judge PRs, learned from its latest finished PRs, for any project: a bot that
+        # reviews most of them is how its maintainers sort PRs (openclaw's ClawSweeper rates every PR, and maintainers look
+        # only at well rated ones; ours were rated low for what its reviews say plainly: a partial fix, proof that went
+        # around the real program). Its newest reviews and the labels it left on merged and closed PRs show the bar.
+        try:
+            feedback = await asyncio.to_thread(get_review_feedback, owner, repo)
+            pulls = feedback["pullRequests"]["nodes"]
+        except (httpx.HTTPError, ValueError, TypeError, KeyError):
+            pulls = []
+        reviewed = {}
+        for pull in pulls:
+            # Each bot's longest note on the PR: its review, not its receipt.
+            longest = {}
+            for note in pull["comments"]["nodes"] + pull["reviews"]["nodes"]:
+                author = note["author"]
+                if author is None or (author["__typename"] != "Bot" and not author["login"].endswith("[bot]")):
+                    continue
+                if len(note["body"] or "") > len(longest.get(author["login"], "")):
+                    longest[author["login"]] = note["body"]
+            for login, body in longest.items():
+                if len(body) >= REVIEW_BOT_CHARS:
+                    reviewed.setdefault(login, []).append((pull, body))
+        for login, items in reviewed.items():
+            if len(items) < len(pulls) * REVIEW_BOT_SHARE:
+                continue
+            merged_labels = {}
+            closed_labels = {}
+            for pull, body in items:
+                for label in pull["labels"]["nodes"]:
+                    if pull["merged"]:
+                        merged_labels[label["name"]] = merged_labels.get(label["name"], 0) + 1
+                    else:
+                        closed_labels[label["name"]] = closed_labels.get(label["name"], 0) + 1
+            merged = [(pull, body) for pull, body in items if pull["merged"]]
+            closed = [(pull, body) for pull, body in items if not pull["merged"]]
+            lines = [
+                f"{login} reviewed {len(items)} of the {len(pulls)} PRs merged or closed here most recently: it is one of this "
+                "project's review bots, and maintainers go by what it says. Plan your PR to come out of its review as well as "
+                "the best merged ones: what it checks, rates and asks for is in its reviews below, and in the docs they and "
+                "the project's guides link to (read them). Its labels on the merged PRs show what they reached.",
+                "",
+                "Labels on the merged ones it reviewed: " + (", ".join(f"{name} ({count})" for name, count in sorted(merged_labels.items(), key=lambda each: -each[1])[:REVIEW_BOT_LABELS]) or "none"),
+                "Labels on the ones closed without merging: " + (", ".join(f"{name} ({count})" for name, count in sorted(closed_labels.items(), key=lambda each: -each[1])[:REVIEW_BOT_LABELS]) or "none"),
+            ]
+            if merged:
+                pull, body = merged[0]
+                lines += ["", f"--- Its newest review of a merged PR, #{pull['number']} ({pull['title']}) ---", body[:REVIEW_BOT_SHOW_CHARS]]
+            if closed:
+                pull, body = closed[0]
+                lines += ["", f"--- Its newest review of a PR closed without merging, #{pull['number']} ({pull['title']}) ---", body[:REVIEW_BOT_SHOW_CHARS // 2]]
+            documents.insert(0, (f"How {login} reviews PRs here (from its latest reviews)", "\n".join(lines)))
         if not documents and not folder_rules:
             self.guides_read.add(name.lower())
             self.record["guides_read"] = sorted(self.guides_read)
+            self.record["guides_version"] = GUIDE_VERSION
             text = (
                 f"{name} has no rules for contributors that could be found: no CONTRIBUTING, developer guide, PR template or "
                 "AGENTS.md in the repo, and no link to one in its README. Go by its README and its CI config (.github/workflows/)."
@@ -2816,6 +2848,7 @@ class WorkTools:
         # The last part: the guide is read.
         self.guides_read.add(name.lower())
         self.record["guides_read"] = sorted(self.guides_read)
+        self.record["guides_version"] = GUIDE_VERSION
         if left:
             lines.append("")
             lines.append("Too much to show at once, read these with read_files too: " + ", ".join(left))

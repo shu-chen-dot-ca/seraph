@@ -805,12 +805,14 @@ def count_earlier_prs(owner: str, repo: str, logins: list[str], before: str) -> 
 
 # What maintainers write on finished PRs, for repo_signals.py to have Claude judge the review atmosphere:
 # the 40 most recently updated merged or closed PRs (fewer for huge repos), with their comments, reviews and review line comments.
+# Their labels too, for contributing_guide's review bots (work_tools.py).
 REVIEW_FEEDBACK_QUERY = """
 query($owner: String!, $name: String!, $size: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequests(states: [MERGED, CLOSED], first: $size, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
         number title merged authorAssociation author { login __typename }
+        labels(first: 20) { nodes { name } }
         comments(first: 15) { nodes { body authorAssociation author { login __typename } } }
         reviews(first: 10) {
           nodes {

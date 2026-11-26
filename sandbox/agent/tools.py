@@ -621,6 +621,8 @@ class ComputerTools:
 
     async def vm_start(self, args: dict) -> dict:
         record = self.held_vm()
+        if record.shut_down:
+            raise ValueError(f"The user shut {record.name} down: leave it off until they start it. Pick another VM with vms_list and choose_vm when you need one now.")
         if await asyncio.to_thread(record.vm.status) == "Running":
             return {"content": [{"type": "text", "text": "The VM is already running."}]}
         await asyncio.to_thread(record.start)
