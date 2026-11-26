@@ -12,10 +12,12 @@ repository with its stars, the most starred first, with a link to each pull requ
 lines added (green) and removed (red). Pull requests of fewer than MIN_LINES lines (added and removed together) are left
 out of the table, but the totals count them (all of them, closed ones too), so the number matches GitHub's search. The
 table stops after MAX_SHOWN pull requests, in its own order; below it, a line says how many more there are (the small
-ones too), with a link to them on GitHub's search. Only the
+ones too), with a link to them on GitHub's search and then to the full list: FULL_LIST in Seraph's own repository, the
+same totals and table with every merged pull request in it, small ones too (not when Seraph's repository isn't
+known). Only the
 part between START and END changes; everything else in README.md
 stays as you wrote it. When nothing changed, nothing is committed. A README.md without both markers is left alone.
-Both are committed on the repository's default branch, as you: pull before you push Seraph's own.
+Both, and the full list, are committed on the repository's default branch, as you: pull before you push Seraph's own.
 
 The first time, when your profile repository isn't there yet, it is made, public, with a README.md that is FIRST_TEXT
 and the markers with the table between them.
@@ -35,6 +37,8 @@ MAX_PAGES = 10
 MAX_SHOWN = 50
 # Smaller pull requests (lines added and removed together) are left out of the table, not of the totals.
 MIN_LINES = 10
+# The full list, in Seraph's own repository.
+FULL_LIST = "docs/merged-prs.md"
 
 SEARCH_QUERY = """
 query($query: String!, $after: String) {
@@ -52,9 +56,9 @@ query($query: String!, $after: String) {
 """
 
 
-def table(your_repositories, login: str) -> str:
+def table(your_repositories, login: str) -> tuple[str, str]:
     """The totals line and the table, in Markdown: one row per repository with its stars, the most starred first, each
-    one's pull requests newest first."""
+    one's pull requests newest first. Returns the README's part and the full list (FULL_LIST)."""
     query = f"is:pr is:merged is:public author:{login} -user:{login}"
     nodes = []
     after = None
@@ -95,8 +99,19 @@ def table(your_repositories, login: str) -> str:
         removed = "$`\\color{red}\\textsf{-" + f"{node['deletions']:,}" + "}`$"
         repos[name]["lines"].append(added + " " + removed)
 
+    # The same for the full list, with every one of them.
+    full = {}
+    for node in nodes:
+        name = node["repository"]["nameWithOwner"]
+        if name not in full:
+            full[name] = {"url": node["repository"]["url"], "stars": node["repository"]["stargazerCount"], "links": [], "lines": []}
+        full[name]["links"].append(f"[#{node['number']}]({node['url']})")
+        added = "$`\\color{green}\\textsf{+" + f"{node['additions']:,}" + "}`$"
+        removed = "$`\\color{red}\\textsf{-" + f"{node['deletions']:,}" + "}`$"
+        full[name]["lines"].append(added + " " + removed)
+
     if not nodes:
-        return "No merged pull requests yet."
+        return "No merged pull requests yet.", "# Merged pull requests\n\nNo merged pull requests yet.\n"
     # Above the table, the totals of all of them, not only the ones shown. The empty line keeps the table from running
     # into it.
     seraph = "Seraph"
@@ -130,15 +145,27 @@ def table(your_repositories, login: str) -> str:
         links = "<br>".join(repo["links"][:room])
         changed = "<br>".join(repo["lines"][:room])
         lines.append(f"| [{name}]({repo['url']}) 🚀 | {repo['stars']:,} 🌟 | {links} | {changed} |")
-    # Below the table, how many more there are. The empty line keeps it out of the table.
+    # Below the table, how many more there are, and the link to the full list. The empty line keeps it out of the table.
     more = len(nodes) - shown
     if more > 0:
         more_prs = f"{more:,} more PRs"
         if more == 1:
             more_prs = "1 more PR"
         lines.append("")
-        lines.append(f"And [{more_prs}]({merged_url}).")
-    return "\n".join(lines)
+        if SELF_REPO != "":
+            lines.append(f"And {more_prs}, on [GitHub's search]({merged_url}) and in the [full list](https://github.com/{SELF_REPO}/blob/HEAD/{FULL_LIST}).")
+        else:
+            lines.append(f"And {more_prs}, on [GitHub's search]({merged_url}).")
+
+    # The full list: the same totals and table, with all of them.
+    full_lines = ["# Merged pull requests", "", totals, ""]
+    full_lines.append("| Repository 🚀 | Stars 🌟 | Merged PR | Lines changed |")
+    full_lines.append("| --- | --- | --- | --- |")
+    for name, repo in sorted(full.items(), key=lambda item: item[1]["stars"], reverse=True):
+        links = "<br>".join(repo["links"])
+        changed = "<br>".join(repo["lines"])
+        full_lines.append(f"| [{name}]({repo['url']}) 🚀 | {repo['stars']:,} 🌟 | {links} | {changed} |")
+    return "\n".join(lines), "\n".join(full_lines) + "\n"
 
 
 def update(your_repositories) -> str:
@@ -149,7 +176,8 @@ def update(your_repositories) -> str:
         return "Not signed in."
     login = account["login"]
     profile = f"{login}/{login}"
-    section = START + "\n" + table(your_repositories, login) + "\n" + END
+    part, full_list = table(your_repositories, login)
+    section = START + "\n" + part + "\n" + END
     # Seraph's own README shows the same table (its Merged upstream part). Not when the app's repo isn't known.
     repos = [profile]
     if SELF_REPO != "":
@@ -161,6 +189,22 @@ def update(your_repositories) -> str:
         if response.status_code == 404:
             response = client.post("/user/repos", json={"name": login, "private": False})
         response.raise_for_status()
+
+        # The full list first, in Seraph's own repository: both READMEs link to it.
+        if SELF_REPO != "":
+            response = client.get(f"/repos/{SELF_REPO}/contents/{FULL_LIST}")
+            body = {"message": "docs(readme): update the full list of merged pull requests", "content": base64.b64encode(full_list.encode()).decode()}
+            old = ""
+            if response.status_code != 404:
+                response.raise_for_status()
+                old = base64.b64decode(response.json()["content"]).decode()
+                body["sha"] = response.json()["sha"]
+            if old == full_list:
+                done.append(f"{SELF_REPO}'s {FULL_LIST} is up to date.")
+            else:
+                response = client.put(f"/repos/{SELF_REPO}/contents/{FULL_LIST}", json=body)
+                response.raise_for_status()
+                done.append(f"Updated {SELF_REPO}'s {FULL_LIST}.")
 
         for repo in repos:
             response = client.get(f"/repos/{repo}/contents/README.md")
