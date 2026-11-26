@@ -69,8 +69,11 @@ repositories is on, it keeps active_repos repos active (below). And while on:
 Only repos it archived are unarchived or get their PRs closed: one you archived stays yours.
 
 Add repositories (add_repos), with Manage repositories on or off: it keeps active_repos repos active (in Repos, not
-archived; MAX_ACTIVE at most). What Explore found goes into Repos at once, the best first: the best fit to the Include
-(strong, good, some; Explore's runs skip weak ones, EXPLORE_FILTERS), then the most PRs merged a day (Explore skips a
+archived; MAX_ACTIVE at most). What Explore found goes into Repos at once, the best first: quality over quantity, so
+the most respected first (explore.py STANDING_LEVELS: flagship, then established; Explore skips minor ones), then the
+famous ones (explore.py FAMOUS_STARS stars or more), then the best fit to the Include
+(strong, good, some; Explore's runs skip weak ones, EXPLORE_FILTERS), then the fastest to merge outside PRs (their
+median, in whole days; unknown as MAX_MEDIAN_DAYS_TO_MERGE), then the most PRs merged a day (Explore skips a
 repo under MIN_MERGED_PER_DAY, explore.py), then AI policy (welcome, disclose, none, unclear; never no_ai), then
 newcomers (welcomes, ok, few). Each comes with new_repos (AUTO_SETTINGS at first: every level of its Automation on, Add,
 Queue and Take issues, Questions, Comments and Pull requests), so agents take its issues and send their PRs as you once
@@ -129,7 +132,7 @@ from backend.issues_api import AUTO_REMOVE_FILE, AUTO_REMOVE_OFF, AUTOMATION_VER
 from backend.repo_automation_api import DEFAULTS, SETTINGS_FILE
 from backend.shared import agents, explore, github_account, inbox, issues, jobs, pr_tracking, repo_signals, repos
 from github_searcher.claude_models import COLUMN_MODELS
-from github_searcher.explore import FIT_LEVELS, MAX_MEDIAN_DAYS_TO_MERGE, MIN_ACTIVE_CONTRIBUTORS, MIN_CLOSED_PRS, MIN_CONTRIBUTORS, MIN_OPEN_ISSUES, MIN_STARS
+from github_searcher.explore import FAMOUS_STARS, FIT_LEVELS, MAX_MEDIAN_DAYS_TO_MERGE, MIN_ACTIVE_CONTRIBUTORS, MIN_CLOSED_PRS, MIN_CONTRIBUTORS, MIN_OPEN_ISSUES, MIN_STARS, STANDING_LEVELS
 from github_searcher.github_account import SendError
 from github_searcher.issue_tags import DATA_DIR
 
@@ -498,6 +501,14 @@ async def automate() -> None:
         # Only the AI policies the Explore dialog allows (never no_ai).
         if entry["ai_policy"] not in automation["ai_policies"]:
             continue
+        # The most respected first (explore.py STANDING_LEVELS; one found before it was judged after them), then the
+        # famous ones (FAMOUS_STARS or more).
+        standing = len(STANDING_LEVELS)
+        if entry.get("standing") in STANDING_LEVELS:
+            standing = STANDING_LEVELS.index(entry["standing"])
+        famous = 1
+        if entry["stars"] >= FAMOUS_STARS:
+            famous = 0
         # How well it matches the Include: strong first (explore.py FIT_LEVELS, the most first).
         fit = 0
         if entry.get("fit") in FIT_LEVELS:
@@ -507,11 +518,16 @@ async def automate() -> None:
             newcomers = NEWCOMERS_ORDER.index(entry["newcomers"])
         activity = (entry.get("signals") or {}).get("activity") or {}
         per_day = (activity.get("prs_merged_month") or 0) / 30
-        ranked.append((fit, -per_day, POLICY_ORDER.index(entry["ai_policy"]), newcomers, entry["name"]))
+        # The fastest to merge outside PRs first: their median, in whole days (unknown as the most Explore lets in).
+        days = MAX_MEDIAN_DAYS_TO_MERGE
+        median = (entry.get("signals") or {}).get("median_days_to_merge")
+        if median is not None:
+            days = round(median)
+        ranked.append((standing, famous, fit, days, -per_day, POLICY_ORDER.index(entry["ai_policy"]), newcomers, entry["name"]))
     ranked.sort()
     if room > 0 and ranked:
         notes = {entry["name"]: entry["note"] for entry in explore.found}
-        added = await explore.approve([each[4] for each in ranked[:room]])
+        added = await explore.approve([each[7] for each in ranked[:room]])
         settings = {}
         if SETTINGS_FILE.is_file():
             settings = json.loads(SETTINGS_FILE.read_text())
