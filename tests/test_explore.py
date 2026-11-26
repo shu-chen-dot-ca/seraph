@@ -35,6 +35,8 @@ GOOD_REPO = {
     "commits_30d": 25,
     "outside_merged_90d": 12,
     "outside_merge_rate": 0.7,
+    "median_days_to_merge": 3.0,
+    "active_contributors": 20,
     "median_days_to_first_reply": 1.5,
     "pr_window_days": 90,
     "active_mergers_30d": 3,
@@ -148,6 +150,8 @@ def repos(tmp_path, monkeypatch):
         ({"merged_prs_total": 600, "closed_prs_total": 500}, "Many PRs closed unmerged"),
         # 2 a month is under 0.1 a day.
         ({"activity": {**GOOD_ACTIVITY, "prs_merged_month": 2}}, "Merges under 0.1 PR a day"),
+        ({"median_days_to_merge": 14.5}, "Merges take over 14 days"),
+        ({"active_contributors": 4}, "Under 5 active contributors"),
         ({"newcomers": {"tag": "turned_away"}}, "Turns newcomers away"),
         ({"newcomers": {"tag": "left_waiting"}}, "Leaves newcomers waiting"),
     ],

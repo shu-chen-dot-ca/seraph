@@ -43,7 +43,8 @@ allows, which the signals use most: MAX_WORKERS with it full, fewer as it goes d
    found list to them too. Skipped too if it is archived or a fork, nothing was committed in 30 days, no outside contributor's PR was merged
    in 90 days, most outside PRs are closed unmerged (under MIN_MERGE_RATE), MAX_CLOSED_SHARE or more of all its PRs
    ever were closed without a merge (closed / all), it merges fewer than MIN_MERGED_PER_DAY PRs a day (anyone's, the
-   monthly average over 90 days), or newcomers' first PRs are turned away or left waiting (repo_signals.py's newcomers
+   monthly average over 90 days), outside PRs take over MAX_MEDIAN_DAYS_TO_MERGE days to merge (their median; unknown
+   passes), fewer than MIN_ACTIVE_CONTRIBUTORS people opened a PR in 30 days, or newcomers' first PRs are turned away or left waiting (repo_signals.py's newcomers
    tag): a PR of yours would likely go nowhere there. A slow first reply alone (over a week) doesn't skip a repo;
 3. at the same time, Claude reads its AI policy and its review atmosphere (repo_signals.complete), and its
    README against SYSTEM_PROMPT and the Include and Exclude (claude_judge.py): is it a project people contribute code
@@ -258,6 +259,11 @@ MAX_CLOSED_SHARE = 0.4
 # PRs merged a day, anyone's: under this, a PR of ours would wait too long there (the Automation archives a repo that
 # leaves one open over 10 business days), and Explore skips it.
 MIN_MERGED_PER_DAY = 0.1
+# Outside PRs that take longer than this to merge (their median, repo_signals.py): a PR of ours would wait weeks there
+# (11-25: ilai-deutel/kibi took 32 days, RHVoice 41, and the user closed ours unanswered).
+MAX_MEDIAN_DAYS_TO_MERGE = 14
+# Fewer people than this opened a PR in 30 days (repo_signals.py active_contributors): a few people's project.
+MIN_ACTIVE_CONTRIBUTORS = 5
 # Why a repo didn't fit that holds for every run, so it is kept as checked and never gone over again.
 KEPT_REASONS = [
     "10k stars or fewer",
@@ -271,6 +277,8 @@ KEPT_REASONS = [
     "Most outside PRs closed unmerged",
     "Many PRs closed unmerged",
     "Merges under 0.1 PR a day",
+    "Merges take over 14 days",
+    "Under 5 active contributors",
     "Turns newcomers away",
     "Leaves newcomers waiting",
     "No AI",
@@ -899,6 +907,10 @@ class Explore:
                 reason = "Many PRs closed unmerged"
             elif signals["activity"]["prs_merged_month"] / 30 < MIN_MERGED_PER_DAY:
                 reason = "Merges under 0.1 PR a day"
+            elif signals["median_days_to_merge"] is not None and signals["median_days_to_merge"] > MAX_MEDIAN_DAYS_TO_MERGE:
+                reason = "Merges take over 14 days"
+            elif signals["active_contributors"] < MIN_ACTIVE_CONTRIBUTORS:
+                reason = "Under 5 active contributors"
             elif signals["newcomers"]["tag"] == "turned_away":
                 reason = "Turns newcomers away"
             elif signals["newcomers"]["tag"] == "left_waiting":
