@@ -1,6 +1,6 @@
 """Finding repos (github_searcher/explore.py) and the lists they go into (github_searcher/repo_list.py): which repos
 Explore skips before any heavy work, which it keeps out for good (Explore's minimums, the numbers that say a PR of ours
-would go nowhere, the quick look's verdict), how the run's filters work, how searches stay over 1k stars, how the
+would go nowhere, the quick look's verdict), how the run's filters work, how searches stay over 10k stars, how the
 profile's types share the finds, and the Repos list's undo, redo, tags and archive.
 
 Claude, GitHub and the signals are fakes with hand-made answers; the closer look (Claude Code with tools) is never
@@ -20,7 +20,7 @@ from github_searcher.repo_list import SAVED_STEPS, RepoList
 # A repo that passes every minimum: its numbers as repo_signals.fetch(judged=False) gives them.
 GOOD_ACTIVITY = {"prs_opened_month": 40, "prs_merged_month": 30, "issues_opened_month": 30, "commits_month": 25, "trend": "flat"}
 GOOD_REPO = {
-    "stars": 4000,
+    "stars": 40000,
     "description": "Checks data files",
     "topics": ["cli"],
     "language": "Rust",
@@ -81,7 +81,7 @@ def answers(monkeypatch):
         "searches": [],
     }
 
-    async def judge(prompt, schema, effort):
+    async def judge(prompt, schema, effort, kind=None):
         if "types" in schema["properties"]:
             return answers["plan"]
         if "queries" in schema["properties"]:
@@ -135,7 +135,7 @@ def repos(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     "change, reason",
     [
-        ({"stars": 1000}, "1k stars or fewer"),
+        ({"stars": 10000}, "10k stars or fewer"),
         ({"contributors_total": 39}, "Under 40 contributors"),
         ({"merged_prs_total": 300, "closed_prs_total": 100}, "400 closed PRs or fewer"),
         ({"open_issues_total": 10}, "10 open issues or fewer"),
@@ -323,16 +323,18 @@ def test_a_repo_two_searches_find_is_looked_at_once(finder):
     assert finder.run["looked_at"] == 2
 
 
-def test_searches_never_go_to_1k_stars_or_under(finder, answers):
-    queries = ["topic:cli stars:500..15000", "topic:cli language:Rust", "topic:cli stars:2000..9000"]
+def test_searches_never_go_to_10k_stars_or_under(finder, answers):
+    queries = ["topic:cli stars:500..15000", "topic:cli language:Rust", "topic:cli stars:2000..9000", "topic:cli stars:20000..90000"]
     finder.run_profile = {"include": "", "exclude": "", "lanes": [{"id": "cli", "label": "CLI", "about": "", "share": 100, "queries": queries}]}
     finder.cursors = {"cli": {"pending": [], "query": 0, "page": 1}}
 
     assert asyncio.run(finder.next_candidate("cli")) is None
 
-    assert answers["searches"][0].startswith("topic:cli stars:1001..15000 archived:false pushed:>")
-    assert answers["searches"][1].endswith(" stars:>1000")
-    assert answers["searches"][2].startswith("topic:cli stars:2000..9000 archived:false pushed:>")
+    assert answers["searches"][0].startswith("topic:cli stars:10001..15000 archived:false pushed:>")
+    assert answers["searches"][1].endswith(" stars:>10000")
+    # Its upper bound is under the floor too: it searches over it.
+    assert answers["searches"][2].startswith("topic:cli stars:>10000 archived:false pushed:>")
+    assert answers["searches"][3].startswith("topic:cli stars:20000..90000 archived:false pushed:>")
 
 
 @pytest.mark.parametrize(

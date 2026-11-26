@@ -27,7 +27,9 @@ Include changed since the searches were planned, it plans them all again first (
 Every search gets SEARCH_SUFFIX (not archived, pushed in the last 30 days) and runs most recently updated
 first, a page of 100 at a time: not most stars first, and no famous repos looked at first, so Explore doesn't start
 from fame. A search's stars keep to what the Include asks for, and never go to MIN_STARS or under (a lower bound
-under it is raised, a search with none gets one): MIN_STARS is the system's own floor, under whatever the Include says.
+under it is raised, a search with none gets one, and one whose upper bound is under it searches over it): MIN_STARS is
+the system's own floor, under whatever the Include says. It is for letting a repo in; one already in Repos is held to
+Automation's own (backend/automation_api.py).
 
 What it skips before any heavy work: repos it already looked at in this run, repos in Repos or Tracked (archived ones
 too), repos already in the found list, and repos an earlier run checked and found not to fit (checked: kept in
@@ -38,8 +40,8 @@ allows, which the signals use most: MAX_WORKERS with it full, fewer as it goes d
 1. its numbers (repo_signals.py: a few GitHub calls, no Claude yet);
 2. skipped if it falls short of the minimums, so no personal repo gets in: over MIN_STARS stars, MIN_CONTRIBUTORS
    contributors or more (everyone who ever contributed; not known for a huge history, which passes), over
-   MIN_CLOSED_PRS closed PRs (merged or not) and over MIN_OPEN_ISSUES open issues. Automation (backend/automation_api.py) holds every
-   repo in Repos and the found list to them too. Skipped too if it is archived or a fork, nothing was committed in 30 days, no outside contributor's PR was merged
+   MIN_CLOSED_PRS closed PRs (merged or not) and over MIN_OPEN_ISSUES open issues. Automation (backend/automation_api.py) holds the
+   found list to them too. Skipped too if it is archived or a fork, nothing was committed in 30 days, no outside contributor's PR was merged
    in 90 days, most outside PRs are closed unmerged (under MIN_MERGE_RATE), MAX_CLOSED_SHARE or more of all its PRs
    ever were closed without a merge (closed / all), it merges fewer than MIN_MERGED_PER_DAY PRs a day (anyone's, the
    monthly average over 90 days), or newcomers' first PRs are turned away or left waiting (repo_signals.py's newcomers
@@ -242,9 +244,11 @@ UNREACHABLE = (httpx.ConnectError, httpx.ConnectTimeout)
 # level again: the frontend's FIT_LEVELS has the same steps).
 FIT_LEVELS = {"strong": 1.0, "good": 0.75, "some": 0.5, "weak": 0.25}
 MAX_TYPES = 30
-# The minimums, so no personal repo gets in: stars (over), contributors (at least), closed PRs, merged or not (over), open
-# issues (over).
-MIN_STARS = 1000
+# The minimums, so only respected projects get in: stars (over), contributors (at least), closed PRs, merged or not
+# (over), open issues (over). FAMOUS_STARS or more: the best-known ones, first everywhere (Automation's adding, the
+# agents' Catalog: backend/issues_api.py).
+MIN_STARS = 10000
+FAMOUS_STARS = 100000
 MIN_CONTRIBUTORS = 40
 MIN_CLOSED_PRS = 400
 MIN_OPEN_ISSUES = 10
@@ -257,7 +261,7 @@ MAX_CLOSED_SHARE = 0.4
 MIN_MERGED_PER_DAY = 0.1
 # Why a repo didn't fit that holds for every run, so it is kept as checked and never gone over again.
 KEPT_REASONS = [
-    "1k stars or fewer",
+    "10k stars or fewer",
     "Under 40 contributors",
     "400 closed PRs or fewer",
     "10 open issues or fewer",
@@ -514,10 +518,10 @@ class Explore:
             f"The types of project they want, by name:\n{type_lines}\n\n"
             "For each type, by its name:\n"
             "- queries: 3 to 8 GitHub repository searches (the q of GET /search/repositories), most promising first, "
-            'like "topic:mcp stars:>1000" or "stars:>5000 good-first-issues:>2 language:Python". Use '
+            'like "topic:mcp stars:>10000" or "stars:>50000 good-first-issues:>2 language:Python". Use '
             "qualifiers (topic:, language:, stars:, good-first-issues:, help-wanted-issues:, in:description); more than "
             "a few words of plain text finds little. Each returns up to 1000 repos, most recently updated first. Keep "
-            "to the stars they want; never 1k or fewer (personal projects). "
+            "to the stars they want; never 10k or fewer. "
             '"archived:false pushed:>(30 days ago)" is added to each, so leave those out.'
         )
         try:
@@ -568,10 +572,10 @@ class Explore:
             "name: a short plain name (2 or 3 words).\n"
             "about: one or two sentences on what it is and how a fix there is seen and checked.\n"
             "queries: 3 to 8 GitHub repository searches (the q of GET /search/repositories), most promising first, "
-            'like "topic:mcp stars:>1000" or "stars:>5000 good-first-issues:>2 language:Python". Use '
+            'like "topic:mcp stars:>10000" or "stars:>50000 good-first-issues:>2 language:Python". Use '
             "qualifiers (topic:, language:, stars:, good-first-issues:, help-wanted-issues:, in:description); more than "
             "a few words of plain text finds little. Each returns up to 1000 repos, most recently updated first. Keep to "
-            "the stars they want; never 1k or fewer (personal projects). "
+            "the stars they want; never 10k or fewer. "
             '"archived:false pushed:>(30 days ago)" is added to each, so leave those out.'
         )
         answer = await judge(prompt, TYPE_SCHEMA, "medium", "explore_type")
@@ -822,9 +826,12 @@ class Explore:
                 return None
             since = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y-%m-%d")
             q = f"{queries[cursor['query']]} {SEARCH_SUFFIX.format(since=since)}"
-            # Never MIN_STARS stars or fewer: a lower bound under it is raised, a search with none gets one.
+            # Never MIN_STARS stars or fewer: a lower bound under it is raised, a search with none gets one, and one
+            # whose upper bound is under it too searches over it.
             bounds = re.search(r"stars:(\d+)\.\.(\d+)", q)
-            if bounds is not None and int(bounds.group(1)) <= MIN_STARS:
+            if bounds is not None and int(bounds.group(2)) <= MIN_STARS:
+                q = q.replace(bounds.group(0), f"stars:>{MIN_STARS}")
+            elif bounds is not None and int(bounds.group(1)) <= MIN_STARS:
                 q = q.replace(bounds.group(0), f"stars:{MIN_STARS + 1}..{bounds.group(2)}")
             if "stars:" not in q:
                 q += f" stars:>{MIN_STARS}"
@@ -872,7 +879,7 @@ class Explore:
             total = signals["open_prs_total"] + signals["merged_prs_total"] + signals["closed_prs_total"]
             reason = ""
             if signals["stars"] <= MIN_STARS:
-                reason = "1k stars or fewer"
+                reason = "10k stars or fewer"
             elif signals["contributors_total"] is not None and signals["contributors_total"] < MIN_CONTRIBUTORS:
                 reason = "Under 40 contributors"
             elif signals["merged_prs_total"] + signals["closed_prs_total"] <= MIN_CLOSED_PRS:
