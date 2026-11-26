@@ -142,6 +142,8 @@ SCAN_SECONDS = 10
 SAMPLES_KEPT = 60
 # Disk use is read inside the VM (df), so not every second.
 DISK_SECONDS = 30
+# Memory use too (/proc/meminfo).
+MEMORY_SECONDS = 5
 # How often an idle VM's file cache is emptied (read_usage).
 CACHE_SECONDS = 5 * 60
 # Internet use is read inside the VM too. Bytes counted between the last read and a reboot are lost,
@@ -266,7 +268,8 @@ class VMRecord:
         self.last_cpu: tuple[int, float] | None = None
         # The last disk reading (GB used, time read).
         self.last_disk: tuple[float, float] | None = None
-        # When the VM's file cache was last emptied (time.monotonic).
+        # The last memory reading (GB used, time read), and when the VM's file cache was last emptied (time.monotonic).
+        self.last_memory: tuple[float, float] | None = None
         self.cache_dropped_at = 0.0
         # When the internet counters were last asked for, and last read; the speed (bytes a second) between two reads.
         self.traffic_tried_at: float | None = None
@@ -496,6 +499,7 @@ class VMRecord:
         if state is None or state["status"] != "Running":
             self.last_cpu = None
             self.last_disk = None
+            self.last_memory = None
             self.traffic_tried_at = None
             self.traffic_read_at = None
             self.net_down_rate = None
@@ -521,7 +525,19 @@ class VMRecord:
             cpu_percent = (cpu_ns - self.last_cpu[0]) / (seconds * 1e9 * self.cpus) * 100
             cpu_percent = max(0.0, min(100.0, cpu_percent))
         self.last_cpu = (cpu_ns, now)
+        # Incus counts the VM's file cache as used (MemTotal - MemFree): after a build vm1 showed 16 GiB while its
+        # programs used 4. What is really used is MemTotal - MemAvailable, read inside the VM every MEMORY_SECONDS.
         memory_used_gb = state["memory"]["usage"] / 1024**3
+        if self.last_memory is not None:
+            memory_used_gb = self.last_memory[0]
+        if responding and (self.last_memory is None or now - self.last_memory[1] > MEMORY_SECONDS):
+            # Noted even when it fails, so a VM that doesn't answer yet is asked again later, not every second.
+            self.last_memory = (memory_used_gb, now)
+            result = self.vm.exec_root("awk '/^MemTotal:|^MemAvailable:/ {print $2}' /proc/meminfo", 10)
+            numbers = result.stdout.split()
+            if result.returncode == 0 and len(numbers) == 2:
+                memory_used_gb = (int(numbers[0]) - int(numbers[1])) / 1024**2
+                self.last_memory = (memory_used_gb, now)
         # With no run going, the file cache the builds and tests left is emptied every CACHE_SECONDS, so its pages go
         # back to this machine (vm.FREE_PAGE_REPORTING) instead of staying with an idle VM.
         if responding and not self.runs and now - self.cache_dropped_at > CACHE_SECONDS:
