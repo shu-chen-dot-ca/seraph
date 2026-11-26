@@ -51,12 +51,15 @@ Under the top:
   on), and VM: the VM (opens its page) and Desktop n (opens the VM's page with that desktop filling it,
   #/vms/<name>?desktop=n). What it is doing right now shows on hover. Agents with nothing to do don't show; queued jobs
   whose agent isn't on them yet are only counted in the header.
+- Opened and Merged and closed, side by side at the bottom: your pull requests opened in the range, and those merged
+  or closed in it (purple merged, red closed), newest first, each with its time and its repository's logo, name, number
+  and title, which open that pull request on GitHub. Each scrolls on its own past about a dozen rows.
 Charts keep fixed heights; a line breaks where there is no number. Lines are drawn back to front by their layer, each
 with a thin edge in the card's color, so where two cross the one in front clearly covers the one behind. Big numbers are short: 1.2K, 3.4M,
 and dollars $0.05, $412, $1.23K.
 */
 
-import { Plus, Settings } from "lucide-react";
+import { GitMerge, GitPullRequest, GitPullRequestClosed, Plus, Settings } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
@@ -604,6 +607,21 @@ export default function Dashboard(props: { vm: string | null; vmDesktop: number 
   if (queued > 0) {
     agentsDetail.push(`${queued} queued`);
   }
+
+  // Opened: your pull requests opened in the range, newest first. Merged and closed: those merged or closed in it.
+  const openedList = mine.filter((pr) => {
+    const at = new Date(pr.opened_at).getTime();
+    return at >= start && at < end;
+  });
+  openedList.sort((a, b) => new Date(b.opened_at).getTime() - new Date(a.opened_at).getTime());
+  const finishedList = mine.filter((pr) => {
+    if (pr.state === "open" || pr.closed_at === null) {
+      return false;
+    }
+    const at = new Date(pr.closed_at).getTime();
+    return at >= start && at < end;
+  });
+  finishedList.sort((a, b) => new Date(b.closed_at ?? 0).getTime() - new Date(a.closed_at ?? 0).getTime());
 
   // The Pull requests chart's y axis, a log scale: 0, then 1, 3, 10, 30, ... up to the first at or over the highest.
   let highest = 1;
@@ -1245,6 +1263,99 @@ export default function Dashboard(props: { vm: string | null; vmDesktop: number 
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className={WIDGET}>
+              <div className={WIDGET_HEADER}>
+                <button type="button" className={TITLE} onClick={() => setReposTab("open")}>
+                  Opened
+                </button>
+                <span className={DETAIL}>{range.title}</span>
+              </div>
+              <div className="max-h-[30rem] overflow-y-auto">
+                <table className="w-full">
+                  <thead className="sticky top-0 bg-card">
+                    <tr>
+                      <th className={cn(th, "w-px")}>Time</th>
+                      <th className={th}>Pull request</th>
+                    </tr>
+                  </thead>
+                  <tbody className="[&>tr:last-child>td]:border-b-0">
+                    {openedList.length === 0 && (
+                      <tr>
+                        <td colSpan={2} className={cn(td, "text-muted-foreground")}>
+                          No pull requests opened.
+                        </td>
+                      </tr>
+                    )}
+                    {openedList.map((pr) => (
+                      <tr key={pr.id} className="hover:bg-accent/40">
+                        <td className={cn(td, "font-mono text-xs text-muted-foreground tabular-nums")}>
+                          {new Date(pr.opened_at).toLocaleString("en", DATE_TIME)}
+                        </td>
+                        <td className={cn(td, "max-w-0")}>
+                          <a href={pr.url} target="_blank" rel="noreferrer" title={pr.title} className="group flex min-w-0 items-center gap-2">
+                            <GitPullRequest className={cn("size-4 shrink-0", OPENED)} />
+                            <img src={`https://github.com/${pr.repo.split("/")[0]}.png?size=32`} alt="" className="size-4 shrink-0 rounded-sm" />
+                            <span className="shrink-0 group-hover:underline">
+                              {pr.repo} <span className="font-mono tabular-nums">#{pr.number}</span>
+                            </span>
+                            <span className="truncate text-muted-foreground">{pr.title}</span>
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className={WIDGET}>
+              <div className={WIDGET_HEADER}>
+                <button type="button" className={TITLE} onClick={() => setReposTab("merged")}>
+                  Merged and closed
+                </button>
+                <span className={DETAIL}>{range.title}</span>
+              </div>
+              <div className="max-h-[30rem] overflow-y-auto">
+                <table className="w-full">
+                  <thead className="sticky top-0 bg-card">
+                    <tr>
+                      <th className={cn(th, "w-px")}>Time</th>
+                      <th className={th}>Pull request</th>
+                    </tr>
+                  </thead>
+                  <tbody className="[&>tr:last-child>td]:border-b-0">
+                    {finishedList.length === 0 && (
+                      <tr>
+                        <td colSpan={2} className={cn(td, "text-muted-foreground")}>
+                          No pull requests merged or closed.
+                        </td>
+                      </tr>
+                    )}
+                    {finishedList.map((pr) => (
+                      <tr key={pr.id} className="hover:bg-accent/40">
+                        <td className={cn(td, "font-mono text-xs text-muted-foreground tabular-nums")}>
+                          {new Date(pr.closed_at ?? 0).toLocaleString("en", DATE_TIME)}
+                        </td>
+                        <td className={cn(td, "max-w-0")}>
+                          <a href={pr.url} target="_blank" rel="noreferrer" title={pr.title} className="group flex min-w-0 items-center gap-2">
+                            {pr.state === "merged" && <GitMerge className={cn("size-4 shrink-0", MERGED)} />}
+                            {pr.state === "closed" && <GitPullRequestClosed className={cn("size-4 shrink-0", CLOSED)} />}
+                            <img src={`https://github.com/${pr.repo.split("/")[0]}.png?size=32`} alt="" className="size-4 shrink-0 rounded-sm" />
+                            <span className="shrink-0 group-hover:underline">
+                              {pr.repo} <span className="font-mono tabular-nums">#{pr.number}</span>
+                            </span>
+                            <span className="truncate text-muted-foreground">{pr.title}</span>
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
