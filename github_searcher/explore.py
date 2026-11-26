@@ -50,7 +50,9 @@ allows, which the signals use most: MAX_WORKERS with it full, fewer as it goes d
    README against SYSTEM_PROMPT and the Include and Exclude (claude_judge.py): is it a project people contribute code
    to (not a link list, tutorial or course), can an AI agent alone work on it (build, run and test it in a Linux VM, and
    prove a fix there: light enough, no special hardware or other OS, no paid keys, no agreement a person must sign), is
-   it harmless (nothing made to harm people or systems, and it takes outside contributions), is it something the
+   it harmless (nothing made to harm people or systems, and it takes outside contributions), its standing (one of
+   STANDING_LEVELS: flagship, established, or minor, which is skipped: one person's or a small group's project, or a
+   copy of a famous one riding its hype), is it something the
    Exclude names (skipped, and not kept as checked, so a changed Exclude can let it in later),
    which of the user's types it is, how well it fits the Include (one of FIT_LEVELS, fixed so repos
    rank the same way every time; kept as its number), one line for its note. A quick look: one answer, no tools;
@@ -223,7 +225,11 @@ SYSTEM_PROMPT = (
     "can be observed and verified there (a test, a command's output, a web page or a desktop window). It doesn't work "
     "when it needs special hardware or devices, a phone or another operating system, paid accounts, keys or services "
     "that can't be mocked, or a contributor agreement a person has to sign (a DCO sign-off is fine), or when it is made "
-    "to harm or trouble people or systems."
+    "to harm or trouble people or systems. Quality over quantity: the agents' time goes to respected projects only, "
+    "famous and widely used ones first (the most stars first, above all over 100k), and established ones from "
+    "respected organizations (major tech companies, well-known foundations and open-source organizations, funded "
+    "startups); not one person's or a small group's project, nor a copy of or alternative to a famous project riding "
+    "its hype."
 )
 SEARCH_SUFFIX = "archived:false pushed:>{since}"
 # GitHub gives at most 10 pages of 100 for one search.
@@ -243,6 +249,9 @@ UNREACHABLE = (httpx.ConnectError, httpx.ConnectTimeout)
 # How well a repo fits the profile: Claude picks a level, and the repo keeps its number (the Repos page shows the
 # level again: the frontend's FIT_LEVELS has the same steps).
 FIT_LEVELS = {"strong": 1.0, "good": 0.75, "some": 0.5, "weak": 0.25}
+# How respected a project is, best first: Claude picks one; minor ones are skipped, and Automation adds flagship ones
+# first (backend/automation_api.py).
+STANDING_LEVELS = ["flagship", "established", "minor"]
 MAX_TYPES = 30
 # The minimums, so only respected projects get in: stars (over), contributors (at least), closed PRs, merged or not
 # (over), open issues (over). FAMOUS_STARS or more: the best-known ones, first everywhere (Automation's adding, the
@@ -267,6 +276,7 @@ MIN_ACTIVE_CONTRIBUTORS = 5
 # Why a repo didn't fit that holds for every run, so it is kept as checked and never gone over again.
 KEPT_REASONS = [
     "10k stars or fewer",
+    "Not a respected project",
     "Under 40 contributors",
     "400 closed PRs or fewer",
     "10 open issues or fewer",
@@ -472,6 +482,7 @@ class Explore:
                     "added_at": datetime.now(UTC).isoformat(),
                     "lane": entry["lane"],
                     "fit": entry["fit"],
+                    "standing": entry.get("standing"),
                 }
             )
         added = await asyncio.to_thread(self.repos.add, items)
@@ -998,6 +1009,10 @@ class Explore:
                 "person has to sign (a DCO sign-off is fine).\n"
                 "harmless: false when it is made to harm or trouble people or systems, or says it doesn't take outside "
                 "contributions; true otherwise.\n"
+                "standing: how respected it is: flagship (famous and widely used, a leader in its field), established "
+                "(a solid, known project with a track record, or one from a respected organization: a major tech "
+                "company, a well-known foundation or open-source organization, a funded startup), minor (one person's "
+                "or a small group's project, or a copy of or alternative to a famous project riding its hype).\n"
                 "excluded: true when it is anything they exclude (by what it is, what it is for, who makes it, or what its "
                 "README shows); false otherwise.\n"
                 "type: the name of the type it is (the closest one, also when it came up in another type's searches).\n"
@@ -1012,12 +1027,13 @@ class Explore:
                     "is_project": {"type": "boolean"},
                     "agent_can_do": {"type": "boolean"},
                     "harmless": {"type": "boolean"},
+                    "standing": {"type": "string", "enum": STANDING_LEVELS},
                     "excluded": {"type": "boolean"},
                     "type": {"type": "string", "enum": [each["label"] for each in profile["lanes"]]},
                     "fit": {"type": "string", "enum": list(FIT_LEVELS)},
                     "note": {"type": "string"},
                 },
-                "required": ["is_project", "agent_can_do", "harmless", "excluded", "type", "fit", "note"],
+                "required": ["is_project", "agent_can_do", "harmless", "standing", "excluded", "type", "fit", "note"],
             }
             # The fit, and the repo's AI policy and review atmosphere (unless a filter read them already), all at once.
             if judged:
@@ -1030,6 +1046,8 @@ class Explore:
                 reason = "An agent can't do it alone"
             elif not verdict["harmless"]:
                 reason = "Out of scope"
+            elif verdict["standing"] == "minor":
+                reason = "Not a respected project"
             elif verdict["excluded"]:
                 reason = "Excluded"
             # Excluded isn't kept: the Exclude may change.
@@ -1169,6 +1187,7 @@ class Explore:
                     "default_branch": info["default_branch"],
                     "html_url": info["html_url"],
                     "fit": fit,
+                    "standing": verdict["standing"],
                     "ai_policy": signals["ai_policy"]["tag"],
                     "newcomers": signals["newcomers"]["tag"],
                     "tone": signals["atmosphere"]["tone"] if signals["atmosphere"] else None,

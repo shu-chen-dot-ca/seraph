@@ -75,7 +75,7 @@ def answers(monkeypatch):
     """What Claude and GitHub answer Explore: the quick look's verdict, the searches Claude plans for the profile's types,
     the new type it names, and a search's results. readmes and searches list what was read."""
     answers = {
-        "verdict": {"is_project": True, "agent_can_do": True, "harmless": True, "excluded": False, "type": "Dev tools", "fit": "weak", "note": "A CLI that checks data files."},
+        "verdict": {"is_project": True, "agent_can_do": True, "harmless": True, "standing": "established", "excluded": False, "type": "Dev tools", "fit": "weak", "note": "A CLI that checks data files."},
         "plan": {"types": []},
         "new_type": {"name": "Data tools", "about": "Libraries that read and write data files.", "queries": ["topic:csv stars:1001..15000"]},
         "results": {"items": []},
@@ -216,6 +216,17 @@ def test_the_quick_look_keeps_a_repo_out_for_good(finder, answers, answer, reaso
 
     assert finder.run["skipped"] == {reason: 1}
     assert finder.checked["acme/tool"]["reason"] == reason
+    assert finder.found == []
+
+
+def test_a_minor_project_is_kept_out_for_good(finder, answers):
+    # One person's project, or a copy of a famous one riding its hype: quality over quantity.
+    answers["verdict"]["standing"] = "minor"
+
+    asyncio.run(finder.check("dev-tools", "acme/tool"))
+
+    assert finder.run["skipped"] == {"Not a respected project": 1}
+    assert finder.checked["acme/tool"]["reason"] == "Not a respected project"
     assert finder.found == []
 
 
