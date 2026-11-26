@@ -498,7 +498,7 @@ class ProblemFixes:
             # 1: a file changed while it was read (the app runs on it). Fine for a copy.
             if done.returncode not in [0, 1]:
                 raise FixError("Couldn't copy the data folder for the VM.", done.stdout + done.stderr)
-            memories = sorted(Path.home().glob(".claude/projects/*-github-searcher/memory/MEMORY.md"), key=lambda path: path.stat().st_mtime)
+            memories = sorted(Path.home().glob(".claude/projects/*-dev-seraph/memory/MEMORY.md"), key=lambda path: path.stat().st_mtime)
             if memories:
                 subprocess.run(["tar", "-czf", str(VM_FILES_DIR / "seraph-memory.tar.gz"), "-C", str(memories[-1].parent), "."], capture_output=True, timeout=STEP_SECONDS)
 
