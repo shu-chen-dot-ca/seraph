@@ -230,6 +230,8 @@ DESKTOP_CHECK_SECONDS = 5
 CLEAN_SECONDS = 10 * 60
 CLEAN_UNTOUCHED_DAYS = 2
 CLEAN_LOW_DISK_PERCENT = 15
+# Run after a clear: what it freed in the VM goes back to this computer's disk too.
+CLEAN_TRIM = "fstrim -a || true"
 CLEAN_CACHES = [
     ".cache/pip", ".cache/uv", ".npm/_cacache", ".local/share/pnpm/store", ".cache/go-build", ".cargo/registry/cache",
     ".cache/yarn", ".bun/install/cache", ".gradle/caches", ".m2/repository",
@@ -2416,7 +2418,7 @@ class Agents:
                 if doomed:
                     folders = " ".join(shlex.quote(folder) for number, folder, name in doomed)
                     try:
-                        await asyncio.to_thread(vm_record.vm.exec_root, f"rm -rf -- {folders}", 30 * 60)
+                        await asyncio.to_thread(vm_record.vm.exec_root, f"rm -rf -- {folders}\n{CLEAN_TRIM}", 30 * 60)
                     except Exception:
                         continue
                     gone = []
@@ -2439,7 +2441,7 @@ class Agents:
                     script += "rm -rf -- " + " ".join(shlex.quote(f"{home}/{cache}") for cache in CLEAN_CACHES) + "\n"
                 inventory = load_inventory(vm_record.image_fingerprint) or {"packages": []}
                 protected = " ".join(package["name"] for package in inventory["packages"] if package["kind"] == "docker")
-                script += f"protected={shlex.quote(protected)}\n" + CLEAN_DOCKER_SCRIPT
+                script += f"protected={shlex.quote(protected)}\n" + CLEAN_DOCKER_SCRIPT + "\n" + CLEAN_TRIM
                 try:
                     await asyncio.to_thread(vm_record.vm.exec_root, script, 30 * 60)
                 except Exception:
