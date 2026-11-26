@@ -13,8 +13,9 @@ bottom that scrolls on its own (on a narrow window the columns keep their width 
   its PRs: once one of yours is merged there it is in Contributed, and once one is closed without a merge after it went
   there it is rejected: back in Catalog. Add to Target there puts it back. By stars.
 - Catalog: the rest. The ones with an open PR of yours first, then the others, each by stars.
-- Removed: the ones you deleted that have pull requests of yours (the Repos list's removed), and every other one with a
-  PR of yours closed that isn't in another column (none merged or open, no issue in progress, never in Target). By
+- Removed: the ones you deleted that have pull requests of yours (the Repos list's removed), the ones with pull
+  requests of yours that are against us (no AI, archived, issues off: backend/repos_api.py keep_signals; one with none
+  leaves the list instead, with no card), and every other one with a PR of yours closed that isn't in another column (none merged or open, no issue in progress, never in Target). By
   stars. Its ⋯ takes one out with another chance (POST /api/repos/restore, the Repos list's restored, with when): Add to
   Catalog or Add to Target, or Add to Contributed for one with a merged PR. The same rules put it back, but only its PRs
   closed without a merge after that count.
