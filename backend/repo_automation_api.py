@@ -7,9 +7,11 @@ The settings, by repo, in SETTINGS_FILE (a repo not in it has DEFAULTS):
                     "open_issues": bool, "max_prs_first", "max_prs": int, "levels_first", "levels": ["easy", ...],
                     "instructions": str}, ...}
 
-The Issue levels and Open PRs at once each come in two: until one of your PRs on the repo is merged (levels_first: Easy
-at first; max_prs_first: 1), and after, once you are a contributor there (levels: Easy, Medium and Hard; max_prs: 5).
-Your merged PRs are the ones pr_tracking.py follows. Settings from before levels_first have Easy for it.
+The Issue levels go by the repo's column on the Repositories page (agents.repo_columns, backend/issues_api.py): Catalog
+has its levels_first (Easy), Target and Contributed Medium too, Prioritized its levels (Easy, Medium and Hard).
+Settings from before levels_first have Easy for it. Open PRs at once come in two: until one of your PRs on the repo is
+merged (max_prs_first: 1), and after, once you are a contributor there (max_prs: 5). Your merged PRs are the ones
+pr_tracking.py follows.
 
 and an issue's own level (set from an old page), which goes over its repo's for the drafts of the jobs on that issue, in
 ISSUE_SETTINGS_FILE:
@@ -71,14 +73,15 @@ kept in ADDED_FILE and never added again, so one you take off stays off (Add in 
 still puts it in Catalog: backend/issues_api.py add_to_catalog); one taken off with the x is skipped too. Nor one
 assigned to someone, with an open pull request that closes it, or with one of SKIP_LABELS. The rest are scanned, the
 cheapest look first, so few are read in full (a full read costs about a hundred title reads):
-1. Titles: Haiku reads the titles (and labels), TITLES_PER_RUN in one run, and keeps the ones worth a closer look (its
-   Issue levels, above).
+1. Titles: Haiku reads the titles (and labels), TITLES_PER_RUN in one run, and keeps the ones worth a closer look: easy
+   ones in Catalog, easy or medium in Target and Contributed, any size in Prioritized (its Issue levels, above).
 2. Starts: Sonnet reads the ones the titles kept, with START_CHARS of each description and its number of comments,
    STARTS_PER_RUN in one run, and keeps the ones worth reading in full.
 3. Full read: what passed both is tagged (issue_tags.py), the newest FULL_READS of the repo a round, the rest in the
    next rounds.
 Each look is made once per title and levels (SCANS_FILE, by issue: the basis and each look's answer; a failed run
-leaves its issues for the next round). One read in full before and unchanged on GitHub since skips the scan. The ones read in full whose complexity is
+leaves its issues for the next round), so a repo that moves to a column with other levels is scanned
+again. One read in full before and unchanged on GitHub since skips the scan. The ones read in full whose complexity is
 among the repo's Issue levels (one out of scope has none) go into the Issues list, on the board's Open column, as read
 then, so the Issues board doesn't read them again at once; one tagged in an earlier round is read again from fresh as
 it comes in (keep_new_tags in backend/issues_api.py). Then the board's own rules (Remove automatically) decide on it.
@@ -136,7 +139,7 @@ DEFAULTS = {
     # How many of your PRs may be open on the repo at once: until one of yours there is merged, and after.
     "max_prs_first": 1,
     "max_prs": 5,
-    # Which issues may be taken, by complexity: until one of yours there is merged, and after.
+    # Which issues may be taken, by complexity: in Catalog, and in Prioritized (see the top of this file).
     "levels_first": ["easy"],
     "levels": ["easy", "medium", "hard"],
     "instructions": "",
@@ -376,6 +379,10 @@ async def add_issues() -> None:
     if json.dumps(settings) != before:
         SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
         AUTOMATION_VERSION["version"] += 1
+    # Not before the columns are worked out (the backend just started; keep_catalog_agents in backend/issues_api.py):
+    # every repo would count as Catalog, with its levels (the next round, ADD_CHECK_SECONDS on).
+    if not agents.repo_columns:
+        return
     # By repo name in lower case: the settings may spell a name their own way.
     by_name = {repo.lower(): rules for repo, rules in settings.items()}
     added = []
@@ -394,11 +401,6 @@ async def add_issues() -> None:
     # Nor one at its Open PRs at once: its issues can't be taken now.
     skipped += HELD["repos"]
     names = [item["full_name"] for item in repos.items() if item["full_name"].lower() not in skipped]
-    # How many of your PRs each repo merged (lower case): until one is, its levels_first are the levels.
-    merged = {}
-    for pr in pr_tracking.summary()["items"]:
-        if pr["relation"] == "author" and pr["state"] == "merged":
-            merged[pr["repo"].lower()] = merged.get(pr["repo"].lower(), 0) + 1
     # Sets, as the lists run to tens of thousands of issues and every open issue of every repo is looked up in them.
     listed = set(item["id"] for item in issues.items())
     dismissed = set(issues.dismissed())
@@ -440,8 +442,12 @@ async def add_issues() -> None:
         ids = [f"{name}#{node['number']}" for node in nodes]
         for key in [key for key in scans if key.startswith(name + "#") and key not in ids]:
             del scans[key]
-        # Its Issue levels: until one of your PRs there is merged, its levels_first.
-        levels = rules["levels"] if merged.get(name.lower(), 0) > 0 else rules.get("levels_first", ["easy"])
+        # Its Issue levels, by its column (see the top of this file).
+        levels = rules.get("levels_first", ["easy"])
+        if column == "prioritized":
+            levels = rules["levels"]
+        elif column in ["target", "contributed"] and "medium" not in levels:
+            levels = levels + ["medium"]
 
         # Not added before, nor assigned, nor with an open pull request that closes it, nor labelled as no work
         # (SKIP_LABELS). One read in full that hasn't changed since needs no new look; the others are scanned, each
@@ -594,6 +600,10 @@ async def keep_catalog() -> None:
 
 
 async def pick_for_catalog() -> None:
+    # Not before the columns are worked out (the backend just started; keep_catalog_agents in backend/issues_api.py):
+    # every repo would count as Catalog, and its medium and hard issues would leave the board.
+    if not agents.repo_columns:
+        return
     settings = {}
     if SETTINGS_FILE.is_file():
         settings = json.loads(SETTINGS_FILE.read_text())
@@ -613,11 +623,6 @@ async def pick_for_catalog() -> None:
     for action in inbox.actions():
         if action["kind"] == "issue":
             opened.append(f"{action['sent']['repo']}#{action['sent']['number']}".lower())
-    # How many of your PRs each repo merged (lower case): until one is, its levels_first are the levels.
-    merged = {}
-    for pr in pr_tracking.summary()["items"]:
-        if pr["relation"] == "author" and pr["state"] == "merged":
-            merged[pr["repo"].lower()] = merged.get(pr["repo"].lower(), 0) + 1
 
     # What fits, by repo: (item, tag, basis); and what leaves the Issues list.
     candidates = {}
@@ -649,7 +654,13 @@ async def pick_for_catalog() -> None:
         if item["id"] in catalog:
             continue
         # Filtered out: off the board.
-        levels = rules["levels"] if merged.get(item["repo"].lower(), 0) > 0 else rules.get("levels_first", ["easy"])
+        # Its Issue levels, by its column, as in add_issues.
+        column = agents.repo_columns.get(item["repo"].lower(), "catalog")
+        levels = rules.get("levels_first", ["easy"])
+        if column == "prioritized":
+            levels = rules["levels"]
+        elif column in ["target", "contributed"] and "medium" not in levels:
+            levels = levels + ["medium"]
         if tag["status"] != "free" or tag.get("merge") != "likely" or tag.get("complexity") not in levels:
             drop.append(item["id"])
             continue
