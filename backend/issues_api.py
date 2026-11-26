@@ -139,6 +139,9 @@ NEW_TAGS_SECONDS = 5
 MOVED_FRESH_SECONDS = 120
 # Remove automatically's rules; all off until saved once.
 AUTO_REMOVE_FILE = DATA_DIR / "issue_auto_remove.json"
+# The issues that left because their repo was archived (still in Repos), each with its place on the board, until the
+# repo comes back (auto_remove_issues): {"owner/name#n": {"item": IssueItem, "catalog": bool}}.
+PARKED_FILE = DATA_DIR / "parked_issues.json"
 AUTO_REMOVE_OFF = {
     "claimed": False,
     "out_of_scope": False,
@@ -183,7 +186,36 @@ def auto_remove_issues() -> list[str]:
     """Take out of the Issues list what Remove automatically's rules pick, from Open and Catalog alike, as one undo step;
     returns the ids taken out. Only issues no agent has started: no job on them, or only cancelled ones. Those of a repo
     no longer in Repos (or archived there) always go, whatever the rules. One our agents opened (claimed for you) always
-    stays: we never give one up."""
+    stays: we never give one up.
+
+    Those of a repo archived but still in Repos are parked (PARKED_FILE), and come back to where they were (Open or
+    Catalog) once it is unarchived, first thing in a later call: Add issues never adds an issue twice, so without this
+    an archive that lifts (backend/automation_api.py) left the repo with nothing to take (11-25: 220 Catalog cards of
+    vimeo/psalm, linq2db and others). The rules below then decide on them like on any other."""
+    # Parked ones whose repo is back: in the list again, at the end of Catalog when they were there. Those whose repo
+    # left Repos are let go.
+    parked = {}
+    if PARKED_FILE.is_file():
+        parked = json.loads(PARKED_FILE.read_text())
+    if parked:
+        archived = [name.lower() for name in repos.archived()]
+        listed = [item["full_name"].lower() for item in repos.items()]
+        back = []
+        for issue_id in list(parked):
+            repo = issue_id.split("#")[0].lower()
+            if repo not in listed:
+                del parked[issue_id]
+            elif repo not in archived:
+                back.append(issue_id)
+        if back:
+            added = issues.add([parked[issue_id]["item"] for issue_id in back])
+            board = issues.board()
+            catalog = [issue_id for issue_id in added if parked[issue_id]["catalog"] and issue_id not in board["catalog"]]
+            if catalog:
+                issues.set_board(board["catalog"] + catalog, board["order"], board["held"])
+            for issue_id in back:
+                del parked[issue_id]
+        PARKED_FILE.write_text(json.dumps(parked))
     # Until saved once the rules are all off: only the repo rule takes anything.
     rules = dict(AUTO_REMOVE_OFF)
     if AUTO_REMOVE_FILE.is_file():
@@ -202,12 +234,17 @@ def auto_remove_issues() -> list[str]:
     cutoff = None
     if rules["older_than_days"] is not None:
         cutoff = datetime.now(UTC) - timedelta(days=rules["older_than_days"])
+    listed = [item["full_name"].lower() for item in repos.items()]
+    catalog = issues.board()["catalog"]
     picked = []
+    parking = {}
     for item in issues.items():
         if item["id"] in started or item["id"].lower() in opened:
             continue
         if item["repo"].lower() not in in_repos:
             picked.append(item["id"])
+            if item["repo"].lower() in listed:
+                parking[item["id"]] = {"item": item, "catalog": item["id"] in catalog}
             continue
         # The rules decide on tags read since it was added; keep_new_tags reads it again first.
         tag = tags.get(item["id"])
@@ -227,7 +264,16 @@ def auto_remove_issues() -> list[str]:
             picked.append(item["id"])
     if not picked:
         return []
-    return issues.remove(picked)["removed"]
+    removed = issues.remove(picked)["removed"]
+    if any(issue_id in parking for issue_id in removed):
+        parked = {}
+        if PARKED_FILE.is_file():
+            parked = json.loads(PARKED_FILE.read_text())
+        for issue_id in removed:
+            if issue_id in parking:
+                parked[issue_id] = parking[issue_id]
+        PARKED_FILE.write_text(json.dumps(parked))
+    return removed
 
 
 async def keep_facts() -> None:
