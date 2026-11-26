@@ -104,7 +104,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from sandbox.vm import MAX_DESKTOPS, PROFILE, VM
+from sandbox.vm import FREE_PAGE_REPORTING, MAX_DESKTOPS, PROFILE, VM
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # override: the backend reloads itself on code changes, and .env changes should apply then too.
@@ -142,6 +142,8 @@ SCAN_SECONDS = 10
 SAMPLES_KEPT = 60
 # Disk use is read inside the VM (df), so not every second.
 DISK_SECONDS = 30
+# How often an idle VM's file cache is emptied (read_usage).
+CACHE_SECONDS = 5 * 60
 # Internet use is read inside the VM too. Bytes counted between the last read and a reboot are lost,
 # so it is read often.
 NETWORK_SECONDS = 2
@@ -264,6 +266,8 @@ class VMRecord:
         self.last_cpu: tuple[int, float] | None = None
         # The last disk reading (GB used, time read).
         self.last_disk: tuple[float, float] | None = None
+        # When the VM's file cache was last emptied (time.monotonic).
+        self.cache_dropped_at = 0.0
         # When the internet counters were last asked for, and last read; the speed (bytes a second) between two reads.
         self.traffic_tried_at: float | None = None
         self.traffic_read_at: float | None = None
@@ -431,6 +435,7 @@ class VMRecord:
             self.error = None
             self.status = "starting"
             self.save()
+            self.vm.set_config("raw.qemu.conf", FREE_PAGE_REPORTING)
             self.vm.start()
             self.vm.wait_ready()
             # Also here, so VMs made before these guards existed get them.
@@ -517,6 +522,11 @@ class VMRecord:
             cpu_percent = max(0.0, min(100.0, cpu_percent))
         self.last_cpu = (cpu_ns, now)
         memory_used_gb = state["memory"]["usage"] / 1024**3
+        # With no run going, the file cache the builds and tests left is emptied every CACHE_SECONDS, so its pages go
+        # back to this machine (vm.FREE_PAGE_REPORTING) instead of staying with an idle VM.
+        if responding and not self.runs and now - self.cache_dropped_at > CACHE_SECONDS:
+            self.cache_dropped_at = now
+            self.vm.exec_root("sync; echo 3 > /proc/sys/vm/drop_caches", 60)
         disk_used_gb = None
         if self.last_disk is not None:
             disk_used_gb = self.last_disk[0]

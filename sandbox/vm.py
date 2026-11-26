@@ -53,6 +53,10 @@ DESKTOP_SIZE = "1280x800"
 # commands, their test suites) gets this, so a full memory ends a test worker, never the desktop (GNOME's own are at
 # 100 to 200). An agent the user gave priority gets less on its runs (long_runs.prioritize).
 OOM_SCORE_ADJ = 900
+# The VM gives memory it freed back to this machine (virtio-balloon free page reporting). Without it QEMU keeps every page
+# the VM ever touched: vm1 held 32 GiB here while it used 4 GiB. Incus names the balloon device qemu_balloon and leaves
+# this off. Set at launch, and before every start (VMs.start) for VMs made before this.
+FREE_PAGE_REPORTING = '[device "qemu_balloon"]\nfree-page-reporting = "on"'
 # Desktops 2 and up, as root at every start (set_up_desktops), with numbers (the VM's desktops, e.g. "1 3") and size
 # set before it. TigerVNC comes from the system's own packages, the first time. A terminal-only image gets only the
 # users and demo services.
@@ -289,6 +293,7 @@ class VM:
                 "--profile", profile,
                 "--config", f"limits.cpu={cpus}",
                 "--config", f"limits.memory={memory_gb}GiB",
+                "--config", f"raw.qemu.conf={FREE_PAGE_REPORTING}",
                 "--device", f"root,size={disk}",
             ],
             capture_output=True,
