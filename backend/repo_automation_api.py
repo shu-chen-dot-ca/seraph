@@ -33,7 +33,8 @@ What each does:
   reviewer passed it) or an edit (a new title and description of your PR or issue) is sent as you, as Approve with
   Send does (github_account.py), then approved, so its agent hears it the same way. One GitHub refuses (or that has to
   wait, like a PR whose claim isn't decided yet, or whose claimed issue isn't assigned to you yet: github_account.py)
-  stays in the Inbox, and is tried again after SEND_RETRY_SECONDS. The Automation page (backend/automation_api.py) goes
+  stays in the Inbox, and is tried again after SEND_RETRY_SECONDS; one GitHub refuses is on the Feedback page too
+  (problems.py), once while that report is open there. The Automation page (backend/automation_api.py) goes
   over every repo's: Create pull requests off holds every new PR (also one made again in place of an old one), Reply
   to reviews and comments off holds everything a follow-up job drafts on a PR already open (comments, edits, new
   versions), Pull requests per day holds new PRs once that many went out since midnight, and Open pull requests (all
@@ -116,7 +117,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 
 from backend.issues_api import AUTOMATION_VERSION, DASHBOARD_AUTOMATION_FILE, HELD, TAGGED
-from backend.shared import agents, explore, github_account, inbox, issue_facts, issue_tags, issues, jobs, pr_tracking, repo_signals, repos
+from backend.shared import agents, explore, github_account, inbox, issue_facts, issue_tags, issues, jobs, pr_tracking, problems, repo_signals, repos
 from github_searcher.claude_judge import JudgeError, judge
 from github_searcher.claude_models import MODELS
 from github_searcher.github_account import SendError
@@ -323,7 +324,15 @@ async def act_on_drafts() -> None:
                 total_open += 1
             if opens_pr:
                 sent_today += 1
-        except (SendError, KeyError, ValueError):
+        except SendError as error:
+            failed_at[draft["id"]] = time.time()
+            # On the Feedback page, once while open there, so a draft that never goes out isn't missed (openclaw's
+            # waited a day: too many files for GitHub to list). Waiting for an assignment is no problem.
+            start = f"The automatic send of {draft['id']} "
+            reported = [item for item in problems.list() if item["text"].startswith(start) and item["closed_at"] is None]
+            if not reported and not str(error).startswith("Not sent yet"):
+                problems.add("seraph", draft["job"], draft["target"], f"{start}({draft['repo']}: {draft['title']}) failed: {error}")
+        except (KeyError, ValueError):
             failed_at[draft["id"]] = time.time()
 
 
