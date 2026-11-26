@@ -174,6 +174,7 @@ import os
 import re
 import secrets
 import shlex
+import shutil
 import threading
 import traceback
 from datetime import UTC, datetime, timedelta
@@ -188,7 +189,7 @@ from github_searcher.claude_models import BIG_REPO_MODEL, BIG_REPO_STARS, MODELS
 from sandbox.agent import long_runs
 from sandbox.agent.tools import ComputerTools
 from sandbox.images import load_inventory
-from sandbox.vms import FIX_VM, VMsError
+from sandbox.vms import FIX_VM, INCUS_DIR, VMsError
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # override: the backend reloads itself on code changes, and .env changes should apply then too.
@@ -2364,6 +2365,14 @@ class Agents:
         cost of a download, so only then."""
         while True:
             await asyncio.sleep(CLEAN_SECONDS)
+            # This computer's disk, where the VMs' disks are (11-26: vm1's filled it and the app's data files came out
+            # empty). Nearly full: every VM clears as if its own were, and the Feedback page says so, once while open.
+            host = shutil.disk_usage(INCUS_DIR)
+            host_low = host.free * 100 / host.total < CLEAN_LOW_DISK_PERCENT
+            start = "This computer's disk is nearly full"
+            reported = [item for item in self.problems.list() if item["text"].startswith(start) and item["closed_at"] is None]
+            if host_low and not reported:
+                self.problems.add("seraph", None, None, f"{start}: {host.free / 1024 ** 3:.0f}GB free of {host.total / 1024 ** 3:.0f}GB. The VMs' disks are on it.")
             # The repos someone may still work on, by name: those of jobs not over and of our open PRs.
             keep = set()
             for job in self.jobs.list():
@@ -2434,7 +2443,9 @@ class Agents:
                     # What that freed shows at the next round, before anything that has to be downloaded again goes.
                     continue
 
-                if len(disk) != 2 or disk[1] * 100 / disk[0] >= CLEAN_LOW_DISK_PERCENT:
+                if len(disk) != 2:
+                    continue
+                if disk[1] * 100 / disk[0] >= CLEAN_LOW_DISK_PERCENT and not host_low:
                     continue
                 script = ""
                 for home in homes:
