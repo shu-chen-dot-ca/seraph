@@ -8,7 +8,7 @@ closing it any other way, drops the edits.
 - Include and Exclude: the kinds of repositories you want, and the kinds you don't, in your own words (include,
   exclude). They are kept in the data (Explore's profile), never in the code, and Explore, the issue checks and the
   agents follow them (github_searcher/explore.py, issue_tags.py). How big a repo should be goes in Include; under it
-  Explore keeps its own minimum of over 1k stars.
+  Explore keeps its own minimum of over 10k stars (for letting a repo in), and looks at the most stars first.
 - AI policy: a switch per policy a repository can have (repo_signals.py ai_policy): on means its repositories may be
   worked on (ai_policies). Bans AI stays off and can't be turned on.
 */
