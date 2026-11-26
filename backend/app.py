@@ -289,7 +289,14 @@ def topic_data(topic: str):
         if fixes["running"]:
             run = fixes["runs"][0]
             fix_all = {"started_at": run["started_at"], "items": len(run["problems"]), "vm": fixes["vm"]}
-        models = {"checks": MODELS["judgment"], "image": MODELS["image"], "fix_all": MODELS["fix_problems"]}
+        # Add issues' scan runs have models of their own (Haiku reads titles); the other checks run on judgment's.
+        models = {
+            "checks": MODELS["judgment"],
+            "issue_titles": MODELS["issue_titles"],
+            "issue_starts": MODELS["issue_starts"],
+            "image": MODELS["image"],
+            "fix_all": MODELS["fix_problems"],
+        }
         return {"images": sorted(image_agents.running), "fix_all": fix_all, "checks": claude_judge.activity(), "models": models}
     raise ValueError(f"No topic {topic}: one of {', '.join(TOPICS)}")
 
