@@ -9,7 +9,7 @@ account): one row per token with its name (yours, so you know which account it b
 you leave the field), In use on the one the agents use and Use on the others, Limit reached under one whose usage limit
 Claude reported (with when it resets), Remove, and a name and a token to Add one. Use switches, and so does a usage limit
 on the one in use (to the next one), from each agent's next turn on. Claude Code token (Fix all): one field, Save puts the pasted token in (or replaces the one
-there), Remove takes it out. A new GitHub token is used at once.
+there), Remove takes it out; without one, Fix all uses the agents' token in use. A new GitHub token is used at once.
 
 On this computer: the names in data/, and a form for an AWS access key (ID, secret, region). Move secrets puts them in
 AWS, checks AWS kept them, and only then removes them from this computer; the access key goes in the system keyring. In
