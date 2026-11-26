@@ -230,12 +230,46 @@ def topic_data(topic: str):
     # contributors each has (from its signals, by name in lower case; None when not known yet or GitHub won't count),
     # and how many issues worth doing each has waiting (ready, by name in lower case: its open issues on the Issues
     # board's Catalog, not held, likely to be merged and nobody on them, issue_tags.py; agents take them from there; 0
-    # for one scanned with none, nothing for one Add issues never scanned: repo_automation_api.py SCANNED).
+    # for one scanned with none, nothing for one Add issues never scanned: repo_automation_api.py SCANNED). policy:
+    # whether each repo with signals takes PRs like ours, by name in lower case, for the ring around its logo: state
+    # "no" when its AI policy says no AI or its written rules say no outside PRs (newcomer_verdict closed), "yes"
+    # otherwise (AI welcome, allowed if disclosed, unclear or not mentioned: what isn't said is allowed); nothing while
+    # its AI policy or newcomer verdict isn't read yet. why: which of those, with the policy's quote or the verdict's
+    # reason.
     if topic == "repos":
         signals = repo_signals.all()
         contributors = {}
         for item in repos.items():
             contributors[item["full_name"].lower()] = (signals.get(item["full_name"]) or {}).get("contributors_total")
+        policy = {}
+        for name, each in signals.items():
+            ai = each.get("ai_policy") or {}
+            verdict = each.get("newcomer_verdict") or {}
+            quote = ai.get("quote") or ""
+            if ai.get("tag") == "no_ai":
+                state = "no"
+                why = "No AI"
+            elif verdict.get("verdict") == "closed":
+                state = "no"
+                why = "No outside PRs"
+                quote = verdict.get("reason") or ""
+            elif ai.get("tag") is None or verdict.get("verdict") is None:
+                continue
+            elif ai.get("tag") == "unclear":
+                state = "yes"
+                why = "AI policy unclear"
+            elif ai.get("tag") == "disclose":
+                state = "yes"
+                why = "AI allowed if disclosed"
+            elif ai.get("tag") == "welcome":
+                state = "yes"
+                why = "AI welcome"
+            else:
+                state = "yes"
+                why = "Nothing about AI"
+            if quote != "":
+                why = why + ": " + quote
+            policy[name.lower()] = {"state": state, "why": why}
         tags = issue_tags.all()
         board = issues.board()
         state = {item["id"]: item["state"] for item in issues.items()}
@@ -262,6 +296,7 @@ def topic_data(topic: str):
             "restored": repos.restored(),
             "contributors": contributors,
             "ready": ready,
+            "policy": policy,
         }
     # Jobs without what no page shows (their evidence and timeline: half the topic), and a finished one with only the
     # start of its notes and no test runs: the topic goes out again on every change, and the jobs only grow.
