@@ -141,6 +141,11 @@ each, also when the issue stays free or the user's claim went out, and reads it 
 on who took it, for a maintainer, a member or someone who often gets PRs merged there; for a new, unknown or bot-like
 account it goes on.
 
+When the issue of a job whose PR hasn't gone out yet is fixed on GitHub (its tags say a merged pull request or a commit
+on the default branch already does it) or closed, issue_fixed() tells the agent at once, once per job, and it reads it
+before any more long runs: openclaw's maintainers fix many issues on main themselves within hours of them being opened,
+and an agent that only finds out at its draft has spent those hours on checks.
+
 Some repos ask contributors to claim an issue before they start: be assigned to it, often with a "/claim" comment.
 There a fix_issue job's agent drafts that claim first (its one comment, WorkTools.draft_comment) and goes straight on
 with the fix: neither the user's approval nor the maintainers' answer holds the job up (we assume nobody answers), so
@@ -302,6 +307,14 @@ PR_ADVICE = (
 OURS_ADVICE = (
     " It is an issue we opened ourselves, as the user, and we never give one of those up: keep going with {job} whoever "
     "it is, and say so with job_progress. Don't cancel it or close the issue."
+)
+# What an agent does when its job's issue was fixed or closed on GitHub before our PR went out (issue_fixed): it reads it
+# and decides, before any more long runs.
+FIXED_ADVICE = (
+    " This comes before everything else, also before a run of yours that is going: read_issue it now. When a merged pull "
+    "request or a commit on the default branch already does what it asks, or the maintainers closed it, nothing is left "
+    "for us: stop {job} (run_stop what you run for it, then close_issue with the link that shows it). When it isn't so "
+    "(it was reopened, or that fix doesn't cover what it asks), keep going, and say why with job_progress."
 )
 
 
@@ -1417,7 +1430,7 @@ class Agents:
             notices = [entry for entry in job["timeline"] if entry["kind"] == "notice"]
             # Once per job. A pull request tied to it is news of its own: once for each, whatever the job heard before, and
             # it doesn't count as having heard of an assignment.
-            told = [entry for entry in notices if not entry["text"].startswith("Someone else's pull request")]
+            told = [entry for entry in notices if not entry["text"].startswith(("Someone else's pull request", "Issue was fixed or closed"))]
             if told and not prs:
                 continue
             fresh = []
@@ -1440,6 +1453,27 @@ class Agents:
                 advice = OURS_ADVICE.format(job=job["id"])
             text += f" You have {job['id']} ({job['title']}) on it." + advice
             self.jobs.add_timeline(job["id"], "notice", notice)
+            self.notify(job["agent"], text)
+
+    def issue_fixed(self, issue_id: str, reason: str, closed: bool) -> None:
+        """The issue was fixed on GitHub (its tags' status is fixed: a merged pull request or a commit on the default
+        branch already does what it asks) or closed. The agent of every job on it whose PR hasn't gone out yet (queued,
+        working, waiting on the user) is told, once per job, and decides itself (FIXED_ADVICE). A job whose PR is open
+        is left to that PR's follow-ups. reason is the tags' sentence on it."""
+        why = re.split(r"\sMerge: ", reason)[0]
+        for job in self.jobs.list():
+            if job["issue"] != issue_id or job["status"] not in ["queued", "working", "waiting_on_user"]:
+                continue
+            if job["agent"] not in self.agents:
+                continue
+            told = [entry for entry in job["timeline"] if entry["kind"] == "notice" and entry["text"].startswith("Issue was fixed or closed")]
+            if told:
+                continue
+            text = f"{issue_id} seems fixed on GitHub already: {why}"
+            if closed:
+                text = f"{issue_id} was closed on GitHub. {why}"
+            text += f" You have {job['id']} ({job['title']}) on it." + FIXED_ADVICE.format(job=job["id"])
+            self.jobs.add_timeline(job["id"], "notice", "Issue was fixed or closed on GitHub; told the agent")
             self.notify(job["agent"], text)
 
     async def stop_repo(self, repo: str) -> None:
