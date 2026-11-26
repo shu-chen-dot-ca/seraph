@@ -610,7 +610,8 @@ def take_from_catalog() -> None:
         counts.setdefault(repo, {"merged": 0, "closed": 0, "open": 0, "working": 0})
         if pr["state"] in ["merged", "closed", "open"]:
             counts[repo][pr["state"]] += 1
-        if pr["state"] == "closed" and pr["closed_at"] is not None and pr["closed_at"] > last_closed.get(repo, ""):
+        # One you closed yourself (a duplicate, Close all) is no rejection.
+        if pr["state"] == "closed" and pr["closed_at"] is not None and pr.get("closed_by") != pr["author"] and pr["closed_at"] > last_closed.get(repo, ""):
             last_closed[repo] = pr["closed_at"]
     for job in all_jobs:
         if job["kind"] != "fix_issue" or job["status"] not in ["queued", "working", "waiting_on_user", "waiting_on_maintainers"]:
