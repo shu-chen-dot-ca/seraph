@@ -121,7 +121,7 @@ import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
 from dotenv import load_dotenv
@@ -585,15 +585,31 @@ class GithubAccount:
 
             # Those files as the base commit has them, from GitHub: its file list, read once per send for the first
             # tree (the next ones are known from what was changed), and each file once. The caller's step says which
-            # change this is.
+            # change this is. A project with more files than GitHub lists at once (openclaw) gets only the folders of the
+            # files the diff touches instead, each read on its own ("tree:folder"), every time (whole False).
             entries = self.listings.get(base_tree)
+            whole = True
             if entries is None:
                 response = client.get(f"/repos/{fork}/git/trees/{base_tree}", params={"recursive": "1"})
                 response.raise_for_status()
                 listing = response.json()
-                if listing["truncated"]:
-                    raise SendError("The project has too many files for GitHub to list at once, so the change can't be built here. Download the .patch and send it yourself.")
+                whole = not listing["truncated"]
                 entries = {item["path"]: item for item in listing["tree"]}
+            if not whole:
+                entries = {}
+                for path in paths:
+                    folder, _, name = path.rpartition("/")
+                    url = f"/repos/{fork}/git/trees/{base_tree}"
+                    if folder != "":
+                        url += f":{quote(folder)}"
+                    response = client.get(url)
+                    # A new folder: a new file.
+                    if response.status_code == 404:
+                        continue
+                    response.raise_for_status()
+                    for item in response.json()["tree"]:
+                        if item["path"] == name:
+                            entries[path] = {**item, "path": path}
             for path in paths:
                 entry = entries.get(path)
                 # A new file.
@@ -673,6 +689,9 @@ class GithubAccount:
         new_tree = response.json()["sha"]
         # GitHub has the text files now too, and the new tree's file list is the old one with these changes.
         self.blobs.update(made)
+        # Only some of the files known (too many to list): not kept, the next tree reads its own.
+        if not whole:
+            return new_tree
         new_entries = dict(entries)
         for path, entry in changed.items():
             if entry is None:
