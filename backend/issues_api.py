@@ -58,7 +58,9 @@ another repo goes. With the Dashboard's Automation on, the cards of the repos it
 Normal, New, Slow, ...; then the most PRs merged a day: backend/automation_api.py), each in the board's order. Over that,
 by the column its repo is in on the Repositories page (frontend/src/RepositoryCards.tsx, worked out here the same way):
 Target first (not one rejected there: a PR of yours closed without a merge after it went there, which is in that page's
-Catalog), then Prioritized, Contributed and last that page's Catalog (REPO_COLUMNS); ours stay first. The cards of a
+Catalog), then Prioritized, Contributed and last that page's Catalog (REPO_COLUMNS), and within each the best-known
+repos first (quality over quantity: explore.py FAMOUS_STARS stars or more, then over its MIN_STARS, then the rest),
+then the fastest to merge outside PRs (their median, in whole days); ours stay first. The cards of a
 repo in its Removed column wait, ours too: the ones you deleted (repo_list.py removed), and the ones where every PR of
 yours was closed, none merged or open and no issue in progress, unless added to Target or taken out of Removed with
 none closed since (repo_list.py restored: another chance). So do the cards of a column
@@ -121,6 +123,7 @@ from datetime import UTC, datetime, timedelta
 
 from backend.shared import agents, inbox, issue_facts, issue_tags, issues, jobs, pr_tracking, repo_signals, repos
 from github_searcher.claude_models import COLUMN_MODELS
+from github_searcher.explore import FAMOUS_STARS, MAX_MEDIAN_DAYS_TO_MERGE, MIN_STARS
 from github_searcher.inbox import AUTOMATION_FILE
 from github_searcher.issue_tags import CHECKS, DATA_DIR, NAME_VERSION, RULES_VERSION
 
@@ -672,8 +675,31 @@ def take_from_catalog() -> None:
         if column != "removed" and take_from.get(column, True):
             kept.append(issue_id)
     waiting = kept
-    # By column (REPO_COLUMNS), each in the order above; ours stay first.
-    waiting.sort(key=lambda issue_id: (0 if issue_id.lower() in opened else 1, REPO_COLUMNS.index(columns[issue_id.split("#")[0].lower()])))
+    # Quality over quantity: within a column, the best-known repos first (explore.py): FAMOUS_STARS stars or more, then
+    # over MIN_STARS, then the rest, each in the order above. Stars from its signals, else from the Repos list.
+    stars = {}
+    for item in repos.items():
+        stars[item["full_name"].lower()] = item.get("stars") or 0
+    for name, each in repo_signals.all().items():
+        if each.get("stars") is not None:
+            stars[name.lower()] = each["stars"]
+    tiers = {}
+    for repo in columns:
+        tiers[repo] = 2
+        if stars.get(repo, 0) >= FAMOUS_STARS:
+            tiers[repo] = 0
+        elif stars.get(repo, 0) > MIN_STARS:
+            tiers[repo] = 1
+    # Then the fastest to merge outside PRs: their median in whole days (repo_signals.py; unknown as the most Explore lets
+    # in, explore.py MAX_MEDIAN_DAYS_TO_MERGE).
+    days = {}
+    for repo in columns:
+        days[repo] = MAX_MEDIAN_DAYS_TO_MERGE
+    for name, each in repo_signals.all().items():
+        if name.lower() in days and each.get("median_days_to_merge") is not None:
+            days[name.lower()] = round(each["median_days_to_merge"])
+    # By column (REPO_COLUMNS), then by those tiers, then by those days, each in the order above; ours stay first.
+    waiting.sort(key=lambda issue_id: (0 if issue_id.lower() in opened else 1, REPO_COLUMNS.index(columns[issue_id.split("#")[0].lower()]), tiers[issue_id.split("#")[0].lower()], days[issue_id.split("#")[0].lower()]))
 
     # Each repo's Open PRs at once (backend/repo_automation_api.py), counted as its card on the Repositories page shows
     # them: its open PRs of yours (green) and its issues in progress (yellow: fix_issue jobs still open with no PR yet),
