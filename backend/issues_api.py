@@ -439,6 +439,12 @@ async def keep_tags() -> None:
                 # #4495", and our agent ran five more hours of checks before it found it at its draft.
                 if prs and issue_id in active:
                     agents.issue_taken(issue_id, after[issue_id]["reason"], [], prs)
+                # Fixed on main or closed while an agent works on it (openclaw's maintainers fix many on main within
+                # hours): the agent hears of it at once, not only at its draft.
+                now = issue_facts.all().get(issue_id)
+                closed = now is not None and now["state"] == "CLOSED"
+                if issue_id in active and (after[issue_id]["status"] == "fixed" or closed):
+                    agents.issue_fixed(issue_id, after[issue_id]["reason"], closed)
             # What didn't get tagged (GitHub or Claude failed, Claude left it out, it is gone) waits for TAGS_RETRY_SECONDS.
             for issue_id in todo:
                 if issue_id not in tagged:
