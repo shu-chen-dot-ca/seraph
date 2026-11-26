@@ -594,7 +594,11 @@ async def add_issues() -> None:
         added_set.update(new)
         listed.update(new)
         SCANNED[name.lower()] = datetime.now(UTC).isoformat()
-        ADDED_FILE.write_text(json.dumps({"added": added, "scanned": SCANNED}, indent=2))
+        # Through a temporary file: a write cut off (11-26: the disk was full) leaves the old one, not an empty one the
+        # backend can't start with.
+        temporary = ADDED_FILE.with_name(ADDED_FILE.name + ".tmp")
+        temporary.write_text(json.dumps({"added": added, "scanned": SCANNED}, indent=2))
+        temporary.replace(ADDED_FILE)
 
     # SCAN_AT_ONCE repos at the same time, in the order above.
     for start in range(0, len(due), SCAN_AT_ONCE):
