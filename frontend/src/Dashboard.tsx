@@ -115,6 +115,8 @@ const JOB_TYPES: Record<string, string> = { fix_issue: "Fix", follow_up: "Follow
 // The checks' Type and what they do (github_searcher/claude_judge.py, by what); others are GitHub, by their what.
 const CHECKS: Record<string, [string, string]> = {
   issue_tags: ["GitHub", "Issue tags"],
+  issue_titles: ["GitHub", "Issue titles"],
+  issue_starts: ["GitHub", "Issue descriptions"],
   pr_needs_action: ["GitHub", "PR needs action"],
   catalog_picks: ["GitHub", "Catalog picks"],
   repo_signals: ["GitHub", "Repo signals"],
@@ -570,7 +572,12 @@ export default function Dashboard(props: { vm: string | null; vmsTab: "vms" | "i
   for (const [what, count] of Object.entries(activity.checks)) {
     const [type, role] = CHECKS[what] ?? ["GitHub", what.replaceAll("_", " ")];
     for (let i = 0; i < count; i++) {
-      agentRows.push({ key: `check:${what}:${i}`, type: type, target: role, url: null, job: null, wait: "", vmSeconds: 0, tokens: null, model: activity.models.checks, vm: "–", activity: "" });
+      // Add issues' scan runs have models of their own.
+      let model = activity.models.checks;
+      if (what === "issue_titles" || what === "issue_starts") {
+        model = activity.models[what] ?? model;
+      }
+      agentRows.push({ key: `check:${what}:${i}`, type: type, target: role, url: null, job: null, wait: "", vmSeconds: 0, tokens: null, model: model, vm: "–", activity: "" });
     }
   }
   if (activity.fix_all !== null) {

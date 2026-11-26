@@ -625,7 +625,7 @@ export type ActivityData = {
   images: string[];
   fix_all: { started_at: string; items: number; vm: string } | null;
   checks: Record<string, number>;
-  models: { checks: string; image: string; fix_all: string };
+  models: { checks: string; issue_titles?: string; issue_starts?: string; image: string; fix_all: string };
 };
 
 // ---- The live store ----
