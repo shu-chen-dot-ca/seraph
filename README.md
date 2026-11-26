@@ -16,11 +16,7 @@ Seraph contributes to open-source projects on its own. It finds projects that me
 
 Its pull requests have been merged by projects including Kestra, Mozilla's neqo, AWS Labs' CLI Agent Orchestrator, Vimeo's Psalm and Unison.
 
-![From issue to merged pull request](docs/how-it-works.svg)
-
 ## Merged pull requests
-
-Written by Seraph's agents and merged by each project's own maintainers. Most starred first.
 
 <!-- merged-prs:start -->
 Seraph merged PRs: 119 in 38 repositories
@@ -66,6 +62,8 @@ Seraph merged PRs: 119 in 38 repositories
 | [eugenioenko/ttt](https://github.com/eugenioenko/ttt) 🚀 | 1,155 🌟 | [#1659](https://github.com/eugenioenko/ttt/pull/1659)<br>[#1658](https://github.com/eugenioenko/ttt/pull/1658)<br>[#1590](https://github.com/eugenioenko/ttt/pull/1590) | $`\color{green}\textsf{+55}`$ $`\color{red}\textsf{-7}`$<br>$`\color{green}\textsf{+118}`$ $`\color{red}\textsf{-42}`$<br>$`\color{green}\textsf{+500}`$ $`\color{red}\textsf{-7}`$ |
 | [gdt050579/AppCUI-rs](https://github.com/gdt050579/AppCUI-rs) 🚀 | 407 🌟 | [#288](https://github.com/gdt050579/AppCUI-rs/pull/288) | $`\color{green}\textsf{+98}`$ $`\color{red}\textsf{-0}`$ |
 <!-- merged-prs:end -->
+
+![From issue to merged pull request](docs/how-it-works.svg)
 
 ## How it works
 
