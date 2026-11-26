@@ -46,11 +46,15 @@ over 90 days, repo_signals.py), None before they are read. Agents take the Issue
 per_day, the most first (backend/issues_api.py take_from_catalog), and the page lists them so.
 
 keep_automation() runs as long as the backend, every CHECK_SECONDS. It works out the labels and, on or off, holds every
-repo to Explore's minimums (explore.py MIN_*: over 1k stars, 40 contributors or more, over 400 closed PRs, over 10 open
-issues), so no personal repo stays: once its signals are read, one in Repos that falls short leaves (archived when it
-has a PR of ours, else off Repos and kept as checked by Explore, so it never comes back), and so does one in Explore's
-found list (also one found before these were checked, which a later run checks anew). Never one in Target (repo_list.py
-target): you picked it, so it stays, and nothing below archives it either. On or off too, while Add
+repo to Explore's minimums (explore.py MIN_*: over REPO_MIN_STARS stars, 40 contributors or more, over 400 closed PRs,
+over 10 open issues), so no personal repo stays. One with no PR of ours merged is held to the bar Explore lets one in
+by too: over 10k stars, outside PRs merged in MAX_MEDIAN_DAYS_TO_MERGE days or less (their median; unknown passes) and
+MIN_ACTIVE_CONTRIBUTORS people or more opening PRs in 30 days (11-25: the user closed ours in kibi, RHVoice and vellum,
+small and slow); one with a PR of ours merged is held to its labels below instead, as our own merges there tell more.
+Once its signals are read, one in Repos that falls short leaves (archived when it has a PR of ours, else off Repos and
+kept as checked by Explore, so it never comes back), and so does one in Explore's found list (also one found before
+these were checked, which a later run checks anew). Never one in Target (repo_list.py target): you picked it, so it
+stays, and nothing below archives it either. On or off too, while Add
 repositories is on, it keeps active_repos repos active (below). And while on:
 - archives a repo that is Not merging (Repos' Archived, repo_list.py): its issues leave the board's Open and Catalog,
   the jobs on its issues with no PR yet stop, and no new PR goes there (repo_automation_api.py keep_drafts). Our open
@@ -124,7 +128,7 @@ from backend.issues_api import AUTO_REMOVE_FILE, AUTO_REMOVE_OFF, AUTOMATION_VER
 from backend.repo_automation_api import DEFAULTS, SETTINGS_FILE
 from backend.shared import agents, explore, github_account, inbox, issues, jobs, pr_tracking, repo_signals, repos
 from github_searcher.claude_models import COLUMN_MODELS
-from github_searcher.explore import FIT_LEVELS, MIN_CLOSED_PRS, MIN_CONTRIBUTORS, MIN_OPEN_ISSUES, MIN_STARS
+from github_searcher.explore import FIT_LEVELS, MAX_MEDIAN_DAYS_TO_MERGE, MIN_ACTIVE_CONTRIBUTORS, MIN_CLOSED_PRS, MIN_CONTRIBUTORS, MIN_OPEN_ISSUES, MIN_STARS
 from github_searcher.github_account import SendError
 from github_searcher.issue_tags import DATA_DIR
 
@@ -141,6 +145,8 @@ MAX_ACTIVE = 300
 RUN_PAUSE_MINUTES = 30
 LABELS = ["Fast", "Normal", "New", "Slow", "No issues", "Not merging"]
 POLICY_ORDER = ["welcome", "disclose", "none", "unclear"]
+# The stars a repo already in Repos must have over: Explore's own floor (explore.py MIN_STARS) is for letting one in.
+REPO_MIN_STARS = 1000
 NEWCOMERS_ORDER = ["welcomes", "ok", "few"]
 # Explore's runs skip what bans AI, and what hardly matches the Include.
 EXPLORE_FILTERS = {"policy:no_ai": "exclude", "fit:weak": "exclude"}
@@ -397,6 +403,8 @@ async def automate() -> None:
     entries = [(item["full_name"], signals.get(item["full_name"])) for item in repos.items() if item["full_name"] not in archived]
     entries += [(entry["name"], entry.get("signals")) for entry in explore.found]
     found = [entry["name"] for entry in explore.found]
+    # Repos with a PR of ours merged: held to the first minimums only (the top of this file).
+    merged_here = [pr["repo"].lower() for pr in prs if pr["state"] == "merged"]
     short = {}
     for name, each in entries:
         # Numbers not read yet: a repo waits for them; a found one from before these were checked leaves. The README's
@@ -405,7 +413,9 @@ async def automate() -> None:
             if name in found:
                 short[name] = "Found before the minimums were checked"
             continue
-        if each["stars"] <= MIN_STARS:
+        if name in found and each["stars"] <= MIN_STARS:
+            short[name] = f"{each['stars']} stars, 10k or fewer"
+        elif each["stars"] <= REPO_MIN_STARS:
             short[name] = f"{each['stars']} stars, 1k or fewer"
         elif each["contributors_total"] is not None and each["contributors_total"] < MIN_CONTRIBUTORS:
             short[name] = f"{each['contributors_total']} contributors, under {MIN_CONTRIBUTORS}"
@@ -413,6 +423,12 @@ async def automate() -> None:
             short[name] = f"{each['merged_prs_total'] + each['closed_prs_total']} closed PRs, {MIN_CLOSED_PRS} or fewer"
         elif each["open_issues_total"] <= MIN_OPEN_ISSUES:
             short[name] = f"{each['open_issues_total']} open issues, {MIN_OPEN_ISSUES} or fewer"
+        elif name.lower() not in merged_here and each["stars"] <= MIN_STARS:
+            short[name] = f"{each['stars']} stars, 10k or fewer, and none of ours merged"
+        elif name.lower() not in merged_here and each.get("median_days_to_merge") is not None and each["median_days_to_merge"] > MAX_MEDIAN_DAYS_TO_MERGE:
+            short[name] = f"Outside PRs take {each['median_days_to_merge']} days to merge (median), over {MAX_MEDIAN_DAYS_TO_MERGE}"
+        elif name.lower() not in merged_here and each.get("active_contributors") is not None and each["active_contributors"] < MIN_ACTIVE_CONTRIBUTORS:
+            short[name] = f"{each['active_contributors']} people opened a PR in 30 days, under {MIN_ACTIVE_CONTRIBUTORS}"
     ours = [pr["repo"].lower() for pr in prs]
     # Never one in Target: you picked it (repo_list.py target). Not archived below either.
     target = [name.lower() for name in repos.target()]
