@@ -307,12 +307,13 @@ async def delete_repo(body: RepoRequest) -> dict:
     """Delete, or Add to Removed for a repo with pull requests of yours, in the ⋯ of a card on the Repositories page,
     at once, with no "are you sure?". Every agent working on the repo stops now (Agents.stop_repo). A repo with pull
     requests of yours (merged, closed or open) is kept: it moves to the page's Removed section, stopped, so no new work
-    starts there (repo_list.py). Any other leaves Repos, and its issues on the Issues board's Open and Catalog go."""
+    starts there (repo_list.py). Any other leaves Repos, and its issues on the Issues board's Open and Catalog go. A repo
+    that isn't in Repos but has pull requests of yours (its card is made from them) goes to Removed too."""
     listed = [item["full_name"] for item in repos.items()]
-    if body.name not in listed:
+    history = [pr for pr in pr_tracking.summary()["items"] if pr["relation"] == "author" and pr["repo"].lower() == body.name.lower()]
+    if body.name not in listed and not history:
         raise HTTPException(status_code=404, detail=f"{body.name} is not in Repos.")
     await agents.stop_repo(body.name)
-    history = [pr for pr in pr_tracking.summary()["items"] if pr["relation"] == "author" and pr["repo"].lower() == body.name.lower()]
     if history:
         repos.set_removed([body.name], True)
         return {"removed": body.name}
