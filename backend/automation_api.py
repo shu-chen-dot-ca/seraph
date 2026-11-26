@@ -21,7 +21,7 @@ Its settings and what it did, in AUTOMATION_FILE (DATA_DIR/automation.json):
      "take_from": {"target", "prioritized", "contributed", "catalog": bool},
                                                     the Repositories page's column switches (below)
      "columns": {"target", "prioritized", "contributed", "catalog": {"max_open_per_repo": int | None,
-                 "model": "default" | "fable" | "opus" | "sonnet"}}}
+                 "model": "default" | "fable" | "opus" | "sonnet", "max_scan": int}}}
                                                     those columns' settings (below)
 
 The Explore dialog's Include and Exclude are not in it: they are Explore's profile's (DATA_DIR/explore_profile.json,
@@ -98,6 +98,8 @@ The same columns' settings (their ⚙ on that page; PUT /api/automation/column s
   sends (backend/repo_automation_api.py) and taking issues (backend/issues_api.py take_from_catalog) both go by it.
 - Model: the Claude model of the agents fixing issues and following up on PRs in the column's repos (default: the
   usual, claude_models.py), for new jobs: a job keeps the one it started with (agents.py work).
+- Issues to scan (max_scan): how many of each of its repos' newest open issues Add issues scans at most
+  (backend/repo_automation_api.py; MAX_SCAN in columns saved before it).
 
 The page's settings, and where each is obeyed:
 - Manage repositories (on): everything above that archives and closes.
@@ -129,7 +131,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.issues_api import AUTO_REMOVE_FILE, AUTO_REMOVE_OFF, AUTOMATION_VERSION, REPO_COLUMNS, auto_remove_issues
-from backend.repo_automation_api import DEFAULTS, SETTINGS_FILE
+from backend.repo_automation_api import DEFAULTS, MAX_SCAN, SETTINGS_FILE
 from backend.shared import agents, explore, github_account, inbox, issues, jobs, pr_tracking, repo_signals, repos
 from github_searcher.claude_models import COLUMN_MODELS
 from github_searcher.explore import FAMOUS_STARS, FIT_LEVELS, MAX_MEDIAN_DAYS_TO_MERGE, MIN_ACTIVE_CONTRIBUTORS, MIN_CLOSED_PRS, MIN_CONTRIBUTORS, MIN_OPEN_ISSUES, MIN_STARS, STANDING_LEVELS
@@ -167,7 +169,7 @@ SETTINGS = {
     "max_open_per_repo": None,
     "ai_policies": list(POLICY_ORDER),
     "take_from": {column: True for column in REPO_COLUMNS},
-    "columns": {column: {"max_open_per_repo": None, "model": "default"} for column in REPO_COLUMNS},
+    "columns": {column: {"max_open_per_repo": None, "model": "default", "max_scan": MAX_SCAN} for column in REPO_COLUMNS},
 }
 EMPTY = {"on": False, "active_repos": MAX_ACTIVE, "take_new": True, "rules": RULES, "new_repos": AUTO_SETTINGS, "archived": {}, "closed": [], "run": None, "log": [], "labels": {}, **SETTINGS}
 
@@ -217,6 +219,7 @@ class ColumnRequest(BaseModel):
     column: str
     max_open_per_repo: int | None
     model: str
+    max_scan: int = MAX_SCAN
 
 
 def summary() -> dict:
@@ -288,15 +291,17 @@ async def put_take_from(body: TakeFromRequest) -> dict:
 
 @router.put("/automation/column")
 async def put_column(body: ColumnRequest) -> dict:
-    """A column's settings on the Repositories page (its ⚙): Open PRs per repository and Model (see the top of this
-    file)."""
+    """A column's settings on the Repositories page (its ⚙): Open PRs per repository, Model and Issues to scan (see
+    the top of this file)."""
     if body.column not in REPO_COLUMNS:
         raise HTTPException(status_code=400, detail=f"The columns are {', '.join(REPO_COLUMNS)}.")
     if body.max_open_per_repo is not None and body.max_open_per_repo < 1:
         raise HTTPException(status_code=400, detail="Open PRs per repository is at least 1.")
     if body.model != "default" and body.model not in COLUMN_MODELS:
         raise HTTPException(status_code=400, detail=f"The models are default, {', '.join(COLUMN_MODELS)}.")
-    automation["columns"][body.column] = {"max_open_per_repo": body.max_open_per_repo, "model": body.model}
+    if body.max_scan < 1:
+        raise HTTPException(status_code=400, detail="Issues to scan is at least 1.")
+    automation["columns"][body.column] = {"max_open_per_repo": body.max_open_per_repo, "model": body.model, "max_scan": body.max_scan}
     AUTOMATION_FILE.write_text(json.dumps(automation, indent=2))
     AUTOMATION_VERSION["version"] += 1
     return summary()
