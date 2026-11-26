@@ -57,8 +57,9 @@ it stays while the window is away (another tab, a name opened on GitHub).
 Every column but Removed has a ⚙ right after its count, which opens its settings in a pop-up (a dialog over the page,
 titled "<column> settings"; Save sends them, PUT /api/automation/column, the live "automation" topic's columns;
 backend/automation_api.py): Open PRs per repository (the most PRs of ours open at once in each of its repos; empty: the
-usual limits; else a whole number from 1) and Model (Default, Fable, Opus or Sonnet: the agents fixing issues and
-following up on PRs in its repos, for new jobs).
+usual limits; else a whole number from 1), Model (Default, Fable, Opus or Sonnet: the agents fixing issues and
+following up on PRs in its repos, for new jobs) and Issues to scan (how many of each of its repos' newest open issues,
+opened in the last 14 days, Add issues looks at; a whole number from 1, 300 at first).
 Every column but Removed has a switch in its header: on, agents take new issues of its repos; off, they don't, and what
 is going there goes on (PUT /api/automation/take_from, the live "automation" topic's take_from). Agents take new issues
 column by column: Target, Prioritized, Contributed, then Catalog (backend/issues_api.py take_from_catalog); Removed
@@ -103,7 +104,9 @@ import { cn } from "@/lib/utils";
 
 type Sort = "stars" | "merged" | "open" | "closed" | "working";
 // A column's settings (its ⚙), and the models it can pick.
-type ColumnSetting = { max_open_per_repo: number | null; model: string };
+type ColumnSetting = { max_open_per_repo: number | null; model: string; max_scan?: number };
+// Issues to scan when a column's settings don't say (saved before it): backend/repo_automation_api.py MAX_SCAN.
+const MAX_SCAN = 300;
 const MODEL_CHOICES = [
   { value: "default", title: "Default" },
   { value: "fable", title: "Fable" },
@@ -173,11 +176,12 @@ export default function RepositoryCards(props: { state: string; onState: (state:
   // The column switches flipped here, until the live feed has them.
   const [switched, setSwitched] = useState<Record<string, boolean>>({});
   // The column settings saved here, until the live feed has them; the column whose settings pop-up is open ("": none),
-  // and what its Open PRs per repository box and Model say.
+  // and what its Open PRs per repository box, Model and Issues to scan box say.
   const [columnEdits, setColumnEdits] = useState<Record<string, ColumnSetting>>({});
   const [settingsFor, setSettingsFor] = useState("");
   const [limitText, setLimitText] = useState("");
   const [modelPick, setModelPick] = useState("default");
+  const [scanText, setScanText] = useState(String(MAX_SCAN));
   // The card being dragged, and the column it comes from.
   const [dragging, setDragging] = useState<{ name: string; from: string } | null>(null);
 
@@ -544,12 +548,15 @@ export default function RepositoryCards(props: { state: string; onState: (state:
   // The settings pop-up's Open PRs per repository: empty is none, else a whole number from 1 (NaN: not one).
   const limitTyped = limitText.trim() === "" ? null : Number(limitText.trim());
   const limitValid = limitTyped === null || (Number.isInteger(limitTyped) && limitTyped >= 1);
+  // And its Issues to scan: a whole number from 1.
+  const scanTyped = Number(scanText.trim());
+  const scanValid = scanText.trim() !== "" && Number.isInteger(scanTyped) && scanTyped >= 1;
 
   function saveSettings() {
-    if (!limitValid) {
+    if (!limitValid || !scanValid) {
       return;
     }
-    saveColumn(settingsFor, { max_open_per_repo: limitTyped, model: modelPick });
+    saveColumn(settingsFor, { max_open_per_repo: limitTyped, model: modelPick, max_scan: scanTyped });
     setSettingsFor("");
   }
 
@@ -772,6 +779,7 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                       onClick={() => {
                         setLimitText(setting.max_open_per_repo === null ? "" : String(setting.max_open_per_repo));
                         setModelPick(setting.model);
+                        setScanText(String(setting.max_scan ?? MAX_SCAN));
                         setSettingsFor(column.key);
                       }}
                     >
@@ -1068,13 +1076,26 @@ export default function RepositoryCards(props: { state: string; onState: (state:
                 ))}
               </SelectContent>
             </Select>
+            <label htmlFor="column-max-scan" className="text-muted-foreground">
+              Issues to scan
+            </label>
+            <Input
+              id="column-max-scan"
+              type="number"
+              min={1}
+              step={1}
+              value={scanText}
+              aria-invalid={!scanValid}
+              onChange={(event) => setScanText(event.target.value)}
+            />
+            {!scanValid && <p className="col-start-2 text-xs text-destructive">A whole number from 1.</p>}
             <button type="submit" className="hidden" />
           </form>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSettingsFor("")}>
               Cancel
             </Button>
-            <Button onClick={saveSettings} disabled={!limitValid}>
+            <Button onClick={saveSettings} disabled={!limitValid || !scanValid}>
               Save
             </Button>
           </DialogFooter>
