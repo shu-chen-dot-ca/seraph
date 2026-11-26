@@ -662,18 +662,14 @@ def take_from_catalog() -> None:
     # By column (REPO_COLUMNS), each in the order above; ours stay first.
     waiting.sort(key=lambda issue_id: (0 if issue_id.lower() in opened else 1, REPO_COLUMNS.index(columns[issue_id.split("#")[0].lower()])))
 
-    # Each repo's Open PRs at once (backend/repo_automation_api.py): its open PRs of yours and its issues with an open
-    # job before a PR (queued to waiting on you) count, by repo in lower case; while they reach it, its cards wait.
+    # Each repo's Open PRs at once (backend/repo_automation_api.py), counted as its card on the Repositories page shows
+    # them: its open PRs of yours (green) and its issues in progress (yellow: fix_issue jobs still open with no PR yet),
+    # by repo in lower case (counts above); while they reach it, its cards wait.
     busy = {}
     merged = {}
-    for pr in pr_tracking.summary()["items"]:
-        if pr["relation"] == "author" and pr["state"] == "open":
-            busy[pr["repo"].lower()] = busy.get(pr["repo"].lower(), 0) + 1
-        if pr["relation"] == "author" and pr["state"] == "merged":
-            merged[pr["repo"].lower()] = merged.get(pr["repo"].lower(), 0) + 1
-    for issue_id, job in latest.items():
-        if job["status"] in ["queued", "working", "waiting_on_user", "paused"] and job["repo"] is not None:
-            busy[job["repo"].lower()] = busy.get(job["repo"].lower(), 0) + 1
+    for repo, each in counts.items():
+        busy[repo] = each["open"] + each["working"]
+        merged[repo] = each["merged"]
     limits = {}
     for repo, each in settings.items():
         limits[repo.lower()] = each.get("max_prs", 5) if merged.get(repo.lower(), 0) > 0 else each.get("max_prs_first", 1)
