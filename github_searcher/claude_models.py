@@ -8,9 +8,9 @@ in, out and cached read; writing to the cache costs twice the input for an hour.
     Opus 5.5    claude-opus-5-5    $4    $20    $0.20
     Sonnet 5.5  claude-sonnet-5-5  $2    $10    $0.10
 
-All three hold 1M tokens. Haiku isn't used anywhere: Claude Code makes small side calls of its own on every run with
-its Haiku model, and those go to SIDE_MODEL instead (ANTHROPIC_DEFAULT_HAIKU_MODEL in each run's env). Some judgments'
-runs still show Haiku 5.5 (claude-haiku-5-5): $0.10 in, $0.50 out.
+All three hold 1M tokens. Haiku 5.5 (claude-haiku-5-5, $0.10 in, $0.50 out) only reads issue titles (issue_titles
+below). Claude Code makes small side calls of its own on every run with its Haiku model, and those go to SIDE_MODEL
+instead (ANTHROPIC_DEFAULT_HAIKU_MODEL in each run's env). Some judgments' runs still show Haiku 5.5.
 
 PRICES has these numbers for the Dashboard's cost (token_usage.py), the same as Claude Code's own cost of a run.
 
@@ -26,6 +26,9 @@ The kinds of work:
   job.
 - judgment: one question answered as JSON with no tools (claude_judge.py): issue tags, repository checks, which pull
   requests need action, Explore's checks.
+- issue_titles, issue_starts: Add issues' scan of a repo's newest issues (backend/repo_automation_api.py): first their
+  titles alone, then the start of the descriptions of the ones the titles kept. Only what passes both is read in full
+  (issue tags, judgment).
 - explore: Explore's look at a repository's issues and pull requests; explore_reader: the helpers it hands threads to
   (they only read and report back).
 - image: the image agent (sandbox/image_agent.py). fix_problems: Fix all, the run that fixes the app (problem_fixes.py).
@@ -34,13 +37,14 @@ The kinds of work:
 FABLE = "claude-fable-5-2"
 OPUS = "claude-opus-5-5"
 SONNET = "claude-sonnet-5-5"
+HAIKU = "claude-haiku-5-5"
 
 # USD per million tokens: in, out and cached read. Writing to the cache is twice the input.
 PRICES = {
     FABLE: (8, 40, 0.20),
     OPUS: (4, 20, 0.20),
     SONNET: (2, 10, 0.10),
-    "claude-haiku-5-5": (0.10, 0.50, 0.005),
+    HAIKU: (0.10, 0.50, 0.005),
 }
 
 MODELS = {
@@ -50,6 +54,8 @@ MODELS = {
     "chat": OPUS,
     "task": OPUS,
     "judgment": SONNET,
+    "issue_titles": HAIKU,
+    "issue_starts": SONNET,
     "explore": OPUS,
     "explore_reader": SONNET,
     "image": OPUS,

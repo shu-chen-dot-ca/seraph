@@ -936,15 +936,19 @@ query($owner: String!, $name: String!, $after: String) {
   repository(owner: $owner, name: $name) {
     issues(first: 100, after: $after, states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}) {
       pageInfo { hasNextPage endCursor }
-      nodes { number title url createdAt updatedAt labels(first: 10) { nodes { name } } comments { totalCount } }
+      nodes {
+        number title body url createdAt updatedAt labels(first: 10) { nodes { name } } comments { totalCount }
+        assignees { totalCount } closedByPullRequestsReferences(first: 1) { totalCount }
+      }
     }
   }
 }
 """
 
 
-def get_open_issues(owner: str, repo: str) -> list[dict]:
-    # Never cached: the pop-up shows them as they are now. One request per 100 issues.
+def get_open_issues(owner: str, repo: str, since: str, limit: int) -> list[dict]:
+    # Never cached: Add issues wants them as they are now. The newest first, only those opened at since (GitHub's time
+    # format) or later, and limit at most: one request per 100 issues.
     nodes = []
     after = None
     while True:
@@ -961,7 +965,10 @@ def get_open_issues(owner: str, repo: str) -> list[dict]:
         if data["data"]["repository"] is None:
             raise ValueError(f"GitHub has no repo {owner}/{repo}")
         page = data["data"]["repository"]["issues"]
-        nodes += page["nodes"]
+        for node in page["nodes"]:
+            if node["createdAt"] < since or len(nodes) >= limit:
+                return nodes
+            nodes.append(node)
         if not page["pageInfo"]["hasNextPage"]:
             return nodes
         after = page["pageInfo"]["endCursor"]

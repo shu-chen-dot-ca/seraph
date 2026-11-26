@@ -23,7 +23,7 @@ from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from dotenv import load_dotenv
 
 from github_searcher import secret_vault, token_usage
-from github_searcher.claude_models import MODELS, SIDE_MODEL
+from github_searcher.claude_models import HAIKU, MODELS, SIDE_MODEL
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # override: the backend reloads itself on code changes, and .env changes should apply then too.
@@ -46,12 +46,16 @@ class JudgeError(Exception):
     pass
 
 
-async def judge(prompt: str, schema: dict, effort: str = "medium", what: str = "") -> dict:
+async def judge(prompt: str, schema: dict, effort: str = "medium", what: str = "", model: str = "") -> dict:
     """Ask once and return Claude's answer, shaped like schema. JudgeError when no valid answer came back. what: which
-    judgment it is, for the log."""
+    judgment it is, for the log. model: the model to ask ("": judgment's, claude_models.py)."""
     AGENT_HOME.mkdir(parents=True, exist_ok=True)
+    # Claude Code's own side calls go to SIDE_MODEL, but in a Haiku run to Haiku too: it would cost more than the run.
+    side_model = SIDE_MODEL
+    if model == HAIKU:
+        side_model = HAIKU
     options = ClaudeAgentOptions(
-        model=MODELS["judgment"],
+        model=model or MODELS["judgment"],
         system_prompt=SYSTEM_PROMPT,
         # No tools: not even Claude Code's own.
         tools=[],
@@ -63,7 +67,7 @@ async def judge(prompt: str, schema: dict, effort: str = "medium", what: str = "
         effort=effort,
         output_format={"type": "json_schema", "schema": schema},
         extra_args={"no-session-persistence": None},
-        env={"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1", "ANTHROPIC_DEFAULT_HAIKU_MODEL": SIDE_MODEL},
+        env={"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1", "ANTHROPIC_DEFAULT_HAIKU_MODEL": side_model},
     )
     answer = None
     error = "no answer"
@@ -95,7 +99,7 @@ async def judge(prompt: str, schema: dict, effort: str = "medium", what: str = "
     # puts a limit on one more token, so this ends.
     in_use = secret_vault.CLAUDE_SETTINGS["in_use"]
     if not isinstance(answer, dict) and in_use != token and in_use not in secret_vault.CLAUDE_SETTINGS["limits"]:
-        return await judge(prompt, schema, effort, what)
+        return await judge(prompt, schema, effort, what, model)
     if not isinstance(answer, dict):
         raise JudgeError(f"Claude gave no usable answer: {error}")
     return answer

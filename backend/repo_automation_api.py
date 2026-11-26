@@ -60,16 +60,28 @@ other numbers its issues' merge (issue_tags.py): only its AI policy does.
 keep_adding() runs in the background, every ADD_CHECK_SECONDS. For each repo in Repos (not archived, not one that
 doesn't take AI-made contributions: AI policy no_ai, repo_signals.py, not one closed to outside contributors: its
 newcomer verdict, whose issues are all No outside PRs, unless it is in Target, and not one at its Open PRs at once: HELD in
-backend/issues_api.py, whose issues can't be taken now, to save GitHub's quota) with Add issues on,
-it reads all its open issues from GitHub, every ADD_REFRESH_SECONDS (at once after Add issues is turned on, or the
-backend starts). Each issue only once: one it added, or that was in the Issues list when it looked, is kept in
-ADDED_FILE and never added again, so one you take off stays off (Add in the repo's pop-up on the Repository page still
-puts it in Catalog: backend/issues_api.py add_to_catalog); one taken off with the x is skipped too. The rest are tagged
-first (issue_tags.py) when they have no tags yet or changed on GitHub since, and the ones whose complexity is among the
-repo's Issue levels (one out of scope has none) go into the Issues list, on the board's Open column. Nothing else is
-asked here: the Issues board reads each one again from fresh as it comes in, and its own rules (Remove automatically)
-decide on it (keep_new_tags in backend/issues_api.py). One that didn't match is looked at again when it changes on
-GitHub, or the levels change.
+backend/issues_api.py, whose issues can't be taken now, to save GitHub's quota) with Add issues on
+(SCAN_AT_ONCE repos at the same time), it reads its
+newest open issues from GitHub, every
+ADD_REFRESH_SECONDS (at once after Add issues is turned on, or the backend starts): only those opened in the last
+SCAN_DAYS days, and at most its column's Issues to scan (the ⚙ of its column on the Repositories page,
+backend/automation_api.py; MAX_SCAN when not set). Older ones are never read, but the
+ones already on the board stay. Each issue only once: one it added, or that was in the Issues list when it looked, is
+kept in ADDED_FILE and never added again, so one you take off stays off (Add in the repo's pop-up on the Repository page
+still puts it in Catalog: backend/issues_api.py add_to_catalog); one taken off with the x is skipped too. Nor one
+assigned to someone, with an open pull request that closes it, or with one of SKIP_LABELS. The rest are scanned, the
+cheapest look first, so few are read in full (a full read costs about a hundred title reads):
+1. Titles: Haiku reads the titles (and labels), TITLES_PER_RUN in one run, and keeps the ones worth a closer look (its
+   Issue levels, above).
+2. Starts: Sonnet reads the ones the titles kept, with START_CHARS of each description and its number of comments,
+   STARTS_PER_RUN in one run, and keeps the ones worth reading in full.
+3. Full read: what passed both is tagged (issue_tags.py), the newest FULL_READS of the repo a round, the rest in the
+   next rounds.
+Each look is made once per title and levels (SCANS_FILE, by issue: the basis and each look's answer; a failed run
+leaves its issues for the next round). One read in full before and unchanged on GitHub since skips the scan. The ones read in full whose complexity is
+among the repo's Issue levels (one out of scope has none) go into the Issues list, on the board's Open column, as read
+then, so the Issues board doesn't read them again at once; one tagged in an earlier round is read again from fresh as
+it comes in (keep_new_tags in backend/issues_api.py). Then the board's own rules (Remove automatically) decide on it.
 
 keep_catalog() runs in the background right after issues get tagged (TAGGED in backend/issues_api.py, which keep_new_tags
 and keep_tags set), and every CATALOG_CHECK_SECONDS anyway, so Open is only where an issue waits for its tags. For each
@@ -95,13 +107,14 @@ import hashlib
 import json
 import time
 import traceback
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
 from backend.issues_api import AUTOMATION_VERSION, DASHBOARD_AUTOMATION_FILE, HELD, TAGGED
 from backend.shared import agents, explore, github_account, inbox, issue_facts, issue_tags, issues, jobs, pr_tracking, repo_signals, repos
-from github_searcher.claude_judge import judge
+from github_searcher.claude_judge import JudgeError, judge
+from github_searcher.claude_models import MODELS
 from github_searcher.github_account import SendError
 from github_searcher.inbox import AUTOMATION_FILE, ISSUE_AUTOMATION_FILE
 from github_searcher.issue_tags import DATA_DIR, RULES_VERSION
@@ -111,6 +124,7 @@ SETTINGS_FILE = AUTOMATION_FILE
 ISSUE_SETTINGS_FILE = ISSUE_AUTOMATION_FILE
 PICKED_FILE = DATA_DIR / "catalog_picks.json"
 ADDED_FILE = DATA_DIR / "added_issues.json"
+SCANS_FILE = DATA_DIR / "issue_scans.json"
 DEFAULTS = {
     "add_issues": False,
     "queue_issues": False,
@@ -129,6 +143,19 @@ DEFAULTS = {
 }
 # What a repo in Target always has on (add_issues): a repo in Target always gets worked.
 TARGET_LEVELS = ["add_issues", "queue_issues", "take_issues", "questions", "comments", "pull_requests"]
+# Add issues' scan (see the top of this file): issues opened within SCAN_DAYS, the newest MAX_SCAN at most (a column's
+# Issues to scan on the Repositories page says otherwise); TITLES_PER_RUN titles in one Haiku run, STARTS_PER_RUN issues
+# in one Sonnet run with START_CHARS of each description; FULL_READS full reads (issue_tags.py) of a repo a round.
+SCAN_DAYS = 14
+MAX_SCAN = 300
+TITLES_PER_RUN = 200
+STARTS_PER_RUN = 30
+START_CHARS = 1500
+FULL_READS = 10
+# How many repos Add issues scans at the same time.
+SCAN_AT_ONCE = 4
+# Labels (in part, without case) that say an issue is no work for us.
+SKIP_LABELS = ["duplicate", "wontfix", "won't fix", "invalid", "question", "discussion"]
 CATALOG_CHECK_SECONDS = 60
 ADD_CHECK_SECONDS = 60
 # How often Add issues reads a repo's open issues from GitHub again.
@@ -379,23 +406,48 @@ async def add_issues() -> None:
     # Tags of repos no longer in Repos go (issue_tags.py): only the Issues list's stay.
     issue_tags.forget_repos([item["full_name"] for item in repos.items()], list(listed))
 
+    # Each issue's scan (see the top of this file), and the issues opened since when (SCAN_DAYS ago) that it reads.
+    scans = {}
+    if SCANS_FILE.is_file():
+        scans = json.loads(SCANS_FILE.read_text())
+    since = (datetime.now(UTC) - timedelta(days=SCAN_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    column_settings = automation.get("columns", {})
+
+    # The repos due a read: Add issues on, and not read in the last ADD_REFRESH_SECONDS.
+    due = []
     for name in names:
         rules = by_name.get(name.lower())
         if rules is None or not rules.get("add_issues") or time.time() - read_at.get(name, 0) < ADD_REFRESH_SECONDS:
             continue
+        due.append(name)
+
+    # One repo's scan. SCAN_AT_ONCE run at the same time (below), sharing the lists and files above.
+    async def scan(name: str) -> None:
+        rules = by_name[name.lower()]
         # Set first: a repo GitHub fails on is tried again after ADD_REFRESH_SECONDS, not every round.
         read_at[name] = time.time()
+        # Its column's Issues to scan on the Repositories page (its ⚙; backend/issues_api.py works out the column).
+        column = agents.repo_columns.get(name.lower(), "catalog")
+        max_scan = (column_settings.get(column) or {}).get("max_scan", MAX_SCAN)
         try:
-            nodes = await asyncio.to_thread(get_open_issues, name.split("/")[0], name.split("/")[1])
+            nodes = await asyncio.to_thread(get_open_issues, name.split("/")[0], name.split("/")[1], since, max_scan)
         except (httpx.HTTPError, ValueError):
-            continue
-        # Tags of its issues that aren't open any more go (issue_tags.py): only the Issues list's stay.
+            return
+        # Tags of its issues not read any more (closed, or older than the newest it reads) go (issue_tags.py): only the
+        # Issues list's stay. So do their scans.
         issue_tags.forget_closed(name, [f"{name}#{node['number']}" for node in nodes], list(listed))
         tags = issue_tags.all()
+        ids = [f"{name}#{node['number']}" for node in nodes]
+        for key in [key for key in scans if key.startswith(name + "#") and key not in ids]:
+            del scans[key]
+        # Its Issue levels: until one of your PRs there is merged, its levels_first.
+        levels = rules["levels"] if merged.get(name.lower(), 0) > 0 else rules.get("levels_first", ["easy"])
 
-        # Not added before, and tagged first when it has no tags yet or changed on GitHub since.
+        # Not added before, nor assigned, nor with an open pull request that closes it, nor labelled as no work
+        # (SKIP_LABELS). One read in full that hasn't changed since needs no new look; the others are scanned, each
+        # step once per title and levels.
         waiting = []
-        todo = []
+        scanning = []
         for node in nodes:
             issue_id = f"{name}#{node['number']}"
             if issue_id in listed and issue_id not in added_set:
@@ -403,21 +455,102 @@ async def add_issues() -> None:
                 added_set.add(issue_id)
             if issue_id in added_set or issue_id in dismissed:
                 continue
-            waiting.append(node)
+            if node["assignees"]["totalCount"] > 0 or node["closedByPullRequestsReferences"]["totalCount"] > 0:
+                continue
+            labels = " ".join(label["name"].lower() for label in node["labels"]["nodes"])
+            if any(word in labels for word in SKIP_LABELS):
+                continue
             tag = tags.get(issue_id)
-            if tag is None or tag["updated_at"] != node["updatedAt"]:
-                todo.append(issue_id)
+            if tag is not None and tag["updated_at"] == node["updatedAt"]:
+                waiting.append(node)
+                continue
+            scanning.append(node)
+            basis = hashlib.sha256(json.dumps([node["title"], sorted(levels)]).encode()).hexdigest()[:16]
+            if (scans.get(issue_id) or {}).get("basis") != basis:
+                scans[issue_id] = {"basis": basis, "title": None, "start": None}
+
+        # What the scan's two looks are for: its Issue levels.
+        wanted = "small, self-contained fixes a first-time contributor can finish and prove: clear bugs, wrong docs or messages, small UI fixes"
+        if "medium" in levels:
+            wanted = "well-defined bugs and small improvements, easy or medium, that one pull request can fix"
+        if "hard" in levels:
+            wanted = "well-defined bugs and improvements of any size, easy, medium or hard, that one pull request can fix"
+        rules_text = f"Rules: {DEFAULT_RULES} What they exclude, in their own words: {explore.profile['exclude'] or 'nothing'}"
+
+        # Its titles alone (Haiku), TITLES_PER_RUN in one run. A failed run leaves its issues for the next round.
+        unread = [node for node in scanning if scans[f"{name}#{node['number']}"]["title"] is None]
+        for start in range(0, len(unread), TITLES_PER_RUN):
+            run = unread[start:start + TITLES_PER_RUN]
+            lines = []
+            for node in run:
+                labels = ", ".join(label["name"] for label in node["labels"]["nodes"])
+                lines.append(f"#{node['number']}: {node['title']} [{labels}]")
+            prompt = (
+                f"Below are the titles of the newest open issues of the GitHub project {name}. We fix issues of outside "
+                "projects with AI agents working on a Linux computer, and send the fixes as pull requests. From the title "
+                f"alone, pick the ones worth a closer look: {wanted}. Skip feature requests that need the maintainers to "
+                "decide on a design, questions, support requests, discussions, plans and tracking issues, and anything that "
+                "only happens on Windows, macOS, iOS or Android.\n\n"
+                f"{rules_text}\n\n"
+                "Answer take true or false for every issue, by its number.\n\n" + "\n".join(lines)
+            )
+            try:
+                answer = await judge(prompt, SCHEMA, "low", "issue_titles", MODELS["issue_titles"])
+            except JudgeError:
+                break
+            answers = {each["number"]: each["take"] for each in answer["issues"]}
+            for node in run:
+                scans[f"{name}#{node['number']}"]["title"] = answers.get(node["number"])
+            SCANS_FILE.write_text(json.dumps(scans))
+
+        # The ones the titles kept: the start of their descriptions (Sonnet), STARTS_PER_RUN in one run.
+        kept = [node for node in scanning if scans[f"{name}#{node['number']}"]["title"] is True]
+        unread = [node for node in kept if scans[f"{name}#{node['number']}"]["start"] is None]
+        for start in range(0, len(unread), STARTS_PER_RUN):
+            run = unread[start:start + STARTS_PER_RUN]
+            lines = []
+            for node in run:
+                labels = ", ".join(label["name"] for label in node["labels"]["nodes"])
+                body = (node["body"] or "")[:START_CHARS]
+                lines.append(f"#{node['number']}: {node['title']}\nLabels: {labels or 'none'}; {node['comments']['totalCount']} comments.\n{body}")
+            prompt = (
+                f"Below are open issues of the GitHub project {name}, each with the start of its description. We fix issues "
+                "of outside projects with AI agents working on a Linux computer, and send the fixes as pull requests. Pick "
+                f"the ones worth reading in full: {wanted}, where it is clear what to change, nobody says they are working "
+                "on it, and the fix can be shown to work on Linux.\n\n"
+                f"{rules_text}\n\n"
+                "Answer take true or false for every issue, by its number.\n\n" + "\n\n".join(lines)
+            )
+            try:
+                answer = await judge(prompt, SCHEMA, "medium", "issue_starts", MODELS["issue_starts"])
+            except JudgeError:
+                break
+            answers = {each["number"]: each["take"] for each in answer["issues"]}
+            for node in run:
+                scans[f"{name}#{node['number']}"]["start"] = answers.get(node["number"])
+            SCANS_FILE.write_text(json.dumps(scans))
+
+        # What passed both is read in full (issue_tags.py), the newest FULL_READS a round; the rest in the next rounds.
+        passed = [node for node in scanning if scans[f"{name}#{node['number']}"]["start"] is True]
+        todo = [f"{name}#{node['number']}" for node in passed][:FULL_READS]
         if todo:
             await issue_tags.tag(todo)
         tags = issue_tags.all()
+        waiting += passed
 
         items = []
         for node in waiting:
             issue_id = f"{name}#{node['number']}"
             tag = tags.get(issue_id)
-            levels = rules["levels"] if merged.get(name.lower(), 0) > 0 else rules.get("levels_first", ["easy"])
-            if tag is None or tag.get("merge") == "out of scope" or tag.get("complexity") not in levels:
+            # Read in full as it is now (one not read yet waits for its round).
+            if tag is None or tag["updated_at"] != node["updatedAt"]:
                 continue
+            if tag.get("merge") == "out of scope" or tag.get("complexity") not in levels:
+                continue
+            # One just read comes in as read then, so keep_new_tags (backend/issues_api.py) doesn't read it again.
+            added_at = datetime.now(UTC).isoformat()
+            if issue_id in todo:
+                added_at = tag["judged_at"]
             items.append(
                 {
                     "id": issue_id,
@@ -430,14 +563,18 @@ async def add_issues() -> None:
                     "html_url": node["url"],
                     "note": "",
                     "added_by": "user",
-                    "added_at": datetime.now(UTC).isoformat(),
+                    "added_at": added_at,
                 }
             )
         new = issues.add(items)
-        added += new
+        added.extend(new)
         added_set.update(new)
         listed.update(new)
         ADDED_FILE.write_text(json.dumps({"added": added}, indent=2))
+
+    # SCAN_AT_ONCE repos at the same time, in the order above.
+    for start in range(0, len(due), SCAN_AT_ONCE):
+        await asyncio.gather(*[scan(name) for name in due[start:start + SCAN_AT_ONCE]])
 
 
 async def keep_catalog() -> None:
