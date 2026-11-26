@@ -53,7 +53,8 @@ MIN_ACTIVE_CONTRIBUTORS people or more opening PRs in 30 days (11-25: the user c
 small and slow); one with a PR of ours merged is held to its labels below instead, as our own merges there tell more.
 Once its signals are read, one in Repos that falls short leaves (archived when it has a PR of ours, else off Repos and
 kept as checked by Explore, so it never comes back), and so does one in Explore's found list (also one found before
-these were checked, which a later run checks anew). Never one in Target (repo_list.py target): you picked it, so it
+these were checked, which a later run checks anew). One it archived this way comes back once it meets them again
+(below_minimums: a rule or its numbers changed). Never one in Target (repo_list.py target): you picked it, so it
 stays, and nothing below archives it either. On or off too, while Add
 repositories is on, it keeps active_repos repos active (below). And while on:
 - archives a repo that is Not merging (Repos' Archived, repo_list.py): its issues leave the board's Open and Catalog,
@@ -174,6 +175,15 @@ if AUTOMATION_FILE.is_file():
 # Minimum stars is gone: the Include says how big a repo should be, and Explore keeps its own minimum (explore.py
 # MIN_STARS).
 automation.pop("min_stars", None)
+# The repos the minimums archived, with why, so they come back once they meet them (automate). Before it was kept
+# (11-25), only the log said which: 39 repos with PRs of ours were archived by mistake on 11-25, when Explore's 10k
+# floor for letting one in held the ones already in for a while.
+if "below_minimums" not in automation:
+    automation["below_minimums"] = {}
+    for entry in automation["log"]:
+        numbers = [" stars, ", " contributors, under ", " closed PRs, ", " open issues, "]
+        if entry["what"] == "Archived" and entry["repo"] not in automation["archived"] and any(each in entry["why"] for each in numbers):
+            automation["below_minimums"][entry["repo"]] = entry["why"]
 # The PRs a close was tried on (a restart tries them again).
 STATE = {"tried": []}
 
@@ -400,7 +410,8 @@ async def automate() -> None:
     log = []
     at = now.isoformat()
     archived = repos.archived()
-    entries = [(item["full_name"], signals.get(item["full_name"])) for item in repos.items() if item["full_name"] not in archived]
+    below = automation["below_minimums"]
+    entries = [(item["full_name"], signals.get(item["full_name"])) for item in repos.items() if item["full_name"] not in archived or item["full_name"] in below]
     entries += [(entry["name"], entry.get("signals")) for entry in explore.found]
     found = [entry["name"] for entry in explore.found]
     # Repos with a PR of ours merged: held to the first minimums only (the top of this file).
@@ -440,6 +451,7 @@ async def automate() -> None:
             continue
         if name.lower() in ours:
             leave_archived.append(name)
+            below[name] = short[name]
             log.append({"at": at, "repo": name, "what": "Archived", "why": short[name]})
         else:
             leave_removed.append(name)
@@ -450,6 +462,21 @@ async def automate() -> None:
         repos.remove(leave_removed)
     if leave_archived or leave_removed:
         auto_remove_issues()
+    # One the minimums archived comes back once it meets them again; one unarchived meanwhile (Add to Target) is let go.
+    archived = repos.archived()
+    back = []
+    for name in list(below):
+        each = signals.get(name)
+        if name not in archived:
+            del below[name]
+        elif each is not None and "merged_prs_total" in each and name not in short:
+            back.append(name)
+            del below[name]
+            log.append({"at": at, "repo": name, "what": "Unarchived", "why": "Meets the minimums again"})
+        else:
+            below[name] = short.get(name, below[name])
+    if back:
+        repos.set_archived(back, False)
     explore.remove([name for name in found if name in short])
     # Explore keeps them as checked, so no worker goes over one again (not one found before the minimums: checked anew).
     for name in leave_removed + [name for name in found if name in short]:
