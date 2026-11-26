@@ -108,7 +108,7 @@ from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, ResultMessage,
 from dotenv import load_dotenv
 
 from github_searcher.agent.github_tools import GithubTools
-from github_searcher import token_usage
+from github_searcher import secret_vault, token_usage
 from github_searcher.claude_judge import AGENT_HOME, JudgeError, judge
 from github_searcher.claude_models import MODELS, SIDE_MODEL
 from github_searcher.search import get_readme, get_repository, search_repositories
@@ -1093,6 +1093,7 @@ class Explore:
                     env={"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1", "ANTHROPIC_DEFAULT_HAIKU_MODEL": SIDE_MODEL},
                 )
                 look = None
+                token = secret_vault.CLAUDE_SETTINGS["in_use"]
                 async for message in query(prompt=look_prompt, options=options):
                     # What the lead and its readers used, per model, in the log: the readers' model is theirs (when it
                     # is the lead's too, the lead's line has theirs).
@@ -1104,6 +1105,12 @@ class Explore:
                         token_usage.add(work, model, usage, "explore_look", "medium", usage.get("costUSD"), message.duration_ms / 1000, repo=name)
                     if isinstance(message, ResultMessage) and not message.is_error:
                         look = message.structured_output
+                    # The Claude token hit its usage limit: the next one goes in use (secret_vault.py).
+                    error = ""
+                    if isinstance(message, ResultMessage) and message.is_error:
+                        error = "; ".join(message.errors or []) or message.result or message.subtype
+                    if "limit" in error and "resets" in error:
+                        secret_vault.mark_limit(token, error)
                 if isinstance(look, dict):
                     verdict["fit"] = look["fit"]
                     verdict["note"] = look["note"]

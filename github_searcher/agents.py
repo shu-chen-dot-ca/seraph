@@ -182,7 +182,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from github_searcher import search
+from github_searcher import search, secret_vault
 from github_searcher.agent.agent import AGENT_HOME, Agent
 from github_searcher.agent.work_tools import WorkTools
 from github_searcher.claude_models import BIG_REPO_MODEL, BIG_REPO_STARS, MODELS
@@ -665,6 +665,13 @@ class Agents:
             agent.busy = False
             self.save(agent)
             self.version += 1
+            # Its turn stopped on the Claude token's usage limit and the next one, with no limit yet, is in use now
+            # (secret_vault.py): carry on at once on it, not at the next heartbeat.
+            in_use = secret_vault.CLAUDE_SETTINGS["in_use"]
+            if agent.hit_limit and in_use != agent.claude_token and in_use not in secret_vault.CLAUDE_SETTINGS["limits"]:
+                text = "Your last turn stopped on the Claude account's usage limit. Another account is in use now: carry on from where you left off."
+                self.pending[agent.id].append({"from": "System", "text": text, "shown": False})
+                self.wake[agent.id].set()
             # Runs it left going have no tool call waiting for them anymore: watch_runs collects them.
             self.queue.to_background(agent.id)
 

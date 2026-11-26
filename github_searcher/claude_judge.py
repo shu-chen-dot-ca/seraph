@@ -67,6 +67,7 @@ async def judge(prompt: str, schema: dict, effort: str = "medium", what: str = "
     )
     answer = None
     error = "no answer"
+    token = secret_vault.CLAUDE_SETTINGS["in_use"]
     with LOCK:
         RUNNING[what] = RUNNING.get(what, 0) + 1
         COUNTS["version"] += 1
@@ -78,11 +79,11 @@ async def judge(prompt: str, schema: dict, effort: str = "medium", what: str = "
                 token_usage.add("judgment", model, usage, what, effort, usage.get("costUSD"), message.duration_ms / 1000)
             if message.is_error:
                 error = "; ".join(message.errors or []) or message.result or message.subtype
-                # The Claude token in use hit its usage limit: Settings → Secrets shows it on that token.
+                # The Claude token hit its usage limit: Settings → Secrets shows it, and the next one goes in use.
                 if "limit" in error and "resets" in error:
-                    secret_vault.mark_limit(error)
+                    secret_vault.mark_limit(token, error)
                 continue
-            secret_vault.mark_limit(None)
+            secret_vault.mark_limit(token, None)
             answer = message.structured_output
     finally:
         with LOCK:
@@ -90,6 +91,11 @@ async def judge(prompt: str, schema: dict, effort: str = "medium", what: str = "
             if RUNNING[what] == 0:
                 del RUNNING[what]
             COUNTS["version"] += 1
+    # Stopped on the token's usage limit and the next one, with no limit yet, is in use now: ask again on it. Each try
+    # puts a limit on one more token, so this ends.
+    in_use = secret_vault.CLAUDE_SETTINGS["in_use"]
+    if not isinstance(answer, dict) and in_use != token and in_use not in secret_vault.CLAUDE_SETTINGS["limits"]:
+        return await judge(prompt, schema, effort, what)
     if not isinstance(answer, dict):
         raise JudgeError(f"Claude gave no usable answer: {error}")
     return answer

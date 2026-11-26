@@ -102,6 +102,10 @@ class Agent:
         # Whether the current (or last) turn was interrupted.
         self.stopped = False
         self.client = None
+        # The Claude token in use when the client connected (secret_vault.py), and whether the last turn stopped on its
+        # usage limit.
+        self.claude_token = None
+        self.hit_limit = False
         # Claude Code reports cost as a running total for the connection; this turns it into each turn's cost.
         self.connection_cost = 0.0
         # A reviewer's own tools (none for other agents).
@@ -122,6 +126,7 @@ class Agent:
         for item in tools:
             allowed_tools.append(f"mcp__{TOOL_SERVER}__{item.name}")
 
+        self.claude_token = secret_vault.CLAUDE_SETTINGS["in_use"]
         self.client = ClaudeSDKClient(
             ClaudeAgentOptions(
                 model=self.model,
@@ -192,6 +197,10 @@ class Agent:
     async def run(self, prompt: str) -> None:
         """One turn: send the prompt and add to the history until the agent ends its turn."""
         self.stopped = False
+        self.hit_limit = False
+        # Another Claude token was put in use (Use, or a limit on this one): connect again on it, same conversation.
+        if self.client is not None and self.claude_token != secret_vault.CLAUDE_SETTINGS["in_use"]:
+            await self.stop()
         if self.client is None:
             await self.connect()
         await self.client.query(prompt)
@@ -244,11 +253,12 @@ class Agent:
                     error = "; ".join(message.errors or []) or message.result or message.subtype
                     self.history.append({"type": "system", "text": f"Error: {error}", "time": datetime.now(UTC).isoformat()})
                     # The Claude token in use hit its usage limit ("You've hit your weekly limit · resets Nov 25, 7am"):
-                    # Settings → Secrets shows it on that token, so you know to use another.
+                    # Settings → Secrets shows it on that token, and the next one goes in use for the next turn.
                     if "limit" in error and "resets" in error:
-                        secret_vault.mark_limit(error)
+                        self.hit_limit = True
+                        secret_vault.mark_limit(self.claude_token, error)
                 if not message.is_error:
-                    secret_vault.mark_limit(None)
+                    secret_vault.mark_limit(self.claude_token, None)
                 self.history.append({"type": "turn_end", "stopped": stopped, "cost_usd": turn_cost, "time": datetime.now(UTC).isoformat()})
 
             # The agent's text, thinking and tool calls come in its messages; tool results come back in user

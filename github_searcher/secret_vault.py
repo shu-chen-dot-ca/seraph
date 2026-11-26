@@ -28,10 +28,11 @@ both answer, then starts. Nothing falls back to disk.
 The agents' Claude tokens are the exception: only the one in use goes into os.environ, as CLAUDE_CODE_OAUTH_TOKEN, where
 every Claude Code the app starts (agents, judgments) reads it, so a switch applies from the next run on. Which one is in
 use, the name you gave each and the usage limit Claude last reported on each are in CLAUDE_PATH (no secret there):
-{"in_use": "CLAUDE_CODE_OAUTH_TOKEN_2" | None, "names": {token: name}, "limits": {token: Claude's words}}. use_claude()
-switches (Use in Settings → Secrets), name_claude() names one, and mark_limit() keeps what a run on the one in use said
-about its usage limit ("You've hit your weekly limit · resets Nov 25, 7am (America/New_York)") until a run there goes
-through again. Nothing switches by itself.
+{"in_use": "CLAUDE_CODE_OAUTH_TOKEN_2" | None, "names": {token: name}, "limits": {token: Claude's words}, "limited_at":
+{token: when}}. use_claude() switches (Use in Settings → Secrets), name_claude() names one, and mark_limit() keeps what a
+run on a token said about its usage limit ("You've hit your weekly limit · resets Nov 25, 7am (America/New_York)") until
+a run there goes through again, or its reset time passes (status()). A limit on the one in use switches to the next one
+by itself.
 
 save() sets or removes one token, where they are kept, and in os.environ. move() moves what is on this computer to AWS:
 it adds it to the secret, reads the secret back to check it, keeps the access key in the keyring, and only then removes
@@ -43,11 +44,13 @@ github_account.py). One change at a time is enough: they come from your own clic
 
 import json
 import os
+import re
 import subprocess
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
@@ -122,7 +125,7 @@ for name, value in VALUES.items():
         continue
     if is_token(name):
         os.environ[name] = value
-CLAUDE_SETTINGS = {"in_use": None, "names": {}, "limits": {}}
+CLAUDE_SETTINGS = {"in_use": None, "names": {}, "limits": {}, "limited_at": {}}
 if os.environ.get("SERAPH_TESTS") != "1" and CLAUDE_PATH.is_file():
     CLAUDE_SETTINGS.update(json.loads(CLAUDE_PATH.read_text()))
 
@@ -144,7 +147,7 @@ def claude_tokens() -> list[str]:
 def use_claude(name: str | None = None) -> None:
     """Puts one of the agents' Claude tokens in use: name, else the one in use already, else (none yet, or it was
     removed) the first one set. It goes in os.environ as CLAUDE_CODE_OAUTH_TOKEN: every Claude Code the app starts from
-    now on runs on it, the ones running keep theirs. ValueError: no such token."""
+    now on runs on it, and a connected agent connects again on it at its next turn. ValueError: no such token."""
     tokens = claude_tokens()
     if name is not None and name not in tokens:
         raise ValueError(f"No Claude Code token {name}.")
@@ -168,7 +171,11 @@ def use_claude(name: str | None = None) -> None:
     for token, text in CLAUDE_SETTINGS["limits"].items():
         if token in tokens:
             limits[token] = text
-    changed = {"in_use": in_use, "names": names, "limits": limits}
+    limited_at = {}
+    for token, at in CLAUDE_SETTINGS["limited_at"].items():
+        if token in tokens:
+            limited_at[token] = at
+    changed = {"in_use": in_use, "names": names, "limits": limits, "limited_at": limited_at}
     if changed != CLAUDE_SETTINGS:
         CLAUDE_SETTINGS.update(changed)
         CLAUDE_PATH.write_text(json.dumps(CLAUDE_SETTINGS, indent=2))
@@ -186,23 +193,64 @@ def name_claude(name: str, text: str) -> None:
     CLAUDE_PATH.write_text(json.dumps(CLAUDE_SETTINGS, indent=2))
 
 
-def mark_limit(text: str | None) -> None:
-    """A Claude run on the token in use ended on its usage limit (text: Claude's words, with when it resets), or (None)
-    one went through: Settings → Secrets shows the limit on that token until then."""
-    in_use = CLAUDE_SETTINGS["in_use"]
-    if in_use is None or CLAUDE_SETTINGS["limits"].get(in_use) == text:
+def mark_limit(token: str | None, text: str | None) -> None:
+    """A Claude run on token (the one in use when it started) ended on its usage limit (text: Claude's words, with when
+    it resets), or (None) one went through: Settings → Secrets shows the limit on that token until then. A limit on the
+    one in use puts the next one in use: the first after it without a limit, else simply the next one (only a run that
+    goes through takes a limit off, so one whose limit has reset gets found that way)."""
+    tokens = claude_tokens()
+    if token not in tokens:
         return
-    if text is None:
-        CLAUDE_SETTINGS["limits"].pop(in_use, None)
-    else:
-        CLAUDE_SETTINGS["limits"][in_use] = text
-    CLAUDE_PATH.write_text(json.dumps(CLAUDE_SETTINGS, indent=2))
+    if CLAUDE_SETTINGS["limits"].get(token) != text:
+        if text is None:
+            CLAUDE_SETTINGS["limits"].pop(token, None)
+            CLAUDE_SETTINGS["limited_at"].pop(token, None)
+        else:
+            CLAUDE_SETTINGS["limits"][token] = text
+            CLAUDE_SETTINGS["limited_at"][token] = datetime.now(UTC).isoformat()
+        CLAUDE_PATH.write_text(json.dumps(CLAUDE_SETTINGS, indent=2))
+    if text is None or token != CLAUDE_SETTINGS["in_use"] or len(tokens) == 1:
+        return
+    start = tokens.index(token)
+    after = tokens[start + 1:] + tokens[:start]
+    next_one = after[0]
+    for name in after:
+        if name not in CLAUDE_SETTINGS["limits"]:
+            next_one = name
+            break
+    use_claude(next_one)
 
 
 def status() -> dict:
     """What Settings → Secrets shows: where they are, the tokens set (each with its last 4 characters only), which
     secrets are still on this computer, and the agents' Claude tokens' "claude" (CLAUDE_SETTINGS). Never a whole
     value."""
+    # A limit whose reset time has passed is over, also on a token not in use, where no run says so: "resets 1:10am
+    # (America/New_York)" is the first 1:10am after it was hit, "resets Nov 25, 7am (...)" that day.
+    for token, text in list(CLAUDE_SETTINGS["limits"].items()):
+        found = re.search(r"resets (?:([A-Z][a-z]{2}) (\d{1,2}), )?(\d{1,2})(?::(\d{2}))?(am|pm) \(([^)]+)\)", text)
+        hit_at = CLAUDE_SETTINGS["limited_at"].get(token)
+        if found is None or hit_at is None:
+            continue
+        month, day, hour, minute, half, zone = found.groups()
+        try:
+            hit = datetime.fromisoformat(hit_at).astimezone(ZoneInfo(zone))
+        except (ZoneInfoNotFoundError, ValueError):
+            continue
+        hour = int(hour) % 12
+        if half == "pm":
+            hour += 12
+        reset = hit.replace(hour=hour, minute=int(minute or 0), second=0, microsecond=0)
+        if month is not None:
+            reset = reset.replace(month=datetime.strptime(month, "%b").month, day=int(day))
+            if reset < hit - timedelta(days=1):
+                reset = reset.replace(year=reset.year + 1)
+        elif reset <= hit:
+            reset += timedelta(days=1)
+        if datetime.now(UTC) >= reset:
+            del CLAUDE_SETTINGS["limits"][token]
+            del CLAUDE_SETTINGS["limited_at"][token]
+            CLAUDE_PATH.write_text(json.dumps(CLAUDE_SETTINGS, indent=2))
     tokens = []
     for name, value in VALUES.items():
         if is_token(name) and value != "":
