@@ -11,7 +11,10 @@ The signals (github_searcher/repo_signals.py) are read by keep_signals(), which 
 repo gets them within SIGNALS_CHECK_SECONDS, and keeps them. Signals kept from before the totals (commits, open, merged
 and closed PRs, open issues) were counted get just those, with one small read each, those from before the anonymous
 contributors were counted get that count again, and those from before the README's
-language was checked get that, the README alone.
+language was checked get that, the README alone. Then every repo in the list is checked by the rules for one already
+in (Explore's, with its numbers, are for letting one in): one whose AI policy says no AI, whose rules say in writing it
+takes no outside PRs (not one that merged a PR of yours), that is archived, or has its issues off on GitHub goes to
+Removed.
 """
 
 import asyncio
@@ -24,7 +27,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.issues_api import auto_remove_issues
-from backend.shared import agents, github_account, issues, jobs, pr_tracking, repo_signals, repos
+from backend.shared import agents, explore, github_account, issues, jobs, pr_tracking, repo_signals, repos
 from github_searcher.github_account import SendError
 from github_searcher.repo_signals import NEWCOMER_VERSION, NON_LATIN_SHARE, POLICY_VERSION
 from github_searcher.search import count_contributors, get_readme, get_repo_totals, get_repository
@@ -411,4 +414,61 @@ async def keep_signals() -> None:
                 failed.append(name)
                 continue
             repo_signals.update(name, {"readme_english": english})
+        # The rules for a repo already in the list (Explore's own, with its numbers, are for letting one in; the repos you
+        # add yourself skip those): one is kept unless it says otherwise in writing. One that is against us goes to
+        # Removed at once (its agents stopped, as Add to Removed does): its AI policy says no AI, its rules say it takes
+        # no outside PRs (the newcomer verdict, repo_signals.py; not for one that merged a PR of yours: it is open to
+        # us), it is archived, or its issues are off on GitHub (GNOME's copies there: their issues are on GitLab). Once
+        # its signals are read; GitHub is read once per repo while the backend runs. Not one you took out of Removed
+        # yourself (restored): you gave it another chance. Only one with PRs of yours (merged, open or closed) goes to
+        # Removed; any other leaves the list, as Delete does (gone), and so does one in Removed with none (from before).
+        removed = [name.lower() for name in repos.removed()]
+        restored = [name.lower() for name in repos.restored()]
+        target = {name.lower(): name for name in repos.target()}
+        merged = [pr["repo"].lower() for pr in pr_tracking.summary()["items"] if pr["relation"] == "author" and pr["state"] == "merged"]
+        history = [pr["repo"].lower() for pr in pr_tracking.summary()["items"] if pr["relation"] == "author"]
+        known = repo_signals.all()
+        gone = []
+        for name in repos.removed():
+            if name.lower() not in history:
+                gone.append(name)
+        for item in repos.items():
+            name = item["full_name"]
+            if name.lower() in removed or name.lower() in restored or name in failed or name not in known:
+                continue
+            why = ""
+            verdict = known[name].get("newcomer_verdict") or {}
+            if (known[name].get("ai_policy") or {}).get("tag") == "no_ai":
+                why = "its AI policy says no AI"
+            elif verdict.get("verdict") == "closed" and verdict.get("version") == NEWCOMER_VERSION and name.lower() not in merged:
+                why = f"its rules say it takes no outside PRs ({verdict['reason']})"
+            if why == "":
+                try:
+                    repo = await asyncio.to_thread(get_repository, name.split("/")[0], name.split("/")[1])
+                except (httpx.HTTPError, ValueError):
+                    failed.append(name)
+                    continue
+                if repo["archived"]:
+                    why = "it is archived"
+                elif not repo["has_issues"]:
+                    why = "its issues are off on GitHub"
+            if why == "":
+                continue
+            await agents.stop_repo(name)
+            repos.set_target([target.get(name.lower(), name)], False)
+            repos.set_prioritized([name], False)
+            if name.lower() in history:
+                print(f"[repos] {name} went to Removed: {why}.")
+                repos.set_removed([name], True)
+            else:
+                print(f"[repos] {name} left the list: {why}.")
+                gone.append(name)
+                # Explore keeps it as checked, so no run finds it and adds it again (mastra-ai/mastra: added and taken
+                # off 11 times in two days, a look and a newcomer read each time).
+                explore.checked[name.lower()] = {"at": datetime.now(UTC).isoformat(), "reason": why}
+                explore.save_checked()
+        if gone:
+            repos.set_removed(gone, False)
+            repos.remove(gone)
+            auto_remove_issues()
         await asyncio.sleep(SIGNALS_CHECK_SECONDS)
