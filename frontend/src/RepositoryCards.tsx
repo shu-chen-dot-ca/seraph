@@ -11,7 +11,7 @@ bottom that scrolls on its own (on a narrow window the columns keep their width 
 - Target: repos you hunt, to become a contributor there (an NVIDIA one, say), added from Catalog (Add to Target, the
   Repos list's target, with when each went there). Remove from Target takes one back to Catalog; besides, one leaves by
   its PRs: once one of yours is merged there it is in Contributed, and once one is closed without a merge after it went
-  there it is rejected: back in Catalog. Add to Target there puts it back. By stars.
+  there it is rejected: back in Catalog. Not by one you closed yourself (a duplicate, Close all: closed_by). Add to Target there puts it back. By stars.
 - Catalog: the rest. The ones with an open PR of yours first, then the others, each by stars.
 - Removed: the ones you deleted that have pull requests of yours (the Repos list's removed), the ones with pull
   requests of yours that are against us (no AI, archived, issues off: backend/repos_api.py keep_signals; one with none
@@ -269,7 +269,7 @@ export default function RepositoryCards(props: { state: string; onState: (state:
   }, [automation]);
 
   // Your pull requests in each repo, by its name in lower case: merged, closed without a merge (and when the last one
-  // of those closed), and open.
+  // of those closed that you didn't close yourself: a duplicate you closed, or Close all, is no rejection), and open.
   const merged: Record<string, number> = {};
   const closed: Record<string, number> = {};
   const lastClosed: Record<string, string> = {};
@@ -281,7 +281,7 @@ export default function RepositoryCards(props: { state: string; onState: (state:
     }
     if (pr.relation === "author" && pr.state === "closed") {
       closed[key] = (closed[key] ?? 0) + 1;
-      if (pr.closed_at !== null && pr.closed_at > (lastClosed[key] ?? "")) {
+      if (pr.closed_at !== null && pr.closed_by !== pr.author && pr.closed_at > (lastClosed[key] ?? "")) {
         lastClosed[key] = pr.closed_at;
       }
     }

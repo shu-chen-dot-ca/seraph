@@ -229,6 +229,7 @@ export type TrackedPR = {
   updated_at: string;
   closed_at: string | null;
   merged_by: string | null;
+  closed_by?: string | null; // who closed it without a merge (none on ones read before it was kept)
   labels: string[];
   checks: "waiting" | "running" | "passed" | "failed" | "none"; // waiting: GitHub Actions waits for a maintainer to approve
   waiting_runs: number;
