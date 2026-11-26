@@ -277,6 +277,27 @@ GUIDE_LINK_WORDS = [
     "ai policy", "ai-policy", "ai_policy", "agent policy", "agent-policy", "agent_policy", "llm usage", "llm-usage", "llm_usage",
 ]
 GUIDE_PAGES = 5
+# Projects whose PRs a review bot rates by a public rubric, and the rating ours must reach: below it their maintainers
+# don't look (11-26: openclaw sorts its queue by ClawSweeper's rating). contributing_guide gives the rubric first, with
+# the bar, to the agent fixing the issue, the reviewer and the one following up the PR.
+RATING_RUBRICS = {
+    "openclaw/openclaw": {
+        "bot": "ClawSweeper",
+        "url": "https://raw.githubusercontent.com/openclaw/clawsweeper/main/prompts/review-item-pr.md",
+        "bar": (
+            "ClawSweeper reviews every PR here with the rubric below and rates it out of 6 for overall readiness, proof "
+            "confidence and patch quality, with a label: S challenger crab (6), A diamond lobster (5), B platinum hermit "
+            "(4), C gold shrimp (3), D silver shellfish (2), F unranked krab (1). Maintainers look at B and above, so a PR "
+            "of ours must reach B overall or better. From the rubric: a partial fix of its issue (Fix scope: Partial) is "
+            "capped at C whatever else; harness, replay or unit-only proof rarely beats C, and missing proof is F; proof "
+            "through the shipped entry point (the real openclaw CLI or a Gateway turn) with real media (screenshots of that "
+            "run) rates highest; changes to config loading, defaults, stored data, migrations, Doctor or a protocol need an "
+            "upgrade run from the latest stable release with settings and data intact; low-value tests lower patch quality; "
+            "A needs shipped-entry-point proof, no findings and no low-value tests. After its review, its Before merge, "
+            "Rank-up moves and Proof guidance are the to-do list, then `@clawsweeper re-review` once all of it is on the PR."
+        ),
+    },
+}
 GUIDE_CHARS = 30_000
 GUIDE_TOTAL_CHARS = 120_000
 GUIDE_PART_CHARS = 40_000
@@ -2668,6 +2689,16 @@ class WorkTools:
                 text = re.sub(r"[ \t\r\f\v]+", " ", text)
                 text = re.sub(r"\n\s*\n+", "\n\n", text).strip()
             documents.append((f"{url} (web page)", text))
+        # A project whose PRs a review bot rates: its rubric and the bar first (RATING_RUBRICS).
+        rubric = RATING_RUBRICS.get(name.lower())
+        if rubric is not None:
+            title = f"How {rubric['bot']} rates every PR here, and the rating ours must reach ({rubric['url']})"
+            try:
+                response = await asyncio.to_thread(httpx.get, rubric["url"], follow_redirects=True, timeout=20)
+                response.raise_for_status()
+                documents.insert(0, (title, rubric["bar"] + "\n\nThe rubric:\n\n" + response.text))
+            except httpx.HTTPError as error:
+                documents.insert(0, (title, rubric["bar"] + f"\n\nThe rubric couldn't be read now ({error}): read it in the VM, curl -s {rubric['url']}."))
 
         if not documents and not folder_rules:
             self.guides_read.add(name.lower())
