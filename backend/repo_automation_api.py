@@ -247,7 +247,16 @@ async def act_on_drafts() -> None:
             merged[pr["repo"].lower()] = merged.get(pr["repo"].lower(), 0) + 1
 
     total_open = sum(open_prs.values())
+    status_of_job = {job["id"]: job["status"] for job in all_jobs}
     for draft in inbox.pending():
+        # A draft of a job that ended never goes: its agent is through with it, or it was stopped (reticle#2467 and
+        # #2468 went out on 11-25 for jobs cancelled on 11-19; others waited for days).
+        if status_of_job.get(draft["job"]) in ["done", "cancelled"]:
+            try:
+                inbox.decide(draft["id"], "rejected", f"Withdrawn: {draft['job']} is {status_of_job[draft['job']]}")
+            except (KeyError, ValueError):
+                pass
+            continue
         if draft["repo"] is None:
             continue
         rules = by_name.get(draft["repo"].lower(), DEFAULTS)
