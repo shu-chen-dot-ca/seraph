@@ -319,6 +319,11 @@ async def act_on_drafts() -> None:
 
 # When Add issues last read each repo's open issues, by name (only in memory: a restart reads them all again).
 read_at = {}
+# When Add issues last finished a repo's scan, by name in lower case (ADDED_FILE's "scanned", kept): the Repositories
+# page shows a scanned repo's issues worth doing, 0 too (backend/app.py ready).
+SCANNED = {}
+if ADDED_FILE.is_file():
+    SCANNED = json.loads(ADDED_FILE.read_text()).get("scanned", {})
 
 
 async def keep_adding() -> None:
@@ -588,7 +593,8 @@ async def add_issues() -> None:
         added.extend(new)
         added_set.update(new)
         listed.update(new)
-        ADDED_FILE.write_text(json.dumps({"added": added}, indent=2))
+        SCANNED[name.lower()] = datetime.now(UTC).isoformat()
+        ADDED_FILE.write_text(json.dumps({"added": added, "scanned": SCANNED}, indent=2))
 
     # SCAN_AT_ONCE repos at the same time, in the order above.
     for start in range(0, len(due), SCAN_AT_ONCE):

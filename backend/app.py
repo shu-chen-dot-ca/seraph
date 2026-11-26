@@ -51,7 +51,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocketDisconnect, WebSocketDisconnected
 
 from backend import agents_api, artifacts_api, automation_api, errors_api, github_account_api, github_api, images_api, inbox_api, issues_api, problem_fixes_api, repo_automation_api, repos_api, secrets_api, updates_api, vms_api
-from backend.shared import agents, crashes, explore, image_agents, images, inbox, issue_tags, jobs, pr_tracking, problem_fixes, problems, repo_signals, repos, token_usage, updates, vms
+from backend.shared import agents, crashes, explore, image_agents, images, inbox, issue_tags, issues, jobs, pr_tracking, problem_fixes, problems, repo_signals, repos, token_usage, updates, vms
 from github_searcher import claude_judge
 from github_searcher.claude_models import MODELS
 from github_searcher.token_balancer import BALANCER
@@ -226,13 +226,31 @@ TEXTS = {}
 
 def topic_data(topic: str):
     """One topic of the live feed as the pages get it."""
-    # The Repositories cards: the list, and which are archived, removed, prioritized, target or restored, and how many
-    # contributors each has (from its signals, by name in lower case; None when not known yet or GitHub won't count).
+    # The Repositories cards: the list, and which are archived, removed, prioritized, target or restored, how many
+    # contributors each has (from its signals, by name in lower case; None when not known yet or GitHub won't count),
+    # and how many issues worth doing each has waiting (ready, by name in lower case: its open issues on the Issues
+    # board's Catalog, not held, likely to be merged and nobody on them, issue_tags.py; agents take them from there; 0
+    # for one scanned with none, nothing for one Add issues never scanned: repo_automation_api.py SCANNED).
     if topic == "repos":
         signals = repo_signals.all()
         contributors = {}
         for item in repos.items():
             contributors[item["full_name"].lower()] = (signals.get(item["full_name"]) or {}).get("contributors_total")
+        tags = issue_tags.all()
+        board = issues.board()
+        state = {item["id"]: item["state"] for item in issues.items()}
+        ready = {}
+        for issue_id in board["catalog"]:
+            tag = tags.get(issue_id)
+            if issue_id not in state or state[issue_id] == "CLOSED" or issue_id in board["held"] or tag is None:
+                continue
+            if tag.get("merge") != "likely" or tag.get("status") != "free":
+                continue
+            repo = issue_id.split("#")[0].lower()
+            ready[repo] = ready.get(repo, 0) + 1
+        # A repo Add issues scanned has its count, 0 too; one never scanned has none.
+        for repo in repo_automation_api.SCANNED:
+            ready.setdefault(repo, 0)
         return {
             "items": repos.items(),
             "can_undo": repos.can_undo(),
@@ -243,6 +261,7 @@ def topic_data(topic: str):
             "target": repos.target(),
             "restored": repos.restored(),
             "contributors": contributors,
+            "ready": ready,
         }
     # Jobs without what no page shows (their evidence and timeline: half the topic), and a finished one with only the
     # start of its notes and no test runs: the topic goes out again on every change, and the jobs only grow.
@@ -315,7 +334,7 @@ async def feed(websocket: WebSocket) -> None:
         # changes too; not on every usage sample though: only the number of VMs and their images matter.
         vm_images = [(record.name, record.image_fingerprint) for record in vms.list()]
         versions = {
-            "repos": (repos.version, repo_signals.version),
+            "repos": (repos.version, repo_signals.version, issues.version, issue_tags.version, len(repo_automation_api.SCANNED)),
             "jobs": jobs.version,
             "inbox": inbox.version,
             "prs": pr_tracking.version,
