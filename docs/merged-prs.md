@@ -5,7 +5,7 @@
 | Repository 🚀 | Stars 🌟 | Merged PR | Lines changed |
 | --- | --- | --- | --- |
 | [openclaw/openclaw](https://github.com/openclaw/openclaw) 🚀 | 395,369 🌟 | [#204881](https://github.com/openclaw/openclaw/pull/204881)<br>[#204900](https://github.com/openclaw/openclaw/pull/204900) | $`\color{green}\textsf{+59}`$ $`\color{red}\textsf{-22}`$<br>$`\color{green}\textsf{+52}`$ $`\color{red}\textsf{-2}`$ |
-| [agentscope-ai/QwenPaw](https://github.com/agentscope-ai/QwenPaw) 🚀 | 38,279 🌟 | [#8704](https://github.com/agentscope-ai/QwenPaw/pull/8704) | $`\color{green}\textsf{+1}`$ $`\color{red}\textsf{-1}`$ |
+| [agentscope-ai/QwenPaw](https://github.com/agentscope-ai/QwenPaw) 🚀 | 38,280 🌟 | [#8704](https://github.com/agentscope-ai/QwenPaw/pull/8704) | $`\color{green}\textsf{+1}`$ $`\color{red}\textsf{-1}`$ |
 | [agentscope-ai/agentscope](https://github.com/agentscope-ai/agentscope) 🚀 | 36,851 🌟 | [#4102](https://github.com/agentscope-ai/agentscope/pull/4102) | $`\color{green}\textsf{+137}`$ $`\color{red}\textsf{-2}`$ |
 | [kestra-io/kestra](https://github.com/kestra-io/kestra) 🚀 | 30,385 🌟 | [#22703](https://github.com/kestra-io/kestra/pull/22703)<br>[#22558](https://github.com/kestra-io/kestra/pull/22558)<br>[#22428](https://github.com/kestra-io/kestra/pull/22428) | $`\color{green}\textsf{+27}`$ $`\color{red}\textsf{-2}`$<br>$`\color{green}\textsf{+9}`$ $`\color{red}\textsf{-15}`$<br>$`\color{green}\textsf{+98}`$ $`\color{red}\textsf{-1}`$ |
 | [celery/celery](https://github.com/celery/celery) 🚀 | 29,281 🌟 | [#11166](https://github.com/celery/celery/pull/11166) | $`\color{green}\textsf{+37}`$ $`\color{red}\textsf{-0}`$ |
