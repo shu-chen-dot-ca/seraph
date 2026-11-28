@@ -1,6 +1,6 @@
 # Merged pull requests
 
-[Seraph](https://github.com/shu-chen-dot-ca/Seraph) has merged [165 PRs](https://github.com/search?q=is%3Apr+is%3Amerged+is%3Apublic+author%3Ashu-chen-dot-ca+-user%3Ashu-chen-dot-ca&type=pullrequests) across 46 repositories with a merge rate of 87% ([70 open](https://github.com/search?q=is%3Apr+is%3Aopen+is%3Apublic+author%3Ashu-chen-dot-ca+-user%3Ashu-chen-dot-ca&type=pullrequests), [25 closed](https://github.com/search?q=is%3Apr+is%3Aclosed+is%3Aunmerged+is%3Apublic+author%3Ashu-chen-dot-ca+-user%3Ashu-chen-dot-ca&type=pullrequests))
+[Seraph](https://github.com/shu-chen-dot-ca/Seraph) has merged [165 PRs](https://github.com/search?q=is%3Apr+is%3Amerged+is%3Apublic+author%3Ashu-chen-dot-ca+-user%3Ashu-chen-dot-ca&type=pullrequests) across 46 repositories with a merge rate of 87% ([71 open](https://github.com/search?q=is%3Apr+is%3Aopen+is%3Apublic+author%3Ashu-chen-dot-ca+-user%3Ashu-chen-dot-ca&type=pullrequests), [25 closed](https://github.com/search?q=is%3Apr+is%3Aclosed+is%3Aunmerged+is%3Apublic+author%3Ashu-chen-dot-ca+-user%3Ashu-chen-dot-ca&type=pullrequests))
 
 | Repository 🚀 | Stars 🌟 | Merged PR | Lines changed |
 | --- | --- | --- | --- |
